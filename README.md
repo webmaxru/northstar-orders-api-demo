@@ -23,6 +23,7 @@ curl -X POST http://localhost:3000/orders \
 [`WI-1842`](docs/work-items/WI-1842.md) asks the team to prevent duplicate orders when clients retry after a timeout. The baseline deliberately has no idempotency.
 
 Read [`docs/DEMO-RUNBOOK.md`](docs/DEMO-RUNBOOK.md) before presenting.
+See [`docs/VALIDATION-REPORT.md`](docs/VALIDATION-REPORT.md) for the exercised branch matrix, GitHub Actions evidence, and Copilot CLI usage comparison.
 
 ## Safety
 
@@ -31,4 +32,3 @@ Read [`docs/DEMO-RUNBOOK.md`](docs/DEMO-RUNBOOK.md) before presenting.
 - `main` is a stable baseline tagged `demo-baseline`.
 - Rehearse in disposable Git worktrees.
 - Reference branches are never merged into `main`.
-
