@@ -10,7 +10,7 @@ const head = git("rev-parse", "HEAD");
 let baseline = "not-created";
 
 try {
-  baseline = git("rev-parse", "demo-baseline");
+  baseline = git("rev-parse", "demo-baseline^{commit}");
 } catch {
   // The tag is created after the baseline commit.
 }
@@ -22,4 +22,3 @@ console.log(JSON.stringify({
   baseline,
   atBaseline: baseline !== "not-created" && head === baseline,
 }, null, 2));
-
