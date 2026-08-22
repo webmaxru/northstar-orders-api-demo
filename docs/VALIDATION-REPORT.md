@@ -70,6 +70,7 @@ The result validates the demo method: measure the actual workflow instead of pro
 5. Configured CodeQL to retain SARIF evidence without requiring a private-repository code-scanning license.
 6. Added HTTP and persistence-privacy acceptance coverage.
 7. Updated GitHub Actions to current Node 24-based major versions and CodeQL v4.
+8. Added a SARIF findings gate so CodeQL alerts fail the workflow even when the private-repository Code Scanning UI is unavailable.
 
 ## Initial-state invariant
 
