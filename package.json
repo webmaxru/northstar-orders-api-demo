@@ -1,0 +1,48 @@
+{
+  "name": "northstar-orders-api-demo",
+  "version": "1.0.0",
+  "description": "Fictional API used to demonstrate governed AI-assisted delivery workflows.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run test:unit",
+    "test:unit": "vitest run tests/unit",
+    "test:unit:ci": "node -e \"require('node:fs').mkdirSync('artifacts',{recursive:true})\" && vitest run tests/unit --reporter=default --reporter=junit --outputFile.junit=artifacts/unit-junit.xml",
+    "test:acceptance": "vitest run tests/acceptance --passWithNoTests",
+    "test:acceptance:ci": "node -e \"require('node:fs').mkdirSync('artifacts',{recursive:true})\" && vitest run tests/acceptance --passWithNoTests --reporter=default --reporter=junit --outputFile.junit=artifacts/acceptance-junit.xml",
+    "validate": "npm run lint && npm run typecheck && npm run test:unit",
+    "validate:all": "npm run validate && npm run test:acceptance",
+    "demo:worktree": "node scripts/demo-worktree.mjs",
+    "demo:state": "node scripts/demo-state.mjs"
+  },
+  "keywords": [
+    "github-copilot",
+    "agentic-development",
+    "idempotency",
+    "demo"
+  ],
+  "author": "Maxim Salnikov",
+  "license": "MIT",
+  "dependencies": {
+    "fastify": "5.12.0",
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.2.0",
+    "@types/pg": "^8.21.0",
+    "eslint": "^10.8.1",
+    "tsx": "^4.23.12",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.67.0",
+    "vitest": "4.1.6"
+  }
+}

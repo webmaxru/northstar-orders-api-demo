@@ -1,0 +1,9 @@
+node_modules/
+dist/
+artifacts/
+coverage/
+.env
+.demo-worktrees/
+*.log
+.DS_Store
+
