@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { buildApp } from "../../src/app.js";
 import { IdempotencyConflictError } from "../../src/domain/order.js";
 import {
   createIdempotencyHarness,
@@ -94,5 +95,40 @@ describe.sequential("WI-1842 idempotency acceptance", () => {
     ).rejects.toBeInstanceOf(IdempotencyConflictError);
 
     expect(harness.metrics.snapshot()).toEqual({ replays: 1, conflicts: 1 });
+  });
+
+  it("exposes replay and conflict behavior through two HTTP app instances", async () => {
+    const firstApp = buildApp(harness.services[0]);
+    const secondApp = buildApp(harness.services[1]);
+
+    try {
+      const first = await firstApp.inject({
+        method: "POST",
+        url: "/orders",
+        headers: { "idempotency-key": "http-cross-instance-key" },
+        payload: { sku: "WIDGET-1", quantity: 4 },
+      });
+      const replay = await secondApp.inject({
+        method: "POST",
+        url: "/orders",
+        headers: { "idempotency-key": "http-cross-instance-key" },
+        payload: { sku: "WIDGET-1", quantity: 4 },
+      });
+      const conflict = await secondApp.inject({
+        method: "POST",
+        url: "/orders",
+        headers: { "idempotency-key": "http-cross-instance-key" },
+        payload: { sku: "WIDGET-2", quantity: 4 },
+      });
+
+      expect(first.statusCode).toBe(201);
+      expect(replay.statusCode).toBe(200);
+      expect(replay.headers["x-idempotent-replay"]).toBe("true");
+      expect(replay.json().id).toBe(first.json().id);
+      expect(conflict.statusCode).toBe(409);
+      expect(await harness.orderCount()).toBe(1);
+    } finally {
+      await Promise.all([firstApp.close(), secondApp.close()]);
+    }
   });
 });
