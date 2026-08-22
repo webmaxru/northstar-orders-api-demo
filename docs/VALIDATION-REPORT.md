@@ -48,6 +48,8 @@ All checks passed:
 
 The PR was closed without merging, and its temporary validation branch was deleted.
 
+The repository is private under a personal account. GitHub reports that server-enforced branch protection and the private-repository code-scanning UI require GitHub Pro or public visibility. The repository remains private. The workflows still run dependency audit and CodeQL analysis, preserve SARIF as an artifact, and expose their results on the pull request.
+
 ## Copilot CLI usage experiment
 
 Both runs used Auto, modified zero files, and produced a correct explanation. One observation is not a benchmark.
