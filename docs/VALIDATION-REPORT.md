@@ -67,8 +67,8 @@ The result validates the demo method: measure the actual workflow instead of pro
 4. Replaced private-repository dependency review with `npm audit --audit-level=high`.
 5. Configured CodeQL to retain SARIF evidence without requiring a private-repository code-scanning license.
 6. Added HTTP and persistence-privacy acceptance coverage.
+7. Updated GitHub Actions to current Node 24-based major versions and CodeQL v4.
 
 ## Initial-state invariant
 
 `main` contains the baseline API and documentation but no idempotency implementation. The `demo-baseline` tag points to the current `main` commit. Rehearsals run in disposable worktrees.
-
