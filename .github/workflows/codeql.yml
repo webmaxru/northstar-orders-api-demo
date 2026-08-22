@@ -23,6 +23,8 @@ jobs:
           upload: never
           upload-database: false
           output: artifacts/codeql
+      - name: Enforce SARIF findings gate
+        run: node scripts/check-sarif.mjs artifacts/codeql
       - uses: actions/upload-artifact@v7
         if: always()
         with:
