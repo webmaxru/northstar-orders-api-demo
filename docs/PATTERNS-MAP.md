@@ -113,7 +113,7 @@ evidence is a failure, not a gap a reviewer has to notice.
 | `docs/adr/007-durable-idempotency.md` | Bounded waits and controlled errors in the product code itself. |
 
 ```bash
-npm run repair:check artifacts/attempts.json
+npm run repair:check docs/fixtures/attempts.sample.json
 ```
 
 A permission error classifies as `policy` and escalates on the first
@@ -140,10 +140,24 @@ suite needs a database.
 
 ## Full local check
 
+Identical on PowerShell, bash, and zsh. The acceptance suite defaults to the
+`docker compose` database, so no environment variable prefix is needed.
+
 ```bash
 npm ci
 npm run db:up
-npm run validate                 # lint, typecheck, 13 unit tests
-DATABASE_URL=postgres://postgres:postgres@127.0.0.1:55432/northstar npm run test:acceptance
-npm run evidence
+npm run validate            # lint, typecheck, 25 unit tests
+npm run test:acceptance     # 8 tests against PostgreSQL
+npm run evidence            # decision=ready_for_review, criteriaProven=6/6
+```
+
+To point the suite somewhere else, set `DATABASE_URL` first; an explicit value
+always wins over the default.
+
+```powershell
+$env:DATABASE_URL = "postgres://user:pass@host:5432/db"   # PowerShell
+```
+
+```bash
+export DATABASE_URL="postgres://user:pass@host:5432/db"   # bash / zsh
 ```

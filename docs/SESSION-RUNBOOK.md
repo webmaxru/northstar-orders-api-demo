@@ -35,16 +35,25 @@ nothing depends on model latency, authentication, or a live agent run.
 
 ### Pre-flight
 
+Every command below is identical on PowerShell, bash, and zsh.
+
 ```bash
 git switch demo/engineering-system
 npm ci
 npm run db:up
-npm run validate                                                  # 25 unit tests
-DATABASE_URL=postgres://postgres:postgres@127.0.0.1:55432/northstar npm run test:acceptance
-npm run test:unit:ci && npm run test:acceptance:ci && npm run evidence
+npm run validate            # 25 unit tests
+npm run test:acceptance     # 8 tests against PostgreSQL
+npm run test:unit:ci
+npm run test:acceptance:ci
+npm run evidence
 ```
 
 Expected final line: `decision=ready_for_review ... criteriaProven=6/6`.
+
+The acceptance suite defaults to the `docker compose` database on port 55432,
+so there is no environment variable to remember. To override it, set
+`DATABASE_URL` before running: `$env:DATABASE_URL = "..."` in PowerShell,
+`export DATABASE_URL="..."` in bash.
 
 Also have open, in order, as editor tabs:
 
@@ -144,8 +153,13 @@ echo '{"toolName":"edit","toolArgs":{"path":"src/../.github/workflows/ci.yml"}}'
 Slide 19 has the best optional live beat in the deck. If you have 30 spare
 seconds and want the room to feel the gate:
 
+```powershell
+Move-Item artifacts/acceptance-junit.xml $env:TEMP/acceptance-junit.xml
+npm run evidence --silent; "exit=$LASTEXITCODE"
+```
+
 ```bash
-mv artifacts/acceptance-junit.xml /tmp/ && npm run evidence --silent; echo "exit=$?"
+mv artifacts/acceptance-junit.xml /tmp/ ; npm run evidence --silent ; echo "exit=$?"
 ```
 
 ```
@@ -158,8 +172,9 @@ All six criteria go unproven, because all six are proven by the acceptance
 suite. That is the honest result and it makes the point better than a partial
 one: a green unit suite proves none of what WI-1842 actually asked for.
 
-Restore it with `mv /tmp/acceptance-junit.xml artifacts/`. Rehearse this; do
-not improvise file moves on stage.
+Restore it with `Move-Item $env:TEMP/acceptance-junit.xml artifacts/` on
+PowerShell, or `mv /tmp/acceptance-junit.xml artifacts/` on bash. Rehearse
+this; do not improvise file moves on stage.
 
 ### Act 5 - Operations (slides 23-27, 8:00)
 
@@ -174,10 +189,10 @@ not improvise file moves on stage.
 Slide 25, run live - deterministic and offline:
 
 ```bash
-npm run repair:check artifacts/attempts.json
+npm run repair:check docs/fixtures/attempts.sample.json
 ```
 
-The two logged attempts differ only in path and duration:
+The two logged attempts differ only in path, duration, and run id:
 
 ```
 "decision": "escalate",
@@ -187,17 +202,7 @@ The two logged attempts differ only in path and duration:
 Then make the sharper point: a permission failure escalates on the *first*
 occurrence, because a permission problem is not a prompting problem.
 
-Recreate `artifacts/attempts.json` during pre-flight - `artifacts/` is
-gitignored:
-
-```bash
-mkdir -p artifacts && cat > artifacts/attempts.json <<'JSON'
-[
-  { "check": "acceptance", "message": "AssertionError: expected 2 to be 1 // creates exactly one order under concurrent cross-instance retries at /home/runner/tests/x.ts in 812ms" },
-  { "check": "acceptance", "message": "AssertionError: expected 2 to be 1 // creates exactly one order under concurrent cross-instance retries at /tmp/b/tests/x.ts in 1204ms" }
-]
-JSON
-```
+The sample is committed, so there is nothing to prepare for this one.
 
 ### Close (slides 28-29, 3:00)
 
@@ -241,6 +246,8 @@ Rules for the live block:
 
 ```bash
 npm run db:down
-git switch demo/engineering-system && git status --short
-git switch main && npm run demo:state      # main must stay at tag demo-baseline
+git switch demo/engineering-system
+git status --short
+git switch main
+npm run demo:state          # main must stay at tag demo-baseline
 ```

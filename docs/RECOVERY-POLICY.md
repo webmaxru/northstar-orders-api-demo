@@ -41,18 +41,12 @@ problem with a better prompt.
 ## Try it
 
 ```bash
-cat > artifacts/attempts.json <<'JSON'
-[
-  { "check": "acceptance", "message": "AssertionError: expected 2 to be 1 // creates exactly one order under concurrent cross-instance retries at /home/runner/tests/x.ts in 812ms" },
-  { "check": "acceptance", "message": "AssertionError: expected 2 to be 1 // creates exactly one order under concurrent cross-instance retries at /tmp/b/tests/x.ts in 1204ms" }
-]
-JSON
-
-node scripts/repair-budget.mjs artifacts/attempts.json
+node scripts/repair-budget.mjs docs/fixtures/attempts.sample.json
 ```
 
-The two entries differ in path and duration and are still recognized as one
-failure, so the run escalates instead of spending a third attempt:
+The sample holds two attempts that differ only in path, duration, and run id.
+They are still recognized as one failure, so the run escalates instead of
+spending a third attempt:
 
 ```
 "decision": "escalate",
