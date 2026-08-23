@@ -116,7 +116,7 @@ commentary needed beyond "this is the plausible wrong answer".
 | 14 | 1:45 | `.github/agents/plan.agent.md` and `implement.agent.md` side by side | 40s. Diff only the `tools:` line. Same repo, same task, different authority. |
 | 15 | 1:45 | All three agent files | 30s. Planner read-only, implementer can edit and run, reviewer read-only again. Say clearly: these are workflow roles, not GitHub accounts. |
 | 16 | 2:00 | **Terminal.** See below. | 60s. The strongest moment in the talk. |
-| 17 | 1:30 | PR #3 checks tab | 25s. Same required checks regardless of author. |
+| 17 | 1:30 | PR #3 checks tab | 25s. Same required checks regardless of author. PR #3 says `Closes #4`, which is how the Acceptance workflow finds the contract. |
 
 Slide 16, run live - it is deterministic and offline. Keep it on one line; a
 trailing `\` is a bash line continuation and PowerShell does not treat it as
@@ -148,7 +148,7 @@ echo '{"toolName":"edit","toolArgs":{"path":"src/../.github/workflows/ci.yml"}}'
 | Slide | Timing | Show | Duration |
 | --- | --- | --- | --- |
 | 18 | 1:45 | `.github/workflows/` file list + `.github/CODEOWNERS` | 30s. Four independent gates, listed below. Land the point on CodeQL: `check-sarif.mjs` makes findings *fail the run* instead of only being uploaded. |
-| 19 | 1:45 | `.github/pull_request_template.md`, then `artifacts/report.json` | 45s. Template first (Objective, Plan, Evidence, Risks, Rollback), then the machine-readable index. |
+| 19 | 1:45 | `.github/pull_request_template.md`, then `artifacts/report.json` | 45s. Template first (Objective, Plan, Evidence, Risks, Rollback), then the machine-readable index. Point at `contractSource`: it names **issue #4** and links to it, so the grading can be traced back to the contract that defined it. |
 | 20 | 2:00 | `.github/agents/risk-reviewer.agent.md` | 35s. It cannot edit and cannot run commands, so it cannot be the reason a fix looks verified. |
 | 21 | 1:30 | PR #3 artifacts list | 25s. `execution-report`, `unit-test-evidence`, `acceptance-test-evidence`, `codeql-sarif-evidence`. Versioned handoffs, not chat history. |
 | 22 | 1:45 | `docs/RECOVERY-POLICY.md` | 30s. The table of layers. |
