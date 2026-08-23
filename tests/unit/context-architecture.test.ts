@@ -7,12 +7,11 @@ import { describe, expect, it } from "vitest";
  * every future task starts by reading something irrelevant to it - and does so
  * silently. See docs/CONTEXT-ARCHITECTURE.md.
  *
- * Task identity belongs in Layer 2: docs/work-items/<ID>.* and the prompt file
- * that invokes a task, both of which are deliberately excluded here.
+ * Task identity belongs in the issue, and in the seed file plus prompt that
+ * recreate it, all of which are deliberately excluded here.
  */
 const DURABLE_CONTEXT = [
   "AGENTS.md",
-  ".github/copilot-instructions.md",
   ...globSync(".github/agents/*.agent.md"),
   ...globSync(".github/instructions/*.instructions.md"),
 ];
@@ -21,7 +20,7 @@ const WORK_ITEM_PATTERN = /\bWI-\d+\b/;
 
 describe("durable context is task-agnostic", () => {
   it("covers every durable context file", () => {
-    expect(DURABLE_CONTEXT.length).toBeGreaterThanOrEqual(7);
+    expect(DURABLE_CONTEXT.length).toBeGreaterThanOrEqual(6);
   });
 
   it.each(DURABLE_CONTEXT)("%s names no work item", (file) => {
@@ -45,5 +44,28 @@ describe("durable context is task-agnostic", () => {
         .join("\n");
       expect(WORK_ITEM_PATTERN.test(codeOnly), `${script} hardcodes a work item`).toBe(false);
     }
+  });
+});
+
+/**
+ * AGENTS.md is the only hand-authored durable file. The Copilot-specific copy
+ * exists because GitHub's support matrix does not yet read AGENTS.md on every
+ * surface, so it is generated rather than maintained.
+ */
+describe("the harness-specific instructions file is generated, not authored", () => {
+  const generated = readFileSync(".github/copilot-instructions.md", "utf8").replace(/\r\n?/g, "\n");
+
+  it("is marked as generated", () => {
+    expect(generated).toMatch(/GENERATED FILE - DO NOT EDIT/);
+    expect(generated).toMatch(/npm run instructions:sync/);
+  });
+
+  it("contains exactly the AGENTS.md content", () => {
+    const source = readFileSync("AGENTS.md", "utf8").replace(/\r\n?/g, "\n").trimEnd();
+    expect(generated.endsWith(`${source}\n`)).toBe(true);
+  });
+
+  it("cites the support matrix so the shim can be retired deliberately", () => {
+    expect(generated).toMatch(/custom-instructions-support/);
   });
 });

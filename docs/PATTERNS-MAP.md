@@ -39,7 +39,7 @@ script; they come from the contract, so the script outlives the task.
 
 | Artifact | What it shows |
 | --- | --- |
-| `.github/copilot-instructions.md` | Repository-wide entry point: read AGENTS.md, the assigned work item, architecture, and the ADRs it cites. Names no task. |
+| `.github/copilot-instructions.md` | Generated from `AGENTS.md` by `npm run instructions:sync`, because [not every Copilot surface reads AGENTS.md yet](https://docs.github.com/en/copilot/reference/custom-instructions-support). One authored file, two delivery paths. |
 | `docs/CONTEXT-ARCHITECTURE.md` | The rule that keeps the three layers apart: durable context must not name a task. |
 | `AGENTS.md` | Durable invariants that outlive every work item. Names no task - see `docs/CONTEXT-ARCHITECTURE.md`. |
 | `docs/architecture.md` | The constraint that decides the design: multiple stateless instances, PostgreSQL is the durability boundary. |

@@ -4,7 +4,7 @@ Three layers, with one rule between them:
 
 > **Durable context must not name a task.**
 
-`AGENTS.md`, `.github/copilot-instructions.md`, `.github/agents/*.agent.md`, and
+`AGENTS.md`, `.github/agents/*.agent.md`, and
 `.github/instructions/*.instructions.md` are loaded for *every* task in this
 repository. If any of them says "read WI-1842", then every future task starts by
 reading a work item that has nothing to do with it. The instruction is wrong for
@@ -18,8 +18,8 @@ Loaded for every task. Task-agnostic by construction.
 
 | File | Holds |
 | --- | --- |
-| `.github/copilot-instructions.md` | How to start *any* task in this repository |
-| `AGENTS.md` | Invariants, capability boundary model, required evidence bundle |
+| `AGENTS.md` | The only hand-authored durable file: how to start any task, invariants, capability boundary model, required evidence bundle |
+| `.github/copilot-instructions.md` | **Generated** from `AGENTS.md`. Some Copilot surfaces do not read `AGENTS.md` yet, so a shim must exist; generating it prevents a second source of truth. |
 | `docs/architecture.md` | Runtime, delivery, and privacy boundaries |
 | `docs/adr/*.md` | Accepted architecture decisions |
 | `.github/instructions/*.instructions.md` | Path-scoped rules, via `applyTo` |
