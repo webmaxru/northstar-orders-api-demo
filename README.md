@@ -28,6 +28,8 @@ Read [`docs/DEMO-RUNBOOK.md`](docs/DEMO-RUNBOOK.md) before presenting.
 
 [`docs/PATTERNS-MAP.md`](docs/PATTERNS-MAP.md) maps each pattern from **From agents to engineering systems** to the file and command in this repository that demonstrates it: the task contract, path-scoped context, capability boundaries enforced before tool use, the execution report used as an evidence gate, and a bounded repair policy.
 
+[`docs/SESSION-RUNBOOK.md`](docs/SESSION-RUNBOOK.md) is the slide-by-slide delivery guide: what to put on screen at each slide, for how long, the exact commands with their expected output, and the fallbacks.
+
 ```bash
 npm run hook:check      # pre-tool-use authorization decision from stdin
 npm run evidence        # build artifacts/report.json and gate on missing evidence

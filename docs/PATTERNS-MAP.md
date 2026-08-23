@@ -7,6 +7,9 @@ you can run. Nothing here is a slide-only construct.
 The running example is **WI-1842**: clients retry `POST /orders` after a
 timeout and the API creates a second order.
 
+For delivery - what to show at which slide, for how long, and what to do when
+something fails - see [`docs/SESSION-RUNBOOK.md`](SESSION-RUNBOOK.md).
+
 ## Pattern 1 - Turn intent into an executable contract
 
 | Artifact | What it shows |
