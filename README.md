@@ -24,6 +24,16 @@ curl -X POST http://localhost:3000/orders \
 
 Read [`docs/DEMO-RUNBOOK.md`](docs/DEMO-RUNBOOK.md) before presenting.
 
+## Session artifacts
+
+[`docs/PATTERNS-MAP.md`](docs/PATTERNS-MAP.md) maps each pattern from **From agents to engineering systems** to the file and command in this repository that demonstrates it: the task contract, path-scoped context, capability boundaries enforced before tool use, the execution report used as an evidence gate, and a bounded repair policy.
+
+```bash
+npm run hook:check      # pre-tool-use authorization decision from stdin
+npm run evidence        # build artifacts/report.json and gate on missing evidence
+npm run repair:check    # decide repair or escalate from an attempt log
+```
+
 ## Safety
 
 - No customer or production data.

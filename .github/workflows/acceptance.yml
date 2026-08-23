@@ -33,7 +33,18 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run test:unit:ci
       - run: npm run test:acceptance:ci
+      - name: Build execution report
+        if: always()
+        run: node scripts/build-execution-report.mjs
+      - name: Upload execution report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: execution-report
+          path: artifacts/report.json
+          if-no-files-found: error
       - uses: actions/upload-artifact@v7
         if: always()
         with:

@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {
+        "type": "command",
+        "bash": "./scripts/authorize-tool.sh",
+        "timeoutSec": 5
+      }
+    ]
+  }
+}
