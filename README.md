@@ -30,6 +30,8 @@ Read [`docs/DEMO-RUNBOOK.md`](docs/DEMO-RUNBOOK.md) before presenting.
 
 [`docs/END-TO-END-FLOW.md`](docs/END-TO-END-FLOW.md) traces the whole workflow from running the plan prompt to a mergeable pull request: which script creates or checks which file, when, and why that ordering is forced.
 
+[`docs/LOCAL-VSCODE-FLOW.md`](docs/LOCAL-VSCODE-FLOW.md) is the same flow performed by hand in VS Code, including which parts of the boundary VS Code does and does not enforce.
+
 ```bash
 npm run hook:check      # pre-tool-use authorization decision from stdin
 npm run contract:fetch -- --issue 4    # resolve the contract from its issue

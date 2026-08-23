@@ -5,6 +5,7 @@
       {
         "type": "command",
         "bash": "./scripts/authorize-tool.sh",
+        "powershell": "./scripts/authorize-tool.ps1",
         "timeoutSec": 5
       }
     ]

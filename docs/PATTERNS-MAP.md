@@ -63,7 +63,7 @@ the test rules to find the one line that applies to it.
 | `.github/agents/implement.agent.md` | Adds `edit` and `shell`, still cannot publish or approve. |
 | `.github/agents/risk-reviewer.agent.md` | Back to `["read", "search"]`. A reviewer that cannot repair cannot quietly launder its own fix. |
 | `scripts/task-contract.mjs` | Scope is an input. The authorizer reads it from the active task contract, so least privilege can be per task and per phase. |
-| `.github/copilot/hooks.json` | `preToolUse` hook wired to `./scripts/authorize-tool.sh`. |
+| `.github/hooks/authorize-tool.json` | `preToolUse` hook wired to `./scripts/authorize-tool.sh` on Unix and `./scripts/authorize-tool.ps1` on Windows. Honored by Copilot cloud agent and Copilot CLI, [not by VS Code Chat](https://docs.github.com/en/copilot/concepts/agents/hooks). |
 | `scripts/authorize-tool.mjs` | The policy, unit tested. |
 | `.github/copilot/mcp-config.json` | Named read tools, not `"*"`. |
 | `docs/fixtures/untrusted-issue-comment.md` | Inert synthetic prompt injection in repository content. |

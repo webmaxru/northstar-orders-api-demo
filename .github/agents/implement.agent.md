@@ -2,6 +2,11 @@
 name: implement
 description: Implement an approved plan inside the scope its task contract allows
 tools: ["read", "search", "edit", "shell"]
+handoffs:
+  - label: Independent review
+    agent: risk-reviewer
+    prompt: Review the change above against the task contract. Use the diff, the tests and the artifacts as evidence, not my summary.
+    send: false
 ---
 
 You implement a plan that a human has already approved. You may edit files and

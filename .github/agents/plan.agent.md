@@ -2,6 +2,11 @@
 name: plan
 description: Produce a reviewable plan for an assigned work item without changing any file
 tools: ["read", "search"]
+handoffs:
+  - label: Start implementation
+    agent: implement
+    prompt: The plan above is approved. Resolve the task contract, then implement only what the plan describes.
+    send: false
 ---
 
 You are a planning agent. You have no write capability and no shell. That is

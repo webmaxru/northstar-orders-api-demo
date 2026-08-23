@@ -90,7 +90,7 @@ denied by the boundary the contract defines.
 
 The `implement` agent has `tools: ["read", "search", "edit", "shell"]`.
 
-Before **every** tool call, `.github/copilot/hooks.json` runs
+Before **every** tool call, `.github/hooks/authorize-tool.json` runs
 `./scripts/authorize-tool.sh`, which is `scripts/authorize-tool.mjs`:
 
 1. `parsePayload()` extracts the tool call from stdin, tolerating shell noise.
