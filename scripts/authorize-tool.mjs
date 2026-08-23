@@ -14,8 +14,13 @@
 
 import { pathToFileURL } from "node:url";
 import { Buffer } from "node:buffer";
+import { DEFAULT_SCOPE, loadTaskContract, scopePrefixes } from "./task-contract.mjs";
 
-export const WRITABLE_PATH_PREFIXES = ["src/", "tests/", "migrations/"];
+/**
+ * Repository-wide fallback, used when no task contract is in scope. A task
+ * contract narrows this; nothing widens it.
+ */
+export const WRITABLE_PATH_PREFIXES = scopePrefixes(DEFAULT_SCOPE);
 
 const ALLOWED_COMMANDS = [
   /^npm run lint$/,
@@ -42,12 +47,12 @@ function normalize(filePath) {
   return String(filePath).replace(/\\/g, "/").replace(/^\.\//, "");
 }
 
-function isWritable(filePath) {
+function isWritable(filePath, prefixes) {
   const normalized = normalize(filePath);
   if (normalized.includes("..")) {
     return false;
   }
-  return WRITABLE_PATH_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+  return prefixes.some((prefix) => normalized.startsWith(prefix));
 }
 
 function allow(reason) {
@@ -60,10 +65,15 @@ function deny(reason) {
 
 /**
  * @param {{toolName?: string, toolArgs?: Record<string, unknown>}} call
+ * @param {{scope?: {allowed: string[]}, taskId?: string}} [context]
+ *   Scope comes from the active task contract. Omit it and the repository-wide
+ *   default applies.
  */
-export function evaluateToolCall(call) {
+export function evaluateToolCall(call, context = {}) {
   const toolName = call?.toolName ?? "";
   const args = call?.toolArgs ?? {};
+  const prefixes = scopePrefixes(context.scope ?? DEFAULT_SCOPE);
+  const where = context.taskId ? `the ${context.taskId} scope` : "the approved scope";
 
   if (toolName === "read" || toolName === "search") {
     return allow("read-only tool");
@@ -74,12 +84,10 @@ export function evaluateToolCall(call) {
     if (!target) {
       return deny("write tool call did not name a target path");
     }
-    if (!isWritable(target)) {
-      return deny(
-        `${normalize(target)} is outside the WI-1842 scope (${WRITABLE_PATH_PREFIXES.join(", ")})`,
-      );
+    if (!isWritable(target, prefixes)) {
+      return deny(`${normalize(target)} is outside ${where} (${prefixes.join(", ")})`);
     }
-    return allow(`${normalize(target)} is inside the approved scope`);
+    return allow(`${normalize(target)} is inside ${where}`);
   }
 
   if (toolName === "bash" || toolName === "shell") {
@@ -113,9 +121,18 @@ async function main() {
   const raw = (await readStdin()).trim();
   let decision;
   try {
-    decision = evaluateToolCall(raw ? JSON.parse(raw) : {});
-  } catch {
-    decision = deny("tool call payload was not valid JSON");
+    const taskIndex = process.argv.indexOf("--task");
+    const contract = loadTaskContract(taskIndex === -1 ? undefined : process.argv[taskIndex + 1]);
+    decision = evaluateToolCall(raw ? JSON.parse(raw) : {}, {
+      scope: contract?.scope,
+      taskId: contract?.id,
+    });
+  } catch (error) {
+    decision = deny(
+      error instanceof SyntaxError
+        ? "tool call payload was not valid JSON"
+        : /** @type {Error} */ (error).message,
+    );
   }
   process.stdout.write(`${JSON.stringify(decision, null, 2)}\n`);
 }

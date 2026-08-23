@@ -15,24 +15,26 @@ something fails - see [`docs/SESSION-RUNBOOK.md`](SESSION-RUNBOOK.md).
 | Artifact | What it shows |
 | --- | --- |
 | `docs/work-items/WI-1842.md` | Six acceptance criteria, each independently checkable. Criterion 3 is the one a plausible implementation quietly fails. |
-| `AGENTS.md` | Task contract, capability boundary, required evidence bundle, and engineering constraints in one place. |
+| `docs/work-items/WI-1842.contract.json` | The same contract for machines: allowed scope, prohibited scope, stop conditions, and the evidence that proves each criterion. |
 | `.github/agents/implement.agent.md` | Stop conditions as agent configuration, not as a hope expressed in a prompt. |
 
 The contract is executable because a machine reads it back:
 
 ```bash
-npm run evidence      # maps every acceptance criterion to the test that proves it
+npm run evidence -- --task WI-1842   # maps every criterion to the test that proves it
 ```
 
 `scripts/build-execution-report.mjs` fails when a criterion has no proof, so
-"done" is a computed value rather than a claim.
+"done" is a computed value rather than a claim. The criteria are not in the
+script; they come from the contract, so the script outlives the task.
 
 ## Pattern 2 - Context is a governed supply chain
 
 | Artifact | What it shows |
 | --- | --- |
-| `.github/copilot-instructions.md` | Repository-wide entry point: read these four files, then plan, then stop. |
-| `AGENTS.md` | Durable invariants that outlive any single prompt. |
+| `.github/copilot-instructions.md` | Repository-wide entry point: read AGENTS.md, the assigned work item, architecture, and the ADRs it cites. Names no task. |
+| `docs/CONTEXT-ARCHITECTURE.md` | The rule that keeps the three layers apart: durable context must not name a task. |
+| `AGENTS.md` | Durable invariants that outlive every work item. Names no task - see `docs/CONTEXT-ARCHITECTURE.md`. |
 | `docs/architecture.md` | The constraint that decides the design: multiple stateless instances, PostgreSQL is the durability boundary. |
 | `docs/adr/007-durable-idempotency.md` | The decision, and the explicitly rejected process-local option. |
 | `.github/instructions/services.instructions.md` | Path-scoped rules with `applyTo: "src/services/**"`. |
@@ -50,6 +52,7 @@ the test rules to find the one line that applies to it.
 | `.github/agents/plan.agent.md` | `tools: ["read", "search"]`. A planner cannot write, so "plan first" is enforced rather than requested. |
 | `.github/agents/implement.agent.md` | Adds `edit` and `shell`, still cannot publish or approve. |
 | `.github/agents/risk-reviewer.agent.md` | Back to `["read", "search"]`. A reviewer that cannot repair cannot quietly launder its own fix. |
+| `scripts/task-contract.mjs` | Scope is an input. The authorizer reads it from the active task contract, so least privilege can be per task and per phase. |
 | `.github/copilot/hooks.json` | `preToolUse` hook wired to `./scripts/authorize-tool.sh`. |
 | `scripts/authorize-tool.mjs` | The policy, unit tested. |
 | `.github/copilot/mcp-config.json` | Named read tools, not `"*"`. |
@@ -96,10 +99,10 @@ per-criterion coverage that decides `ready_for_review` or `review_required`.
 ```bash
 npm run test:unit:ci
 npm run test:acceptance:ci      # needs npm run db:up
-npm run evidence
+npm run evidence -- --task WI-1842
 ```
 
-Delete `artifacts/acceptance-junit.xml` and run `npm run evidence` again. The
+Delete `artifacts/acceptance-junit.xml` and run the command again. The
 decision flips to `review_required` and the exit code becomes `1`. Missing
 evidence is a failure, not a gap a reviewer has to notice.
 
@@ -146,9 +149,9 @@ Identical on PowerShell, bash, and zsh. The acceptance suite defaults to the
 ```bash
 npm ci
 npm run db:up
-npm run validate            # lint, typecheck, 25 unit tests
+npm run validate            # lint, typecheck, 28 unit tests
 npm run test:acceptance     # 8 tests against PostgreSQL
-npm run evidence            # decision=ready_for_review, criteriaProven=6/6
+npm run evidence -- --task WI-1842   # ready_for_review, criteriaProven=6/6
 ```
 
 To point the suite somewhere else, set `DATABASE_URL` first; an explicit value

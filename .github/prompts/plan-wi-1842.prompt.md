@@ -3,16 +3,23 @@ description: Plan WI-1842 without modifying files
 agent: plan
 ---
 
-Read `docs/work-items/WI-1842.md`, `AGENTS.md`, `docs/architecture.md`, and `docs/adr/007-durable-idempotency.md`.
+This prompt names a task because it *is* the task's entry point. The durable
+context it invokes - `AGENTS.md`, the agent profile, the path instructions -
+names no task.
+
+Plan **WI-1842**.
+
+Read `docs/work-items/WI-1842.md`, its contract
+`docs/work-items/WI-1842.contract.json`, `AGENTS.md`, `docs/architecture.md`,
+and `docs/adr/007-durable-idempotency.md`.
 
 Produce:
 
 1. assumptions and ambiguities,
 2. proposed design,
-3. files to change,
-4. validation plan mapped to every acceptance criterion,
+3. files to change, all inside the contract's allowed scope,
+4. validation plan mapped to every acceptance criterion in the contract,
 5. capability boundary and stop conditions,
 6. rollback and escalation path.
 
 Do not edit files.
-

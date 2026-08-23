@@ -32,7 +32,7 @@ Read [`docs/DEMO-RUNBOOK.md`](docs/DEMO-RUNBOOK.md) before presenting.
 
 ```bash
 npm run hook:check      # pre-tool-use authorization decision from stdin
-npm run evidence        # build artifacts/report.json and gate on missing evidence
+npm run evidence -- --task WI-1842   # build artifacts/report.json and gate on missing evidence
 npm run repair:check    # decide repair or escalate from an attempt log
 ```
 

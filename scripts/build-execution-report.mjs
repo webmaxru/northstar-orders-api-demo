@@ -7,24 +7,18 @@
  * that tells a reviewer which of them exist for this run, so "missing evidence"
  * becomes a value a gate can read instead of something a reviewer has to notice.
  *
- * Usage: node scripts/build-execution-report.mjs [--out artifacts/report.json]
- * Exit code 1 when a required evidence item is missing.
+ * Acceptance criteria are not hardcoded here. They come from the task contract,
+ * because this script outlives every work item.
+ *
+ * Usage: node scripts/build-execution-report.mjs --task <ID> [--out artifacts/report.json]
+ * Exit code 1 when a required evidence item is missing or a criterion is unproven.
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { loadTaskContract } from "./task-contract.mjs";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
-
-/** Acceptance criteria from docs/work-items/WI-1842.md. */
-const ACCEPTANCE_CRITERIA = [
-  { id: "AC1", statement: "Same key and payload within 24 hours returns the original order", provenBy: "replays the original response across instances" },
-  { id: "AC2", statement: "Same key with a different payload returns 409", provenBy: "rejects a different payload for the same key" },
-  { id: "AC3", statement: "Concurrent retries create exactly one order", provenBy: "creates exactly one order under concurrent cross-instance retries" },
-  { id: "AC4", statement: "Requests without a key preserve current behavior", provenBy: "preserves baseline behavior without an idempotency key" },
-  { id: "AC5", statement: "Raw keys and payloads are not logged", provenBy: "stores only fixed-length hashes" },
-  { id: "AC6", statement: "Replays and conflicts emit metrics", provenBy: "emits replay and conflict metrics" },
-];
 
 /** Evidence the report indexes, named after the Microsoft Learn observability model. */
 const EVIDENCE = [
@@ -52,26 +46,29 @@ function readJUnit(relativePath) {
   return { present: true, tests, failures, errors, skipped, passed: failures + errors === 0, testNames: names };
 }
 
-function coverage(testNames) {
+function coverage(criteria, testNames) {
   const haystack = testNames.join(" | ").toLowerCase();
-  return ACCEPTANCE_CRITERIA.map((criterion) => ({
+  return criteria.map((criterion) => ({
     id: criterion.id,
     statement: criterion.statement,
-    proven: haystack.includes(criterion.provenBy.toLowerCase()),
+    proven: haystack.includes(String(criterion.provenBy).toLowerCase()),
     provenBy: criterion.provenBy,
   }));
 }
 
 function parseArgs(argv) {
-  const outIndex = argv.indexOf("--out");
-  const requireIndex = argv.indexOf("--require");
+  const valueOf = (flag) => {
+    const index = argv.indexOf(flag);
+    return index === -1 ? undefined : argv[index + 1];
+  };
   return {
-    out: outIndex === -1 ? "artifacts/report.json" : argv[outIndex + 1],
-    alsoRequire: requireIndex === -1 ? [] : String(argv[requireIndex + 1] ?? "").split(",").filter(Boolean),
+    out: valueOf("--out") ?? "artifacts/report.json",
+    task: valueOf("--task"),
+    alsoRequire: String(valueOf("--require") ?? "").split(",").filter(Boolean),
   };
 }
 
-function build({ alsoRequire }) {
+function build({ alsoRequire, contract }) {
   const unit = readJUnit("artifacts/unit-junit.xml");
   const acceptance = readJUnit("artifacts/acceptance-junit.xml");
 
@@ -83,7 +80,10 @@ function build({ alsoRequire }) {
     present: existsSync(resolve(REPO_ROOT, item.path)),
   }));
 
-  const criteria = coverage([...(unit.testNames ?? []), ...(acceptance.testNames ?? [])]);
+  const criteria = coverage(contract.acceptanceCriteria, [
+    ...(unit.testNames ?? []),
+    ...(acceptance.testNames ?? []),
+  ]);
   const missingEvidence = evidence.filter((item) => item.required && !item.present).map((item) => item.id);
   const unprovenCriteria = criteria.filter((item) => !item.proven).map((item) => item.id);
 
@@ -96,7 +96,7 @@ function build({ alsoRequire }) {
 
   return {
     schema: "northstar/execution-report/1",
-    workItem: "WI-1842",
+    workItem: contract.id,
     generatedAt: new Date().toISOString(),
     run: {
       repository: process.env.GITHUB_REPOSITORY ?? "local",
@@ -114,13 +114,23 @@ function build({ alsoRequire }) {
   };
 }
 
-const { out, alsoRequire } = parseArgs(process.argv.slice(2));
-const report = build({ alsoRequire });
+const { out, alsoRequire, task } = parseArgs(process.argv.slice(2));
+
+const contract = loadTaskContract(task);
+if (!contract) {
+  process.stderr.write(
+    "No task in scope. Pass --task <ID> or set AGENT_TASK. See docs/CONTEXT-ARCHITECTURE.md.\n",
+  );
+  process.exit(2);
+}
+
+const report = build({ alsoRequire, contract });
 const target = resolve(REPO_ROOT, out);
 mkdirSync(dirname(target), { recursive: true });
 writeFileSync(target, `${JSON.stringify(report, null, 2)}\n`, "utf8");
 
 const summary = [
+  `task=${report.workItem}`,
   `decision=${report.decision}`,
   `unit=${report.checks.unit.present ? `${report.checks.unit.tests} tests, ${report.checks.unit.failures + report.checks.unit.errors} failed` : "absent"}`,
   `acceptance=${report.checks.acceptance.present ? `${report.checks.acceptance.tests} tests, ${report.checks.acceptance.failures + report.checks.acceptance.errors} failed` : "absent"}`,

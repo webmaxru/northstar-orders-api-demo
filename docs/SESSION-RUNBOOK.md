@@ -41,11 +41,11 @@ Every command below is identical on PowerShell, bash, and zsh.
 git switch demo/engineering-system
 npm ci
 npm run db:up
-npm run validate            # 25 unit tests
+npm run validate            # 28 unit tests
 npm run test:acceptance     # 8 tests against PostgreSQL
 npm run test:unit:ci
 npm run test:acceptance:ci
-npm run evidence
+npm run evidence -- --task WI-1842
 ```
 
 Expected final line: `decision=ready_for_review ... criteriaProven=6/6`.
@@ -64,6 +64,7 @@ Also have open, in order, as editor tabs:
 5. `docs/fixtures/untrusted-issue-comment.md`
 6. `artifacts/report.json`
 7. `docs/RECOVERY-POLICY.md`
+8. `docs/CONTEXT-ARCHITECTURE.md` (for questions about why nothing durable names a task)
 
 Plus a terminal in the repo root and a browser on
 [PR #3](https://github.com/webmaxru/northstar-orders-api-demo/pull/3).
@@ -100,9 +101,9 @@ commentary needed beyond "this is the plausible wrong answer".
 
 | Slide | Timing | Show | Duration |
 | --- | --- | --- | --- |
-| 8 | 1:30 | `docs/work-items/WI-1842.md` | 30s. Six acceptance criteria. Point at criterion 3 - concurrency - and say it is the one a plausible implementation quietly fails. Say the PAY-418/WI-1842 mapping here. |
-| 9 | 2:15 | `AGENTS.md`, then `.github/agents/implement.agent.md` | 45s. Required evidence bundle, then the stop conditions. The point: refusal is configured, not requested. |
-| 10 | 2:00 | `.github/copilot-instructions.md`, then `docs/architecture.md` | 40s. Four authoritative sources, each with a reason to exist. `architecture.md` carries the constraint that decides the design. |
+| 8 | 1:30 | `docs/work-items/WI-1842.md`, then `WI-1842.contract.json` | 40s. Six acceptance criteria. Point at criterion 3 - concurrency - and say it is the one a plausible implementation quietly fails. Then show the contract's `provenBy` fields: the same contract, readable by a machine. Say the PAY-418/WI-1842 mapping here. |
+| 9 | 2:15 | `AGENTS.md`, then `.github/agents/implement.agent.md` | 45s. Required evidence bundle, then the stop conditions. The point: refusal is configured, not requested. Note that neither file names a task - scope comes from the contract. |
+| 10 | 2:00 | `.github/copilot-instructions.md`, then `docs/architecture.md` | 40s. Four authoritative sources, each with a reason to exist. `architecture.md` carries the constraint that decides the design. Worth one sentence: the durable files name no task, which is why they still apply to the next one. |
 | 11 | 1:15 | `.github/instructions/services.instructions.md` | 30s. Highlight the `applyTo: "src/services/**"` frontmatter. An agent editing a migration never loads these rules. |
 | 12 | 1:30 | `.github/prompts/plan-wi-1842.prompt.md` | 25s. Note `agent: plan` in the frontmatter - the prompt is bound to a read-only role. |
 | 13 | 1:15 | Slide only | A plan is cheaper to challenge than a diff. |
@@ -155,11 +156,11 @@ seconds and want the room to feel the gate:
 
 ```powershell
 Move-Item artifacts/acceptance-junit.xml $env:TEMP/acceptance-junit.xml
-npm run evidence --silent; "exit=$LASTEXITCODE"
+npm run evidence --silent -- --task WI-1842; "exit=$LASTEXITCODE"
 ```
 
 ```bash
-mv artifacts/acceptance-junit.xml /tmp/ ; npm run evidence --silent ; echo "exit=$?"
+mv artifacts/acceptance-junit.xml /tmp/ ; npm run evidence --silent -- --task WI-1842 ; echo "exit=$?"
 ```
 
 ```
