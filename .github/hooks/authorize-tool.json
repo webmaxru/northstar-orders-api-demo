@@ -1,6 +1,15 @@
 {
+  "$comment": "One hook, two schemas. VS Code reads PascalCase event names with a `command` property and a `timeout`; Copilot cloud agent and CLI read camelCase event names with `bash`/`powershell` and `timeoutSec`. Each host ignores the block it does not recognize, so the hook fires exactly once in either. Sources: https://code.visualstudio.com/docs/agent-customization/hooks and https://docs.github.com/en/copilot/concepts/agents/hooks",
   "version": 1,
   "hooks": {
+    "PreToolUse": [
+      {
+        "type": "command",
+        "command": "./scripts/authorize-tool.sh",
+        "windows": "pwsh -NoProfile -File ./scripts/authorize-tool.ps1",
+        "timeout": 5
+      }
+    ],
     "preToolUse": [
       {
         "type": "command",

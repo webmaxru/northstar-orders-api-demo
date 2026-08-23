@@ -69,34 +69,86 @@ function deny(reason) {
 }
 
 /**
- * @param {{toolName?: string, toolArgs?: Record<string, unknown>}} call
+ * Normalize a tool call across harnesses.
+ *
+ * The two hosts disagree on field names and tool names:
+ *   GitHub cloud agent / Copilot CLI -> { toolName: "edit", toolArgs: { path } }
+ *   VS Code                          -> { tool_name: "editFiles", tool_input: { files: [...] } }
+ *
+ * Tool names are host-specific and can change. Anything unrecognized falls
+ * through to a default deny, which is the correct direction for a boundary.
+ * Confirm real names from the VS Code agent debug log before relying on them.
+ */
+const TOOL_ALIASES = {
+  read: "read",
+  search: "search",
+  codebase: "search",
+  fetch: "read",
+  edit: "edit",
+  write: "edit",
+  editfiles: "edit",
+  createfile: "edit",
+  applypatch: "edit",
+  bash: "shell",
+  shell: "shell",
+  runcommands: "shell",
+  runinterminal: "shell",
+  runtasks: "shell",
+};
+
+export function normalizeToolCall(call) {
+  const rawName = String(call?.toolName ?? call?.tool_name ?? "");
+  const args = call?.toolArgs ?? call?.tool_input ?? {};
+  const kind = TOOL_ALIASES[rawName.toLowerCase()] ?? rawName;
+
+  const paths = [];
+  if (typeof args.path === "string") paths.push(args.path);
+  if (typeof args.file === "string") paths.push(args.file);
+  if (typeof args.filePath === "string") paths.push(args.filePath);
+  if (Array.isArray(args.files)) {
+    for (const entry of args.files) {
+      if (typeof entry === "string") paths.push(entry);
+      else if (entry && typeof entry.path === "string") paths.push(entry.path);
+    }
+  }
+
+  return {
+    rawName,
+    kind,
+    paths,
+    command: String(args.command ?? args.commandLine ?? "").trim(),
+  };
+}
+
+/**
+ * @param {{toolName?: string, tool_name?: string, toolArgs?: Record<string, unknown>, tool_input?: Record<string, unknown>}} call
  * @param {{scope?: {allowed: string[]}, taskId?: string}} [context]
  *   Scope comes from the active task contract. Omit it and the repository-wide
  *   default applies.
  */
 export function evaluateToolCall(call, context = {}) {
-  const toolName = call?.toolName ?? "";
-  const args = call?.toolArgs ?? {};
+  const { rawName, kind, paths, command } = normalizeToolCall(call);
   const prefixes = scopePrefixes(context.scope ?? DEFAULT_SCOPE);
   const where = context.taskId ? `the ${context.taskId} scope` : "the approved scope";
 
-  if (toolName === "read" || toolName === "search") {
+  if (kind === "read" || kind === "search") {
     return allow("read-only tool");
   }
 
-  if (toolName === "edit" || toolName === "write") {
-    const target = args.path ?? args.file ?? "";
-    if (!target) {
+  if (kind === "edit") {
+    if (paths.length === 0) {
       return deny("write tool call did not name a target path");
     }
-    if (!isWritable(target, prefixes)) {
-      return deny(`${normalize(target)} is outside ${where} (${prefixes.join(", ")})`);
+    const blocked = paths.filter((target) => !isWritable(target, prefixes));
+    if (blocked.length > 0) {
+      return deny(
+        `${blocked.map(normalize).join(", ")} is outside ${where} (${prefixes.join(", ")})`,
+      );
     }
-    return allow(`${normalize(target)} is inside ${where}`);
+    return allow(`${paths.map(normalize).join(", ")} is inside ${where}`);
   }
 
-  if (toolName === "bash" || toolName === "shell") {
-    const command = String(args.command ?? "").trim();
+  if (kind === "shell") {
     if (!command) {
       return deny("shell tool call did not include a command");
     }
@@ -111,7 +163,7 @@ export function evaluateToolCall(call, context = {}) {
     return deny("command is not in the validation allowlist");
   }
 
-  return deny(`unknown tool "${toolName}" is denied by default`);
+  return deny(`unknown tool "${rawName}" is denied by default`);
 }
 
 async function readStdin() {
@@ -181,6 +233,24 @@ export function parsePayload(raw) {
   };
 }
 
+/**
+ * Emit a decision both hosts understand.
+ *
+ * Copilot cloud agent and CLI read the flat fields. VS Code reads
+ * `hookSpecificOutput`. Writing both keeps one script for both harnesses;
+ * each host ignores the shape it does not know.
+ */
+export function renderDecision(decision) {
+  return {
+    ...decision,
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: decision.permissionDecision,
+      permissionDecisionReason: decision.permissionDecisionReason,
+    },
+  };
+}
+
 async function main() {
   const parsed = parsePayload(await readStdin());
   let decision;
@@ -197,7 +267,7 @@ async function main() {
       decision = deny(/** @type {Error} */ (error).message);
     }
   }
-  process.stdout.write(`${JSON.stringify(decision, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify(renderDecision(decision), null, 2)}\n`);
 }
 
 const invokedDirectly =

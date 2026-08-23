@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluateToolCall, parsePayload } from "../../scripts/authorize-tool.mjs";
+import { evaluateToolCall, parsePayload, renderDecision } from "../../scripts/authorize-tool.mjs";
 import { contractFromFile } from "../../scripts/task-contract.mjs";
 
 // The contract comes from the issue. Tests parse the seed file that creates it.
@@ -144,6 +144,70 @@ describe("stdin payloads survive shell noise", () => {
     if (!parsed.ok) {
       expect(parsed.reason).toMatch(/no tool call was provided/);
     }
+  });
+});
+
+describe("works with both harness schemas", () => {
+  // GitHub cloud agent and Copilot CLI send toolName/toolArgs; VS Code sends
+  // tool_name/tool_input with its own tool names. One policy has to read both.
+  it("accepts the VS Code shape and tool names", () => {
+    expect(
+      evaluateToolCall(
+        { tool_name: "editFiles", tool_input: { files: ["src/app.ts"] } },
+        context,
+      ),
+    ).toMatchObject({ permissionDecision: "allow" });
+
+    expect(
+      evaluateToolCall(
+        { tool_name: "editFiles", tool_input: { files: [".github/workflows/ci.yml"] } },
+        context,
+      ),
+    ).toMatchObject({ permissionDecision: "deny" });
+  });
+
+  it("denies when any file in a multi-file edit is out of scope", () => {
+    const decision = evaluateToolCall(
+      { tool_name: "editFiles", tool_input: { files: ["src/app.ts", "docs/architecture.md"] } },
+      context,
+    );
+
+    expect(decision.permissionDecision).toBe("deny");
+    expect(decision.permissionDecisionReason).toMatch(/docs\/architecture\.md/);
+  });
+
+  it("maps VS Code terminal tools onto the shell policy", () => {
+    expect(
+      evaluateToolCall(
+        { tool_name: "runCommands", tool_input: { command: "printenv" } },
+        context,
+      ),
+    ).toMatchObject({ permissionDecision: "deny" });
+
+    expect(
+      evaluateToolCall(
+        { tool_name: "runInTerminal", tool_input: { command: "npm run test:unit" } },
+        context,
+      ),
+    ).toMatchObject({ permissionDecision: "allow" });
+  });
+
+  it("emits both the flat and the hookSpecificOutput shapes", () => {
+    const rendered = renderDecision(
+      evaluateToolCall({ toolName: "read", toolArgs: { path: "AGENTS.md" } }, context),
+    );
+
+    expect(rendered.permissionDecision).toBe("allow");
+    expect(rendered.hookSpecificOutput).toMatchObject({
+      hookEventName: "PreToolUse",
+      permissionDecision: "allow",
+    });
+  });
+
+  it("still denies an unrecognized tool name from any harness", () => {
+    expect(evaluateToolCall({ tool_name: "deployToProduction" }, context)).toMatchObject({
+      permissionDecision: "deny",
+    });
   });
 });
 
