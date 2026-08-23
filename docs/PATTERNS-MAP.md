@@ -14,14 +14,16 @@ something fails - see [`docs/SESSION-RUNBOOK.md`](SESSION-RUNBOOK.md).
 
 | Artifact | What it shows |
 | --- | --- |
-| `docs/work-items/WI-1842.md` | Six acceptance criteria, each independently checkable. Criterion 3 is the one a plausible implementation quietly fails. |
-| `docs/work-items/WI-1842.contract.json` | The same contract for machines, using Microsoft Learn's three sections: inputs, outputs, success criteria. The JSON schema is this repository's; the structure is Learn's. |
+| [Issue #4](https://github.com/webmaxru/northstar-orders-api-demo/issues/4) | The contract itself, where Learn says it belongs. Six success criteria, each naming the test that proves it. Criterion AC3 is the one a plausible implementation quietly fails. |
+| `.github/ISSUE_TEMPLATE/agent-task.yml` | The shape every task contract must take. Durable, and names no task. |
+| `docs/work-items/WI-1842.issue.md` | Demo setup only: the text used to create that issue. |
 | `.github/agents/implement.agent.md` | Stop conditions as agent configuration, not as a hope expressed in a prompt. |
 
 The contract is executable because a machine reads it back:
 
 ```bash
-npm run evidence -- --task WI-1842   # maps every criterion to the test that proves it
+npm run contract:fetch -- --issue 4   # read the contract from its issue
+npm run evidence                     # map every criterion to the test that proves it
 ```
 
 `scripts/build-execution-report.mjs` fails when a criterion has no proof, so
@@ -104,7 +106,8 @@ per-criterion coverage that decides `ready_for_review` or `review_required`.
 ```bash
 npm run test:unit:ci
 npm run test:acceptance:ci      # needs npm run db:up
-npm run evidence -- --task WI-1842
+npm run contract:fetch -- --issue 4
+npm run evidence
 ```
 
 Delete `artifacts/acceptance-junit.xml` and run the command again. The
@@ -156,7 +159,8 @@ npm ci
 npm run db:up
 npm run validate            # lint, typecheck, 28 unit tests
 npm run test:acceptance     # 8 tests against PostgreSQL
-npm run evidence -- --task WI-1842   # ready_for_review, criteriaProven=6/6
+npm run contract:fetch -- --issue 4  # or --file docs/work-items/WI-1842.issue.md
+npm run evidence                     # ready_for_review, criteriaProven=6/6
 ```
 
 To point the suite somewhere else, set `DATABASE_URL` first; an explicit value

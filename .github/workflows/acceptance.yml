@@ -6,6 +6,8 @@ on:
 
 permissions:
   contents: read
+  issues: read
+  pull-requests: read
 
 jobs:
   acceptance:
@@ -35,9 +37,24 @@ jobs:
       - run: npm ci
       - run: npm run test:unit:ci
       - run: npm run test:acceptance:ci
+      - name: Resolve the task contract
+        if: always()
+        run: |
+          # The contract lives in the issue. Use it when the pull request names
+          # one; otherwise fall back to the seed file so the gate still runs.
+          # The resolved contract records which source was used.
+          ISSUE=$(gh pr view "$PR" --json body --jq '.body' 2>/dev/null | grep -oiE '(closes|fixes|resolves) #[0-9]+' | head -1 | grep -oE '[0-9]+' || true)
+          if [ -n "$ISSUE" ]; then
+            node scripts/fetch-task-contract.mjs --issue "$ISSUE"
+          else
+            node scripts/fetch-task-contract.mjs --file docs/work-items/WI-1842.issue.md
+          fi
+        env:
+          PR: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
       - name: Build execution report
         if: always()
-        run: node scripts/build-execution-report.mjs --task WI-1842
+        run: node scripts/build-execution-report.mjs
       - name: Upload execution report
         if: always()
         uses: actions/upload-artifact@v7

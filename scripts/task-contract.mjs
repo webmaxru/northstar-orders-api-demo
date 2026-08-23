@@ -1,57 +1,144 @@
 /**
- * Load the contract for the task currently being worked on.
+ * Resolve the task contract from the issue that defines it.
  *
- * Task identity is an input, never a constant. Nothing in this repository's
- * durable context - AGENTS.md, copilot-instructions.md, the agent profiles, the
- * path instructions - names a work item, because those files outlive every work
- * item. The task supplies its own inputs, outputs, and success criteria through
- * a contract file.
+ * Microsoft Learn puts the contract in the issue: "success criteria should be
+ * defined in the issue or pull request... Write acceptance criteria directly in
+ * the issue, reference those criteria in the pull request, and use them as the
+ * basis for validation."
  *
- * The Inputs / Outputs / Success criteria structure comes from Microsoft Learn:
- * https://learn.microsoft.com/en-us/training/modules/design-agent-architecture-integration/3-inputs-outputs-success-criteria
- * Learn shows those sections as prose in an issue or pull request. Expressing
- * them as JSON so a gate can read them is this repository's choice.
- *
- * Resolution order:
- *   1. an explicit id passed by the caller (`--task WI-1842`)
- *   2. the AGENT_TASK environment variable, set when an agent session starts
- *   3. none - callers fall back to repository-wide defaults
+ * So the repository stores no contract. It stores the issue template that gives
+ * the contract its shape, and a seed file used to recreate the issue for a
+ * demo. The parsed result is cached in artifacts/ (gitignored) so the
+ * repository never becomes the source of truth.
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
+export const CONTRACT_CACHE = "artifacts/task-contract.json";
 
-/** Used when no task contract is in scope. Deliberately narrow. */
+/** Used when no contract has been resolved. Deliberately narrow. */
 export const DEFAULT_SCOPE = {
   allowed: ["src/**", "tests/**", "migrations/**"],
   prohibited: [],
 };
 
-export function contractPath(taskId) {
-  return resolve(REPO_ROOT, "docs", "work-items", `${taskId}.contract.json`);
+/** Split a GitHub issue-form body into its `### Heading` sections. */
+export function splitSections(body) {
+  // GitHub returns issue bodies with CRLF. Normalize before anything else so
+  // headings do not end up with a trailing carriage return.
+  const text = String(body ?? "").replace(/\r\n?/g, "\n");
+  const sections = {};
+  const pattern = /^###[ \t]+(.+?)[ \t]*$/gm;
+  const matches = [...text.matchAll(pattern)];
+
+  matches.forEach((match, index) => {
+    const start = match.index + match[0].length;
+    const end = index + 1 < matches.length ? matches[index + 1].index : text.length;
+    sections[match[1].trim().toLowerCase()] = text.slice(start, end).trim();
+  });
+
+  return sections;
 }
 
-export function resolveTaskId(explicitId) {
-  return explicitId ?? process.env.AGENT_TASK ?? null;
+function lines(value) {
+  return String(value ?? "")
+    .split("\n")
+    .map((line) => line.replace(/^[-*]\s+/, "").trim())
+    .filter((line) => line.length > 0 && line !== "_No response_");
+}
+
+function pipeRows(value, arity) {
+  return lines(value)
+    .map((line) => line.split("|").map((part) => part.trim()))
+    .filter((parts) => parts.length >= arity);
 }
 
 /**
- * @returns {null | import("./task-contract.d.mts").TaskContract}
+ * Parse an issue body into a task contract.
+ *
+ * @param {string} body
+ * @param {{number?: number, url?: string, source?: string}} [origin]
  */
-export function loadTaskContract(explicitId) {
-  const taskId = resolveTaskId(explicitId);
-  if (!taskId) {
-    return null;
-  }
-  const path = contractPath(taskId);
-  if (!existsSync(path)) {
+export function parseIssueBody(body, origin = {}) {
+  const sections = splitSections(body);
+  const missing = ["task id", "goal", "allowed scope", "outputs", "success criteria"].filter(
+    (name) => !sections[name],
+  );
+  if (missing.length > 0) {
     throw new Error(
-      `No contract for task "${taskId}". Expected ${path.replace(`${REPO_ROOT}\\`, "").replace(`${REPO_ROOT}/`, "")}.`,
+      `Issue body is missing required section(s): ${missing.join(", ")}. It must follow .github/ISSUE_TEMPLATE/agent-task.yml.`,
     );
   }
-  return JSON.parse(readFileSync(path, "utf8"));
+
+  const successCriteria = pipeRows(sections["success criteria"], 3).map(
+    ([id, statement, provenBy]) => ({ id, statement, provenBy }),
+  );
+  if (successCriteria.length === 0) {
+    throw new Error(
+      'No success criteria could be parsed. Each line must read "ID | statement | proving test".',
+    );
+  }
+
+  return {
+    schema: "northstar/task-contract/2",
+    id: lines(sections["task id"])[0],
+    title: lines(sections.goal)[0],
+    source: {
+      kind: origin.source ?? "unknown",
+      issue: origin.number ?? null,
+      url: origin.url ?? null,
+      resolvedAt: new Date().toISOString(),
+    },
+    inputs: {
+      goal: sections.goal,
+      authoritativeSources: lines(sections["authoritative sources"]),
+      scope: {
+        allowed: lines(sections["allowed scope"]),
+        prohibited: lines(sections["prohibited scope"]),
+      },
+      constraints: lines(sections.constraints),
+    },
+    outputs: pipeRows(sections.outputs, 2).map(([id, description]) => ({ id, description })),
+    successCriteria,
+    stopConditions: lines(sections["stop conditions"]),
+  };
+}
+
+/** Read the contract from a live GitHub issue. */
+export function contractFromIssue(issueNumber) {
+  const raw = execFileSync(
+    "gh",
+    ["issue", "view", String(issueNumber), "--json", "number,title,body,url"],
+    { encoding: "utf8" },
+  );
+  const issue = JSON.parse(raw);
+  return parseIssueBody(issue.body, {
+    number: issue.number,
+    url: issue.url,
+    source: `issue #${issue.number}`,
+  });
+}
+
+/** Read the contract from a seed file, for offline rehearsal. */
+export function contractFromFile(path) {
+  const absolute = resolve(REPO_ROOT, path);
+  return parseIssueBody(readFileSync(absolute, "utf8"), { source: `seed file ${path}` });
+}
+
+export function cacheContract(contract, cachePath = CONTRACT_CACHE) {
+  const target = resolve(REPO_ROOT, cachePath);
+  mkdirSync(dirname(target), { recursive: true });
+  writeFileSync(target, `${JSON.stringify(contract, null, 2)}\n`, "utf8");
+  return target;
+}
+
+/** The contract resolved by the last `contract:fetch`, or null. */
+export function loadTaskContract(cachePath = CONTRACT_CACHE) {
+  const target = resolve(REPO_ROOT, cachePath);
+  return existsSync(target) ? JSON.parse(readFileSync(target, "utf8")) : null;
 }
 
 /** The scope a contract grants, or the repository default when there is none. */
@@ -61,7 +148,6 @@ export function taskScope(contract) {
 
 /** Turn a scope glob such as "src/**" into a path prefix. */
 export function scopePrefixes(scope) {
-  return (scope?.allowed ?? DEFAULT_SCOPE.allowed).map((pattern) =>
-    pattern.replace(/\*+$/, "").replace(/\/+$/, "/"),
-  );
+  const allowed = scope?.allowed?.length ? scope.allowed : DEFAULT_SCOPE.allowed;
+  return allowed.map((pattern) => pattern.replace(/\*+$/, "").replace(/\/+$/, "/"));
 }

@@ -183,8 +183,7 @@ async function main() {
     decision = deny(parsed.reason);
   } else {
     try {
-      const taskIndex = process.argv.indexOf("--task");
-      const contract = loadTaskContract(taskIndex === -1 ? undefined : process.argv[taskIndex + 1]);
+      const contract = loadTaskContract();
       decision = evaluateToolCall(parsed.value, {
         scope: taskScope(contract),
         taskId: contract?.id,

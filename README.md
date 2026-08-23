@@ -18,7 +18,7 @@ curl -X POST http://localhost:3000/orders -H "content-type: application/json" -d
 
 ## Demo scenario
 
-[`WI-1842`](docs/work-items/WI-1842.md) asks the team to prevent duplicate orders when clients retry after a timeout. The baseline deliberately has no idempotency.
+[Issue #4](https://github.com/webmaxru/northstar-orders-api-demo/issues/4) is the task contract for **WI-1842**: prevent duplicate orders when clients retry after a timeout. The baseline deliberately has no idempotency. See [`docs/work-items/`](docs/work-items/README.md) for how to recreate the issue.
 
 Read [`docs/DEMO-RUNBOOK.md`](docs/DEMO-RUNBOOK.md) before presenting.
 
@@ -30,7 +30,8 @@ Read [`docs/DEMO-RUNBOOK.md`](docs/DEMO-RUNBOOK.md) before presenting.
 
 ```bash
 npm run hook:check      # pre-tool-use authorization decision from stdin
-npm run evidence -- --task WI-1842   # build artifacts/report.json and gate on missing evidence
+npm run contract:fetch -- --issue 4    # resolve the contract from its issue
+npm run evidence                      # build artifacts/report.json and gate on missing evidence
 npm run repair:check    # decide repair or escalate from an attempt log
 ```
 

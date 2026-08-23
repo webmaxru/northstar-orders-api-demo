@@ -25,7 +25,7 @@ Worktrees are created beside the repository under `northstar-orders-api-demo-wor
 ## Demo 1: productive failure
 
 1. Prepare `demo1`.
-2. Open `docs/work-items/WI-1842.md`.
+2. Open the WI-1842 task-contract issue.
 3. Prompt Copilot:  
    `Implement WI-1842. Add idempotency to POST /orders, run tests, and stop when they pass.`
 4. Stop after eight minutes.

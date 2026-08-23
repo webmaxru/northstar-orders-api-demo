@@ -8,15 +8,13 @@ here. See `docs/CONTEXT-ARCHITECTURE.md`.
 
 Every task arrives with its own contract:
 
-- a work item in `docs/work-items/<ID>.md` stating intent and acceptance
-  criteria,
-- a machine-readable `docs/work-items/<ID>.contract.json` with three sections:
-  `inputs` (work item, ADRs, allowed and prohibited scope, constraints),
-  `outputs` (plan, changeset, evidence), and `successCriteria` (each with the
-  evidence that proves it).
+It lives in the GitHub issue, created from the **Agent task** template, and
+nowhere else. It has three sections: inputs (goal, authoritative sources,
+allowed and prohibited scope, constraints), outputs (plan, changeset,
+evidence), and success criteria, each naming the test that proves it.
 
-Read both, plus `docs/architecture.md` and every ADR the work item references,
-before proposing a change. Keep edits inside `inputs.scope.allowed`. Do not
+Read the issue, plus `docs/architecture.md` and every authoritative source it
+names, before proposing a change. Keep edits inside the allowed scope. Do not
 change workflows, dependencies, public response fields, or database schema
 without stopping for approval.
 
@@ -43,8 +41,9 @@ runs.
 5. Security and dependency workflow results.
 6. Limits, rollback, and escalation notes.
 
-`npm run evidence -- --task <ID>` checks the bundle against the contract and
-fails when a criterion has no proof.
+`npm run contract:fetch -- --issue <n>` resolves the contract, then
+`npm run evidence` checks the bundle against it and fails when a criterion has
+no proof.
 
 ## Engineering constraints
 

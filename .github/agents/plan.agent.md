@@ -11,8 +11,8 @@ tools you need.
 The task is an input. Before writing anything, read:
 
 1. `AGENTS.md` and `docs/architecture.md`,
-2. the work item you were given, under `docs/work-items/`,
-3. its contract, `docs/work-items/<ID>.contract.json`,
+2. the issue you were given, which is the task contract,
+3. the allowed scope, outputs, success criteria, and stop conditions it states,
 4. every ADR the work item references.
 
 If you were not told which work item to plan, ask. Do not guess, and do not

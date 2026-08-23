@@ -34,49 +34,52 @@ the service layer, not a property of the task that happened to introduce it.
 
 ## Layer 2 - task contract
 
-Supplied per work item. This is the only layer that names a task.
+Supplied per work item. This is the only layer that names a task, and it does
+not live in the repository.
 
-| File | Holds |
+> "In GitHub workflows, success criteria should be defined in the issue or pull
+> request... Write acceptance criteria directly in the issue, reference those
+> criteria in the pull request, and use them as the basis for validation."
+>
+> — [Microsoft Learn](https://learn.microsoft.com/en-us/training/modules/design-agent-architecture-integration/3-inputs-outputs-success-criteria)
+
+| Where | Holds |
 | --- | --- |
-| `docs/work-items/<ID>.md` | Intent and acceptance criteria, for humans |
-| `docs/work-items/<ID>.contract.json` | The same contract for machines: inputs, outputs, and success criteria |
+| **The GitHub issue** | The contract itself: goal, authoritative sources, allowed and prohibited scope, constraints, outputs, success criteria, stop conditions |
+| `.github/ISSUE_TEMPLATE/agent-task.yml` | The shape the issue must take. Durable, and names no task. |
+| `docs/work-items/<ID>.issue.md` | Demo setup only: the text used to create that issue |
 | `.github/prompts/plan-<id>.prompt.md` | The task's entry point, which invokes a task-agnostic agent |
 
-A prompt file named after a task is not a violation. It *is* the task input.
-The violation is putting task identity into something loaded unconditionally.
+The repository holds the **template**, not the contract. A prompt file named
+after a task is not a violation - it *is* the task input. The violation is
+putting task identity into something loaded unconditionally.
+
+### Why a seed file exists
+
+A live issue cannot be cloned, version-controlled, or rehearsed offline, which
+is exactly what a demo repository needs. `docs/work-items/<ID>.issue.md` is the
+text used to create the issue, and nothing reads it as authoritative: the
+resolved contract records whether it came from an issue or a seed file, and the
+execution report prints that provenance.
+
+The seed files double as parser fixtures, so an issue-template change the
+parser cannot read fails CI rather than failing on stage.
 
 ### What is and is not standard here
-
-Microsoft Learn defines the **task contract** and its three sections in
-[Designing Agent Architecture and SDLC Integration, Unit 3](https://learn.microsoft.com/en-us/training/modules/design-agent-architecture-integration/3-inputs-outputs-success-criteria):
-
-> - Inputs: what the agent needs (issue context, constraints, boundaries).
-> - Outputs: what the agent produces (plan + PR + evidence).
-> - Success criteria: how results are evaluated (checks, scans, review outcomes).
-
-Learn's worked example scopes changes the same way this repository does -
-*"changes allowed under src/ and dependency files, but not infra/ unless
-explicitly requested"* - and warns that *"'CI passed' is necessary, but not
-always sufficient."*
-
-What Learn does **not** define is a file format. Its contracts are prose in an
-issue or pull request description, and the enforcement it shows is a required
-status check. The only machine-readable artifacts it names are `plan.json` and
-`report.json`.
-
-So, precisely:
 
 | Element | Source |
 | --- | --- |
 | The task contract concept | Microsoft Learn |
-| The Inputs / Outputs / Success criteria sections | Microsoft Learn |
+| Inputs / Outputs / Success criteria | Microsoft Learn |
+| The contract living in the issue | Microsoft Learn |
 | Scoping changes to allowed paths | Microsoft Learn |
-| Expressing all of it as `<ID>.contract.json` | This repository |
-| The `stopConditions` field | This repository |
+| The `ID \| statement \| proving test` line format | This repository |
+| `stopConditions` | This repository |
+| Caching a parsed contract to `artifacts/` | This repository |
 
-`tests/unit/task-contract.test.ts` pins the three documented sections, allows
-exactly one labelled extension, and requires the `$schema-note` to say the JSON
-schema is not a Microsoft standard. Do not present it as one.
+Learn keeps criteria as prose and makes them binding through **required status
+checks**. This repository adds a parse step so a criterion can be checked
+individually, which is an addition to Learn's model, not a part of it.
 
 ## Layer 3 - enforcement
 
@@ -84,16 +87,18 @@ Reads Layer 2. Contains no task identity of its own.
 
 | Script | Reads | Effect |
 | --- | --- | --- |
-| `scripts/task-contract.mjs` | `--task <ID>` or `AGENT_TASK` | Resolves the active contract, or `null` |
-| `scripts/authorize-tool.mjs` | `inputs.scope.allowed` | Denies writes outside the task's allowed scope before the tool runs |
-| `scripts/build-execution-report.mjs` | `successCriteria[].provenBy` | Fails when a criterion has no proof |
+| `scripts/fetch-task-contract.mjs` | `--issue <n>` or `--file <seed>` | Parses the issue into `artifacts/task-contract.json` and records the source |
+| `scripts/authorize-tool.mjs` | the resolved contract's `inputs.scope.allowed` | Denies writes outside the task's allowed scope before the tool runs |
+| `scripts/build-execution-report.mjs` | the resolved contract's `successCriteria[].provenBy` | Fails when a criterion has no proof |
 
-Both scripts work with no task in scope. The authorizer falls back to a narrow
-repository-wide default; the report refuses to run and says why:
+Both gates work with no contract resolved. The authorizer falls back to a
+narrow repository-wide default; the report refuses to run and says why:
 
 ```bash
 npm run evidence
-# No task in scope. Pass --task <ID> or set AGENT_TASK, for example: npm run evidence -- --task WI-1842
+# No task contract resolved. The contract lives in the issue; run one of:
+#   npm run contract:fetch -- --issue <number>
+#   npm run contract:fetch -- --file docs/work-items/<ID>.issue.md
 ```
 
 Failing loudly is the point. A report that silently graded a change against the
@@ -117,11 +122,12 @@ cannot attribute to a contract is a denial you cannot review.
 
 ## Adding a task
 
-1. Write `docs/work-items/<ID>.md` with intent and acceptance criteria.
-2. Write `docs/work-items/<ID>.contract.json` with `inputs` (work item, ADRs,
-   scope, constraints), `outputs`, and a `provenBy` for each success criterion.
-3. Optionally add `.github/prompts/plan-<id>.prompt.md`.
+1. Open an issue using the **Agent task** template.
+2. Fill in goal, authoritative sources, allowed and prohibited scope,
+   constraints, outputs, success criteria, and stop conditions.
+3. Optionally save the body to `docs/work-items/<ID>.issue.md` so the issue can
+   be recreated for a demo, and add `.github/prompts/plan-<id>.prompt.md`.
 4. Change nothing in Layer 1.
 
 Step 4 is the whole point. If a new task requires editing `AGENTS.md`, either
-the change is a genuine new invariant, or it belongs in the contract.
+the change is a genuine new invariant, or it belongs in the issue.

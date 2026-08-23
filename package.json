@@ -19,6 +19,7 @@
     "test:acceptance": "vitest run tests/acceptance --passWithNoTests",
     "test:acceptance:ci": "node -e \"require('node:fs').mkdirSync('artifacts',{recursive:true})\" && vitest run tests/acceptance --passWithNoTests --reporter=default --reporter=junit --outputFile.junit=artifacts/acceptance-junit.xml",
     "validate": "npm run lint && npm run typecheck && npm run test:unit",
+    "contract:fetch": "node scripts/fetch-task-contract.mjs",
     "evidence": "node scripts/build-execution-report.mjs",
     "repair:check": "node scripts/repair-budget.mjs",
     "hook:check": "node scripts/authorize-tool.mjs",

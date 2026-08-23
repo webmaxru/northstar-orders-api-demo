@@ -7,7 +7,7 @@ applyTo: "tests/**"
 
 - A green unit suite is not sufficient evidence. Every success criterion in the
   active task contract must be proven by the test named in that criterion's
-  `provenBy` field, and `npm run evidence -- --task <ID>` must agree.
+  proving-test field, and `npm run evidence` must agree.
 - Criteria that describe behavior across process boundaries must be proven by
   `tests/acceptance/**` running against a real PostgreSQL instance.
 - Concurrency claims require concurrent execution across two service

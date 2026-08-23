@@ -1,11 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { evaluateToolCall, parsePayload } from "../../scripts/authorize-tool.mjs";
-import { loadTaskContract } from "../../scripts/task-contract.mjs";
+import { contractFromFile } from "../../scripts/task-contract.mjs";
 
-const contract = loadTaskContract("WI-1842");
-if (!contract) {
-  throw new Error("WI-1842 contract is required for these tests");
-}
+// The contract comes from the issue. Tests parse the seed file that creates it.
+const contract = contractFromFile("docs/work-items/WI-1842.issue.md");
 const context = { scope: contract.inputs.scope, taskId: contract.id };
 
 /**

@@ -45,7 +45,8 @@ npm run validate            # 28 unit tests
 npm run test:acceptance     # 8 tests against PostgreSQL
 npm run test:unit:ci
 npm run test:acceptance:ci
-npm run evidence -- --task WI-1842
+npm run contract:fetch -- --file docs/work-items/WI-1842.issue.md
+npm run evidence
 ```
 
 Expected final line: `decision=ready_for_review ... criteriaProven=6/6`.
@@ -57,7 +58,7 @@ so there is no environment variable to remember. To override it, set
 
 Also have open, in order, as editor tabs:
 
-1. `docs/work-items/WI-1842.md`
+1. [Issue #4](https://github.com/webmaxru/northstar-orders-api-demo/issues/4), the task contract
 2. `AGENTS.md`
 3. `.github/instructions/services.instructions.md`
 4. `.github/agents/plan.agent.md`, `implement.agent.md`, `risk-reviewer.agent.md`
@@ -101,7 +102,7 @@ commentary needed beyond "this is the plausible wrong answer".
 
 | Slide | Timing | Show | Duration |
 | --- | --- | --- | --- |
-| 8 | 1:30 | `docs/work-items/WI-1842.md`, then `WI-1842.contract.json` | 40s. Six acceptance criteria. Point at criterion 3 - concurrency - and say it is the one a plausible implementation quietly fails. Then show the contract's `provenBy` fields: the same contract, readable by a machine. Say the PAY-418/WI-1842 mapping here. |
+| 8 | 1:30 | **Issue #4 in the browser**, then `.github/ISSUE_TEMPLATE/agent-task.yml` | 40s. The contract is the issue, not a file in the repo. Point at AC3 - concurrency - and say it is the one a plausible implementation quietly fails. Then show the template: the repo holds the shape, not the contract. Say the PAY-418/WI-1842 mapping here. |
 | 9 | 2:15 | `AGENTS.md`, then `.github/agents/implement.agent.md` | 45s. Required evidence bundle, then the stop conditions. The point: refusal is configured, not requested. Note that neither file names a task - scope comes from the contract. |
 | 10 | 2:00 | `.github/copilot-instructions.md`, then `docs/architecture.md` | 40s. Four authoritative sources, each with a reason to exist. `architecture.md` carries the constraint that decides the design. Worth one sentence: the durable files name no task, which is why they still apply to the next one. |
 | 11 | 1:15 | `.github/instructions/services.instructions.md` | 30s. Highlight the `applyTo: "src/services/**"` frontmatter. An agent editing a migration never loads these rules. |
@@ -157,11 +158,11 @@ seconds and want the room to feel the gate:
 
 ```powershell
 Move-Item artifacts/acceptance-junit.xml $env:TEMP/acceptance-junit.xml
-npm run evidence --silent -- --task WI-1842; "exit=$LASTEXITCODE"
+npm run evidence --silent; "exit=$LASTEXITCODE"
 ```
 
 ```bash
-mv artifacts/acceptance-junit.xml /tmp/ ; npm run evidence --silent -- --task WI-1842 ; echo "exit=$?"
+mv artifacts/acceptance-junit.xml /tmp/ ; npm run evidence --silent ; echo "exit=$?"
 ```
 
 ```
@@ -220,7 +221,7 @@ Everything below maps the deck's generic runbook to this repository.
 
 | Mark | Deck step | Here |
 | --- | --- | --- |
-| 0:00 | Open the work item | `docs/work-items/WI-1842.md`; scope, success, stop |
+| 0:00 | Open the task contract | Issue #4; scope, success criteria, stop conditions |
 | 0:45 | Inspect context files | `AGENTS.md`, `.github/instructions/`, ADR-007 |
 | 1:30 | Start the agent | Assign WI-1842 to the cloud agent from a prepared session |
 | 2:30 | Jump to prepared state | Switch to PR #3 rather than waiting on model latency |

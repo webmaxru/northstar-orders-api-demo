@@ -1,12 +1,20 @@
 export interface TaskScope {
   allowed: string[];
-  prohibited?: string[];
+  prohibited: string[];
+}
+
+export interface ContractSource {
+  /** For example `issue #12` or `seed file docs/work-items/WI-1842.issue.md`. */
+  kind: string;
+  issue: number | null;
+  url: string | null;
+  resolvedAt: string;
 }
 
 /** Learn's "Inputs": what the agent needs. */
 export interface TaskInputs {
-  workItem: string;
-  architectureDecisions: string[];
+  goal: string;
+  authoritativeSources: string[];
   scope: TaskScope;
   constraints: string[];
 }
@@ -15,8 +23,6 @@ export interface TaskInputs {
 export interface TaskOutput {
   id: string;
   description: string;
-  location?: string;
-  artifacts?: string[];
 }
 
 /** Learn's "Success criteria": how results are evaluated. */
@@ -27,26 +33,38 @@ export interface SuccessCriterion {
 }
 
 /**
- * Inputs / Outputs / Success criteria follow the task contract described in
- * Microsoft Learn. `stopConditions` is an extension of this repository.
+ * Parsed from the issue that defines the task. Inputs / Outputs / Success
+ * criteria follow Microsoft Learn; `stopConditions` is this repository's
+ * extension.
  */
 export interface TaskContract {
   schema: string;
   id: string;
   title: string;
+  source: ContractSource;
   inputs: TaskInputs;
   outputs: TaskOutput[];
   successCriteria: SuccessCriterion[];
   stopConditions: string[];
 }
 
+export declare const CONTRACT_CACHE: string;
 export declare const DEFAULT_SCOPE: TaskScope;
 
-export declare function contractPath(taskId: string): string;
+export declare function splitSections(body: string): Record<string, string>;
 
-export declare function resolveTaskId(explicitId?: string): string | null;
+export declare function parseIssueBody(
+  body: string,
+  origin?: { number?: number; url?: string; source?: string },
+): TaskContract;
 
-export declare function loadTaskContract(explicitId?: string): TaskContract | null;
+export declare function contractFromIssue(issueNumber: string | number): TaskContract;
+
+export declare function contractFromFile(path: string): TaskContract;
+
+export declare function cacheContract(contract: TaskContract, cachePath?: string): string;
+
+export declare function loadTaskContract(cachePath?: string): TaskContract | null;
 
 export declare function taskScope(contract?: TaskContract | null): TaskScope;
 

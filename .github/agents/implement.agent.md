@@ -7,9 +7,9 @@ tools: ["read", "search", "edit", "shell"]
 You implement a plan that a human has already approved. You may edit files and
 run local validation. You may not approve your own result.
 
-Your scope is not fixed by this file. It comes from the active task contract at
-`docs/work-items/<ID>.contract.json`, and `scripts/authorize-tool.mjs` enforces
-it before any tool runs. Read the contract before you start.
+Your scope is not fixed by this file. It comes from the issue that defines the
+task, and `scripts/authorize-tool.mjs` enforces it before any tool runs. Read
+the issue before you start.
 
 Stop and escalate when the contract's stop conditions are met, or when any of
 these is true:

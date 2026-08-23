@@ -7,11 +7,13 @@
  * that tells a reviewer which of them exist for this run, so "missing evidence"
  * becomes a value a gate can read instead of something a reviewer has to notice.
  *
- * Success criteria are not hardcoded here. They come from the task contract,
- * because this script outlives every work item.
+ * Success criteria are not hardcoded here. They come from the task contract
+ * resolved from its issue by scripts/fetch-task-contract.mjs, because this
+ * script outlives every work item.
  *
- * Usage: node scripts/build-execution-report.mjs --task <ID> [--out artifacts/report.json]
+ * Usage: node scripts/build-execution-report.mjs [--out artifacts/report.json]
  * Exit code 1 when a required evidence item is missing or a criterion is unproven.
+ * Exit code 2 when no contract has been resolved.
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -63,7 +65,6 @@ function parseArgs(argv) {
   };
   return {
     out: valueOf("--out") ?? "artifacts/report.json",
-    task: valueOf("--task"),
     alsoRequire: String(valueOf("--require") ?? "").split(",").filter(Boolean),
   };
 }
@@ -95,8 +96,9 @@ function build({ alsoRequire, contract }) {
         : "review_required";
 
   return {
-    schema: "northstar/execution-report/1",
+    schema: "northstar/execution-report/2",
     workItem: contract.id,
+    contractSource: contract.source,
     generatedAt: new Date().toISOString(),
     run: {
       repository: process.env.GITHUB_REPOSITORY ?? "local",
@@ -114,12 +116,15 @@ function build({ alsoRequire, contract }) {
   };
 }
 
-const { out, alsoRequire, task } = parseArgs(process.argv.slice(2));
+const { out, alsoRequire } = parseArgs(process.argv.slice(2));
 
-const contract = loadTaskContract(task);
+const contract = loadTaskContract();
 if (!contract) {
   process.stderr.write(
-    "No task in scope. Pass --task <ID> or set AGENT_TASK. See docs/CONTEXT-ARCHITECTURE.md.\n",
+    "No task contract resolved. The contract lives in the issue; run one of:\n" +
+      "  npm run contract:fetch -- --issue <number>\n" +
+      "  npm run contract:fetch -- --file docs/work-items/<ID>.issue.md\n" +
+      "See docs/CONTEXT-ARCHITECTURE.md.\n",
   );
   process.exit(2);
 }
@@ -131,6 +136,7 @@ writeFileSync(target, `${JSON.stringify(report, null, 2)}\n`, "utf8");
 
 const summary = [
   `task=${report.workItem}`,
+  `contract=${report.contractSource.kind}`,
   `decision=${report.decision}`,
   `unit=${report.checks.unit.present ? `${report.checks.unit.tests} tests, ${report.checks.unit.failures + report.checks.unit.errors} failed` : "absent"}`,
   `acceptance=${report.checks.acceptance.present ? `${report.checks.acceptance.tests} tests, ${report.checks.acceptance.failures + report.checks.acceptance.errors} failed` : "absent"}`,
