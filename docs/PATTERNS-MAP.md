@@ -10,6 +10,9 @@ timeout and the API creates a second order.
 For delivery - what to show at which slide, for how long, and what to do when
 something fails - see [`docs/SESSION-RUNBOOK.md`](SESSION-RUNBOOK.md).
 
+For the mechanics - which script creates or checks which file, in what order,
+and why - see [`docs/END-TO-END-FLOW.md`](END-TO-END-FLOW.md).
+
 ## Pattern 1 - Turn intent into an executable contract
 
 | Artifact | What it shows |

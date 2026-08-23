@@ -23,11 +23,16 @@ import { DEFAULT_SCOPE, loadTaskContract, scopePrefixes, taskScope } from "./tas
 export const WRITABLE_PATH_PREFIXES = scopePrefixes(DEFAULT_SCOPE);
 
 const ALLOWED_COMMANDS = [
+  // Resolving the contract must be allowed, or the agent cannot bootstrap the
+  // very boundary that governs it. It only reads an issue and writes into
+  // artifacts/, so it grants no authority over the working tree.
+  /^npm run contract:fetch\b/,
   /^npm run lint$/,
   /^npm run typecheck$/,
   /^npm run test:unit$/,
   /^npm run test:acceptance$/,
   /^npm run validate$/,
+  /^npm run evidence\b/,
   /^npm ci$/,
   /^git (status|diff|log)\b/,
 ];

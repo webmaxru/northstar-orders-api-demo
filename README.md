@@ -28,6 +28,8 @@ Read [`docs/DEMO-RUNBOOK.md`](docs/DEMO-RUNBOOK.md) before presenting.
 
 [`docs/SESSION-RUNBOOK.md`](docs/SESSION-RUNBOOK.md) is the slide-by-slide delivery guide: what to put on screen at each slide, for how long, the exact commands with their expected output, and the fallbacks.
 
+[`docs/END-TO-END-FLOW.md`](docs/END-TO-END-FLOW.md) traces the whole workflow from running the plan prompt to a mergeable pull request: which script creates or checks which file, when, and why that ordering is forced.
+
 ```bash
 npm run hook:check      # pre-tool-use authorization decision from stdin
 npm run contract:fetch -- --issue 4    # resolve the contract from its issue

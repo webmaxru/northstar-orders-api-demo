@@ -166,11 +166,23 @@ describe("capability boundary during normal work", () => {
       "npm run typecheck",
       "npm run test:unit",
       "npm run test:acceptance",
+      "npm run evidence",
     ]) {
       expect(evaluateToolCall({ toolName: "bash", toolArgs: { command } }, context)).toMatchObject({
         permissionDecision: "allow",
       });
     }
+  });
+
+  it("allows the agent to resolve its own contract", () => {
+    // Without this the boundary cannot bootstrap: the command that fetches the
+    // contract would be denied by the boundary the contract defines.
+    expect(
+      evaluateToolCall(
+        { toolName: "bash", toolArgs: { command: "npm run contract:fetch -- --issue 4" } },
+        context,
+      ),
+    ).toMatchObject({ permissionDecision: "allow" });
   });
 
   it("allows read and search", () => {
