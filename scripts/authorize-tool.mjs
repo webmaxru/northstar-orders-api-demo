@@ -117,22 +117,81 @@ async function readStdin() {
   return Buffer.concat(chunks).toString("utf8");
 }
 
-async function main() {
-  const raw = (await readStdin()).trim();
-  let decision;
+/**
+ * Extract the tool call from whatever the shell delivered.
+ *
+ * Shells add noise. A bash line continuation (`\`) pasted into PowerShell
+ * arrives as an extra argument, so stdin ends up holding the JSON object
+ * followed by a stray `\` line. Rather than failing with an unreviewable
+ * "not valid JSON", find the first balanced object and report precisely what
+ * could not be parsed when there isn't one.
+ *
+ * @param {string} raw
+ * @returns {{ok: true, value: unknown} | {ok: false, reason: string}}
+ */
+export function parsePayload(raw) {
+  const text = String(raw ?? "").trim();
+  if (!text) {
+    return { ok: false, reason: "no tool call was provided on stdin" };
+  }
+
   try {
-    const taskIndex = process.argv.indexOf("--task");
-    const contract = loadTaskContract(taskIndex === -1 ? undefined : process.argv[taskIndex + 1]);
-    decision = evaluateToolCall(raw ? JSON.parse(raw) : {}, {
-      scope: contract?.scope,
-      taskId: contract?.id,
-    });
-  } catch (error) {
-    decision = deny(
-      error instanceof SyntaxError
-        ? "tool call payload was not valid JSON"
-        : /** @type {Error} */ (error).message,
-    );
+    return { ok: true, value: JSON.parse(text) };
+  } catch {
+    // fall through to balanced-object extraction
+  }
+
+  const start = text.indexOf("{");
+  if (start !== -1) {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = start; i < text.length; i += 1) {
+      const character = text[i];
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\" && inString) {
+        escaped = true;
+      } else if (character === '"') {
+        inString = !inString;
+      } else if (!inString && character === "{") {
+        depth += 1;
+      } else if (!inString && character === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          try {
+            return { ok: true, value: JSON.parse(text.slice(start, i + 1)) };
+          } catch {
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  const preview = text.length > 120 ? `${text.slice(0, 120)}...` : text;
+  return {
+    ok: false,
+    reason: `tool call payload was not valid JSON. Received: ${JSON.stringify(preview)}. If you pasted a multi-line command, note that a trailing "\\" is a bash line continuation and is not one in PowerShell.`,
+  };
+}
+
+async function main() {
+  const parsed = parsePayload(await readStdin());
+  let decision;
+  if (!parsed.ok) {
+    decision = deny(parsed.reason);
+  } else {
+    try {
+      const taskIndex = process.argv.indexOf("--task");
+      const contract = loadTaskContract(taskIndex === -1 ? undefined : process.argv[taskIndex + 1]);
+      decision = evaluateToolCall(parsed.value, {
+        scope: contract?.scope,
+        taskId: contract?.id,
+      });
+    } catch (error) {
+      decision = deny(/** @type {Error} */ (error).message);
+    }
   }
   process.stdout.write(`${JSON.stringify(decision, null, 2)}\n`);
 }

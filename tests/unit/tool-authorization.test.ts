@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluateToolCall } from "../../scripts/authorize-tool.mjs";
+import { evaluateToolCall, parsePayload } from "../../scripts/authorize-tool.mjs";
 import { loadTaskContract } from "../../scripts/task-contract.mjs";
 
 const contract = loadTaskContract("WI-1842");
@@ -93,6 +93,59 @@ describe("scope comes from the task contract, not from this file", () => {
       context,
     );
     expect(decision.permissionDecisionReason).toMatch(/inside the WI-1842 scope/);
+  });
+});
+
+describe("stdin payloads survive shell noise", () => {
+  const call = '{"toolName":"bash","toolArgs":{"command":"printenv"}}';
+
+  it("parses a clean payload", () => {
+    expect(parsePayload(call)).toMatchObject({ ok: true });
+  });
+
+  it("parses a payload followed by a stray bash line continuation", () => {
+    // PowerShell passes a trailing "\" to echo as a second argument, so stdin
+    // holds the object and then a line containing only a backslash.
+    const parsed = parsePayload(`${call}\n\\\n`);
+
+    expect(parsed).toMatchObject({ ok: true });
+    if (parsed.ok) {
+      expect(evaluateToolCall(parsed.value as never, context)).toMatchObject({
+        permissionDecision: "deny",
+        permissionDecisionReason: expect.stringMatching(/environment enumeration/),
+      });
+    }
+  });
+
+  it("does not mistake a backslash inside a string for structure", () => {
+    const withEscapes = '{"toolName":"edit","toolArgs":{"path":"src\\\\services\\\\a.ts"}}';
+    const parsed = parsePayload(withEscapes);
+
+    expect(parsed).toMatchObject({ ok: true });
+    if (parsed.ok) {
+      expect(evaluateToolCall(parsed.value as never, context)).toMatchObject({
+        permissionDecision: "allow",
+      });
+    }
+  });
+
+  it("reports what it received when there is no object at all", () => {
+    const parsed = parsePayload("not json at all");
+
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) {
+      expect(parsed.reason).toMatch(/not json at all/);
+      expect(parsed.reason).toMatch(/line continuation/);
+    }
+  });
+
+  it("reports an empty payload distinctly", () => {
+    const parsed = parsePayload("   ");
+
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) {
+      expect(parsed.reason).toMatch(/no tool call was provided/);
+    }
   });
 });
 

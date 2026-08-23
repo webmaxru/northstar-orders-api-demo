@@ -26,3 +26,9 @@ export declare function evaluateToolCall(
   call: ToolCall,
   context?: AuthorizationContext,
 ): AuthorizationDecision;
+
+export type ParsedPayload =
+  | { ok: true; value: unknown }
+  | { ok: false; reason: string };
+
+export declare function parsePayload(raw: string): ParsedPayload;

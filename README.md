@@ -13,9 +13,7 @@ npm start
 ```
 
 ```bash
-curl -X POST http://localhost:3000/orders \
-  -H "content-type: application/json" \
-  -d '{"sku":"WIDGET-1","quantity":2}'
+curl -X POST http://localhost:3000/orders -H "content-type: application/json" -d '{"sku":"WIDGET-1","quantity":2}'
 ```
 
 ## Demo scenario
