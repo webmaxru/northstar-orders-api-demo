@@ -1,26 +1,53 @@
 {
+  "$schema-note": "Structure follows the task contract described in Microsoft Learn, Designing Agent Architecture and SDLC Integration, Unit 3 - inputs, outputs, and success criteria: https://learn.microsoft.com/en-us/training/modules/design-agent-architecture-integration/3-inputs-outputs-success-criteria. Learn defines the concept and its three sections and shows them as prose in an issue or pull request. Rendering them as JSON, and the stopConditions extension, are this repository's choices, not a Microsoft standard.",
+  "schema": "northstar/task-contract/1",
   "id": "WI-1842",
   "title": "Stop duplicate orders after client retries",
-  "workItem": "docs/work-items/WI-1842.md",
-  "architectureDecisions": [
-    "docs/adr/007-durable-idempotency.md"
-  ],
-  "scope": {
-    "allowed": ["src/**", "tests/**", "migrations/**"],
-    "prohibited": [
-      "public API response fields",
-      "authentication and authorization",
-      "deployment configuration"
+
+  "inputs": {
+    "workItem": "docs/work-items/WI-1842.md",
+    "architectureDecisions": [
+      "docs/adr/007-durable-idempotency.md"
+    ],
+    "scope": {
+      "allowed": ["src/**", "tests/**", "migrations/**"],
+      "prohibited": [
+        "public API response fields",
+        "authentication and authorization",
+        "deployment configuration"
+      ]
+    },
+    "constraints": [
+      "no workflow or Actions changes without human approval",
+      "no new dependencies",
+      "no schema change beyond an additive migration",
+      "no raw idempotency keys or request payloads in storage or logs"
     ]
   },
-  "stopConditions": [
-    "a new dependency is required",
-    "a workflow, permission, or Actions change is required",
-    "a public response field would change",
-    "a schema change beyond an additive migration is required",
-    "the same required check fails twice with the same failure signature"
+
+  "outputs": [
+    {
+      "id": "plan",
+      "description": "A structured plan in the pull request description",
+      "location": ".github/pull_request_template.md"
+    },
+    {
+      "id": "changeset",
+      "description": "A bounded changeset on an agent branch, inside inputs.scope.allowed"
+    },
+    {
+      "id": "evidence",
+      "description": "Links to workflow runs and uploaded artifacts",
+      "artifacts": [
+        "artifacts/unit-junit.xml",
+        "artifacts/acceptance-junit.xml",
+        "artifacts/codeql",
+        "artifacts/report.json"
+      ]
+    }
   ],
-  "acceptanceCriteria": [
+
+  "successCriteria": [
     {
       "id": "AC1",
       "statement": "Same key and payload within 24 hours returns the original order",
@@ -51,5 +78,13 @@
       "statement": "Replays and conflicts emit metrics",
       "provenBy": "emits replay and conflict metrics"
     }
+  ],
+
+  "stopConditions": [
+    "a new dependency is required",
+    "a workflow, permission, or Actions change is required",
+    "a public response field would change",
+    "a schema change beyond an additive migration is required",
+    "the same required check fails twice with the same failure signature"
   ]
 }

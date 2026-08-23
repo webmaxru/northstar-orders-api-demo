@@ -15,7 +15,7 @@ something fails - see [`docs/SESSION-RUNBOOK.md`](SESSION-RUNBOOK.md).
 | Artifact | What it shows |
 | --- | --- |
 | `docs/work-items/WI-1842.md` | Six acceptance criteria, each independently checkable. Criterion 3 is the one a plausible implementation quietly fails. |
-| `docs/work-items/WI-1842.contract.json` | The same contract for machines: allowed scope, prohibited scope, stop conditions, and the evidence that proves each criterion. |
+| `docs/work-items/WI-1842.contract.json` | The same contract for machines, using Microsoft Learn's three sections: inputs, outputs, success criteria. The JSON schema is this repository's; the structure is Learn's. |
 | `.github/agents/implement.agent.md` | Stop conditions as agent configuration, not as a hope expressed in a prompt. |
 
 The contract is executable because a machine reads it back:
@@ -27,6 +27,11 @@ npm run evidence -- --task WI-1842   # maps every criterion to the test that pro
 `scripts/build-execution-report.mjs` fails when a criterion has no proof, so
 "done" is a computed value rather than a claim. The criteria are not in the
 script; they come from the contract, so the script outlives the task.
+
+> Microsoft Learn defines the task contract and its Inputs / Outputs / Success
+> criteria sections, and shows them as prose in an issue or pull request.
+> Expressing them as JSON so a gate can read them is this repository's choice,
+> not a Microsoft standard. See `docs/CONTEXT-ARCHITECTURE.md`.
 
 ## Pattern 2 - Context is a governed supply chain
 

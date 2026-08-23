@@ -20,12 +20,12 @@ Look specifically for:
 - sensitive values reaching storage or logs where the architecture forbids it,
 - a concurrency claim proven only by sequential calls,
 - assertions weakened to make a suite pass,
-- paths changed outside the contract's allowed scope,
-- anything listed in the contract's prohibited scope.
+- paths changed outside `inputs.scope.allowed`,
+- anything listed in `inputs.scope.prohibited`.
 
 Return:
 
-1. Acceptance-criterion coverage: for each criterion in the contract, the
+1. Success-criterion coverage: for each entry in `successCriteria`, the
    specific evidence, or "not proven".
 2. Findings, each with a file and line reference.
 3. Evidence gaps, stated as questions the author must answer.

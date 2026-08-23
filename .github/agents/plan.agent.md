@@ -23,8 +23,8 @@ Return, in this order:
 1. Assumptions and ambiguities, each marked resolved or unresolved.
 2. Proposed design, referencing the existing repository patterns you found.
 3. Files you would change, and files you would deliberately not touch. Every
-   path must fall inside the contract's allowed scope.
-4. A validation plan that maps every acceptance criterion in the contract to a
+   path must fall inside `inputs.scope.allowed`.
+4. A validation plan that maps every entry in the contract's `successCriteria` to a
    specific check a reviewer can run.
 5. The capability boundary you are asking for, and the stop conditions you will
    honor.

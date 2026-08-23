@@ -17,8 +17,8 @@ Produce:
 
 1. assumptions and ambiguities,
 2. proposed design,
-3. files to change, all inside the contract's allowed scope,
-4. validation plan mapped to every acceptance criterion in the contract,
+3. files to change, all inside the contract's `inputs.scope.allowed`,
+4. validation plan mapped to every entry in the contract's `successCriteria`,
 5. capability boundary and stop conditions,
 6. rollback and escalation path.
 

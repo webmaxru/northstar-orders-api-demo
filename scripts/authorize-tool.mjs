@@ -14,7 +14,7 @@
 
 import { pathToFileURL } from "node:url";
 import { Buffer } from "node:buffer";
-import { DEFAULT_SCOPE, loadTaskContract, scopePrefixes } from "./task-contract.mjs";
+import { DEFAULT_SCOPE, loadTaskContract, scopePrefixes, taskScope } from "./task-contract.mjs";
 
 /**
  * Repository-wide fallback, used when no task contract is in scope. A task
@@ -186,7 +186,7 @@ async function main() {
       const taskIndex = process.argv.indexOf("--task");
       const contract = loadTaskContract(taskIndex === -1 ? undefined : process.argv[taskIndex + 1]);
       decision = evaluateToolCall(parsed.value, {
-        scope: contract?.scope,
+        scope: taskScope(contract),
         taskId: contract?.id,
       });
     } catch (error) {

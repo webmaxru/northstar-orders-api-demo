@@ -7,7 +7,7 @@
  * that tells a reviewer which of them exist for this run, so "missing evidence"
  * becomes a value a gate can read instead of something a reviewer has to notice.
  *
- * Acceptance criteria are not hardcoded here. They come from the task contract,
+ * Success criteria are not hardcoded here. They come from the task contract,
  * because this script outlives every work item.
  *
  * Usage: node scripts/build-execution-report.mjs --task <ID> [--out artifacts/report.json]
@@ -80,7 +80,7 @@ function build({ alsoRequire, contract }) {
     present: existsSync(resolve(REPO_ROOT, item.path)),
   }));
 
-  const criteria = coverage(contract.acceptanceCriteria, [
+  const criteria = coverage(contract.successCriteria, [
     ...(unit.testNames ?? []),
     ...(acceptance.testNames ?? []),
   ]);
@@ -106,7 +106,7 @@ function build({ alsoRequire, contract }) {
       workflow: process.env.GITHUB_WORKFLOW ?? null,
     },
     checks: { unit, acceptance },
-    acceptanceCriteria: criteria,
+    successCriteria: criteria,
     evidence,
     missingEvidence,
     unprovenCriteria,
@@ -134,7 +134,7 @@ const summary = [
   `decision=${report.decision}`,
   `unit=${report.checks.unit.present ? `${report.checks.unit.tests} tests, ${report.checks.unit.failures + report.checks.unit.errors} failed` : "absent"}`,
   `acceptance=${report.checks.acceptance.present ? `${report.checks.acceptance.tests} tests, ${report.checks.acceptance.failures + report.checks.acceptance.errors} failed` : "absent"}`,
-  `criteriaProven=${report.acceptanceCriteria.filter((c) => c.proven).length}/${report.acceptanceCriteria.length}`,
+  `criteriaProven=${report.successCriteria.filter((c) => c.proven).length}/${report.successCriteria.length}`,
 ].join("  ");
 
 process.stdout.write(`${summary}\n${target}\n`);

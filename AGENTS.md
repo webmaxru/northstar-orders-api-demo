@@ -10,13 +10,14 @@ Every task arrives with its own contract:
 
 - a work item in `docs/work-items/<ID>.md` stating intent and acceptance
   criteria,
-- a machine-readable `docs/work-items/<ID>.contract.json` stating allowed
-  scope, prohibited scope, stop conditions, and the evidence that proves each
-  acceptance criterion.
+- a machine-readable `docs/work-items/<ID>.contract.json` with three sections:
+  `inputs` (work item, ADRs, allowed and prohibited scope, constraints),
+  `outputs` (plan, changeset, evidence), and `successCriteria` (each with the
+  evidence that proves it).
 
 Read both, plus `docs/architecture.md` and every ADR the work item references,
-before proposing a change. Keep edits inside the contract's allowed scope. Do
-not change workflows, dependencies, public response fields, or database schema
+before proposing a change. Keep edits inside `inputs.scope.allowed`. Do not
+change workflows, dependencies, public response fields, or database schema
 without stopping for approval.
 
 ## Capability boundary
@@ -35,8 +36,9 @@ runs.
 
 1. Plan and assumptions.
 2. Focused unit tests.
-3. Acceptance tests covering every criterion in the task contract, including
-   behavior across two service instances where the criteria require it.
+3. Acceptance tests covering every success criterion in the task contract,
+   including behavior across two service instances where the criteria require
+   it.
 4. `npm run lint`, `npm run typecheck`, and `npm run test:unit`.
 5. Security and dependency workflow results.
 6. Limits, rollback, and escalation notes.

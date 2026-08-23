@@ -4,8 +4,13 @@
  * Task identity is an input, never a constant. Nothing in this repository's
  * durable context - AGENTS.md, copilot-instructions.md, the agent profiles, the
  * path instructions - names a work item, because those files outlive every work
- * item. The task supplies its own scope, stop conditions, and acceptance
- * criteria through a contract file.
+ * item. The task supplies its own inputs, outputs, and success criteria through
+ * a contract file.
+ *
+ * The Inputs / Outputs / Success criteria structure comes from Microsoft Learn:
+ * https://learn.microsoft.com/en-us/training/modules/design-agent-architecture-integration/3-inputs-outputs-success-criteria
+ * Learn shows those sections as prose in an issue or pull request. Expressing
+ * them as JSON so a gate can read them is this repository's choice.
  *
  * Resolution order:
  *   1. an explicit id passed by the caller (`--task WI-1842`)
@@ -33,7 +38,7 @@ export function resolveTaskId(explicitId) {
 }
 
 /**
- * @returns {null | {id: string, scope: {allowed: string[], prohibited: string[]}, acceptanceCriteria: Array<{id: string, statement: string, provenBy: string}>, stopConditions: string[]}}
+ * @returns {null | import("./task-contract.d.mts").TaskContract}
  */
 export function loadTaskContract(explicitId) {
   const taskId = resolveTaskId(explicitId);
@@ -47,6 +52,11 @@ export function loadTaskContract(explicitId) {
     );
   }
   return JSON.parse(readFileSync(path, "utf8"));
+}
+
+/** The scope a contract grants, or the repository default when there is none. */
+export function taskScope(contract) {
+  return contract?.inputs?.scope ?? DEFAULT_SCOPE;
 }
 
 /** Turn a scope glob such as "src/**" into a path prefix. */

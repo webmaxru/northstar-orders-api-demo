@@ -182,7 +182,7 @@ this; do not improvise file moves on stage.
 
 | Slide | Timing | Show | Duration |
 | --- | --- | --- | --- |
-| 23 | 1:30 | `artifacts/report.json`, the `acceptanceCriteria` array | 25s. Six criteria, each with the test that proves it. Outcome, not activity. |
+| 23 | 1:30 | `artifacts/report.json`, the `successCriteria` array | 25s. Six criteria, each with the test that proves it. Outcome, not activity. |
 | 24 | 1:45 | Slide only | Risk and reversibility. Mention CODEOWNERS covers `/migrations/` and `/src/services/`. |
 | 25 | 1:30 | **Terminal.** See below. | 45s. |
 | 26 | 1:30 | `git branch -r` | 20s. baseline, context-enabled, naive, governed, engineering-system. The ladder is visible in the repo. |

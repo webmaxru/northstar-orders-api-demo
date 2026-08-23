@@ -6,7 +6,7 @@ const contract = loadTaskContract("WI-1842");
 if (!contract) {
   throw new Error("WI-1842 contract is required for these tests");
 }
-const context = { scope: contract.scope, taskId: contract.id };
+const context = { scope: contract.inputs.scope, taskId: contract.id };
 
 /**
  * The fixture in docs/fixtures/untrusted-issue-comment.md asks an agent to do
