@@ -147,11 +147,35 @@ echo '{"toolName":"edit","toolArgs":{"path":"src/../.github/workflows/ci.yml"}}'
 
 | Slide | Timing | Show | Duration |
 | --- | --- | --- | --- |
-| 18 | 1:45 | `.github/workflows/` file list + `.github/CODEOWNERS` | 30s. Four independent gates. Note `codeql.yml` runs `check-sarif.mjs`, so findings fail the run instead of only being uploaded. |
+| 18 | 1:45 | `.github/workflows/` file list + `.github/CODEOWNERS` | 30s. Four independent gates, listed below. Land the point on CodeQL: `check-sarif.mjs` makes findings *fail the run* instead of only being uploaded. |
 | 19 | 1:45 | `.github/pull_request_template.md`, then `artifacts/report.json` | 45s. Template first (Objective, Plan, Evidence, Risks, Rollback), then the machine-readable index. |
 | 20 | 2:00 | `.github/agents/risk-reviewer.agent.md` | 35s. It cannot edit and cannot run commands, so it cannot be the reason a fix looks verified. |
 | 21 | 1:30 | PR #3 artifacts list | 25s. `execution-report`, `unit-test-evidence`, `acceptance-test-evidence`, `codeql-sarif-evidence`. Versioned handoffs, not chat history. |
 | 22 | 1:45 | `docs/RECOVERY-POLICY.md` | 30s. The table of layers. |
+
+#### The four gates on slide 18
+
+Each runs independently, on a different signal, and each leaves an artifact.
+
+| Workflow | Check name | Runs on | What it enforces | Artifact |
+| --- | --- | --- | --- | --- |
+| `ci.yml` | `quality` | push + PR | `npm run lint`, `npm run typecheck`, `npm run test:unit:ci` | `unit-test-evidence` |
+| `acceptance.yml` | `acceptance` | PR + manual | PostgreSQL service container, unit and acceptance suites, resolves the task contract, then builds the execution report | `acceptance-test-evidence`, `execution-report` |
+| `codeql.yml` | `analyze` | push to `main` + PR | CodeQL init and analyze, then `scripts/check-sarif.mjs` fails the run if the SARIF holds any finding | `codeql-sarif-evidence` |
+| `dependency-review.yml` | `review` | PR | `npm audit --audit-level=high` | none |
+
+Two things worth saying out loud, because someone will ask:
+
+- **CodeQL uploads nothing to code scanning here.** The repository is private
+  without GitHub Advanced Security, so `upload: never` is set and the SARIF is
+  gated locally instead. That is the whole reason `check-sarif.mjs` exists.
+- **`dependency-review.yml` runs `npm audit`, not GitHub's dependency-review
+  action.** The workflow name is aspirational; say "dependency gate" rather
+  than naming the action.
+
+`.github/CODEOWNERS` is a fifth control but not one of the four: it is a human
+gate on `/migrations/` and `/src/services/`, and it belongs to slide 24's
+risk-and-reversibility argument rather than to the automated-gates slide.
 
 Slide 19 has the best optional live beat in the deck. If you have 30 spare
 seconds and want the room to feel the gate:
