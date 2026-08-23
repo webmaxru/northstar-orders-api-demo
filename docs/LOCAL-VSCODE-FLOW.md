@@ -46,12 +46,31 @@ call, so the capability boundary **is** enforced locally. Two caveats:
 | Tool names | `editFiles`, `runCommands`, ... | `edit`, `bash`, ... |
 | Output | nested in `hookSpecificOutput` | flat `permissionDecision` |
 
-`scripts/authorize-tool.mjs` reads both input shapes, maps both sets of tool
-names, and writes both output shapes. Anything it does not recognize is denied,
-which is the correct direction for a boundary.
+`scripts/authorize-tool.mjs` reads both input shapes, classifies the tool, and
+writes both output shapes.
 
-> Tool names are host-specific and can change. Confirm the real names from the
-> agent debug log before relying on them in your own repository.
+### Three decisions, not two
+
+Tool names are host-specific and numerous. VS Code alone ships `readFile`,
+`listDirectory`, `fileSearch`, `textSearch`, `usages`, `problems`, `changes`,
+`runTests` and more, and the set grows. So the policy classifies by
+**capability**, from explicit names first and then from the words in the name:
+
+| Classified as | Decision |
+| --- | --- |
+| read | `allow` |
+| edit | `allow` inside the contract scope, `deny` outside |
+| shell | `deny` on the dangerous patterns, `allow` on the validation allowlist, otherwise `deny` |
+| unknown | **`ask`** |
+
+`ask` matters. An earlier version denied every unrecognized tool name, which
+sounds stricter and is actually worse: the agent was denied its first
+`readFile`, could not start, and the natural reaction is to switch the hook off
+entirely - which removes the boundary completely. Asking keeps the boundary on,
+puts a human in the loop for the one call the policy cannot judge, and names the
+tool in the reason so you can classify it properly afterwards.
+
+A dangerous command string is still denied whatever the tool is called.
 
 **`copilot-setup-steps.yml` is still a cloud-agent concept.** Locally you are
 the environment: `npm ci` and `npm run db:up` do its job.

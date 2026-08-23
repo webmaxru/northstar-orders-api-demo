@@ -1,4 +1,4 @@
-export type PermissionDecision = "allow" | "deny";
+export type PermissionDecision = "allow" | "deny" | "ask";
 
 export interface ToolCall {
   /** GitHub cloud agent and Copilot CLI. */
@@ -54,3 +54,6 @@ export declare function normalizeToolCall(call: ToolCall): {
 };
 
 export declare function renderDecision(decision: AuthorizationDecision): RenderedDecision;
+export declare function tokenize(name: string): string[];
+
+export declare function classifyTool(rawName: string): "read" | "edit" | "shell" | "unknown";

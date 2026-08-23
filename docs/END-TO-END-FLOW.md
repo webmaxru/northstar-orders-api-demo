@@ -95,13 +95,18 @@ Before **every** tool call, `.github/hooks/authorize-tool.json` runs
 
 1. `parsePayload()` extracts the tool call from stdin, tolerating shell noise.
 2. `loadTaskContract()` reads `artifacts/task-contract.json`.
-3. `evaluateToolCall()` decides:
-   - `read` / `search` - always allowed
-   - `edit` / `write` - allowed only inside `inputs.scope.allowed`
-   - `bash` / `shell` - denied on publishing, dependency installs, environment
+3. `classifyTool()` works out the capability from the tool name, and
+   `evaluateToolCall()` decides:
+   - read - always allowed
+   - edit - allowed only inside `inputs.scope.allowed`
+   - shell - denied on publishing, dependency installs, environment
      enumeration, outbound network, destructive SQL; otherwise allowed only if
      it matches the validation allowlist
-   - any other tool - denied by default
+   - unknown - **`ask`**, so a human decides and the reason names the tool
+
+Classifying by capability rather than by an allowlist of names matters because
+tool names differ per harness and keep growing. Denying unknown names breaks the
+agent on its first unfamiliar read, and a broken hook gets switched off.
 
 **Why before and not after:** a check that runs after the tool has executed is a
 log entry, not a boundary. This is also why the decision does not read the

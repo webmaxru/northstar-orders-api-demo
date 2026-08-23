@@ -69,21 +69,38 @@ function deny(reason) {
 }
 
 /**
- * Normalize a tool call across harnesses.
+ * Hand the decision to the human.
  *
- * The two hosts disagree on field names and tool names:
- *   GitHub cloud agent / Copilot CLI -> { toolName: "edit", toolArgs: { path } }
- *   VS Code                          -> { tool_name: "editFiles", tool_input: { files: [...] } }
- *
- * Tool names are host-specific and can change. Anything unrecognized falls
- * through to a default deny, which is the correct direction for a boundary.
- * Confirm real names from the VS Code agent debug log before relying on them.
+ * Used when the policy genuinely cannot tell. Denying an unrecognized tool
+ * sounds safer, but it breaks the agent on its first unfamiliar read and the
+ * usual response is to switch the hook off entirely - which removes the
+ * boundary completely. Asking keeps the boundary on and surfaces the tool name.
  */
-const TOOL_ALIASES = {
+function ask(reason) {
+  return { permissionDecision: "ask", permissionDecisionReason: reason };
+}
+
+/**
+ * Classify a tool by capability, not by an exhaustive list of names.
+ *
+ * Tool names are host-specific, numerous, and change between releases. VS Code
+ * alone ships readFile, listDirectory, fileSearch, textSearch, usages,
+ * problems, changes, runTests and more. An allowlist of names cannot keep up,
+ * and denying every unrecognized name breaks the agent on its first read.
+ *
+ * So: recognize capability from explicit names first, then from the shape of
+ * the name, and treat anything still unknown as "ask" rather than "deny".
+ */
+const EXPLICIT_KINDS = {
   read: "read",
-  search: "search",
-  codebase: "search",
+  readfile: "read",
+  view: "read",
+  search: "read",
+  codebase: "read",
   fetch: "read",
+  usages: "read",
+  problems: "read",
+  changes: "read",
   edit: "edit",
   write: "edit",
   editfiles: "edit",
@@ -93,18 +110,54 @@ const TOOL_ALIASES = {
   shell: "shell",
   runcommands: "shell",
   runinterminal: "shell",
-  runtasks: "shell",
 };
+
+const READ_WORDS = new Set([
+  "read", "view", "list", "search", "find", "get", "inspect", "usage", "usages",
+  "problem", "problems", "change", "changes", "diff", "fetch", "browse",
+  "think", "todo", "todos", "codebase", "grep", "glob", "symbol", "symbols",
+]);
+const EDIT_WORDS = new Set([
+  "edit", "write", "create", "apply", "patch", "insert", "replace",
+  "delete", "remove", "rename", "move",
+]);
+const SHELL_WORDS = new Set([
+  "run", "exec", "execute", "terminal", "command", "commands", "shell",
+  "bash", "powershell", "task", "tasks", "process", "install",
+]);
+
+/** Split editFiles / run_in_terminal / read-file into lowercase words. */
+export function tokenize(name) {
+  return String(name ?? "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean)
+    .map((word) => word.toLowerCase());
+}
+
+export function classifyTool(rawName) {
+  const name = String(rawName ?? "");
+  const explicit = EXPLICIT_KINDS[name.toLowerCase()];
+  if (explicit) return explicit;
+  if (!name) return "unknown";
+
+  const words = tokenize(name);
+  // Order matters: a name like "runTests" both executes and reads, and the
+  // execute reading is the one with consequences.
+  if (words.some((word) => SHELL_WORDS.has(word))) return "shell";
+  if (words.some((word) => EDIT_WORDS.has(word))) return "edit";
+  if (words.some((word) => READ_WORDS.has(word))) return "read";
+  return "unknown";
+}
 
 export function normalizeToolCall(call) {
   const rawName = String(call?.toolName ?? call?.tool_name ?? "");
   const args = call?.toolArgs ?? call?.tool_input ?? {};
-  const kind = TOOL_ALIASES[rawName.toLowerCase()] ?? rawName;
 
   const paths = [];
-  if (typeof args.path === "string") paths.push(args.path);
-  if (typeof args.file === "string") paths.push(args.file);
-  if (typeof args.filePath === "string") paths.push(args.filePath);
+  for (const key of ["path", "file", "filePath", "uri"]) {
+    if (typeof args[key] === "string") paths.push(args[key]);
+  }
   if (Array.isArray(args.files)) {
     for (const entry of args.files) {
       if (typeof entry === "string") paths.push(entry);
@@ -114,7 +167,7 @@ export function normalizeToolCall(call) {
 
   return {
     rawName,
-    kind,
+    kind: classifyTool(rawName),
     paths,
     command: String(args.command ?? args.commandLine ?? "").trim(),
   };
@@ -123,21 +176,28 @@ export function normalizeToolCall(call) {
 /**
  * @param {{toolName?: string, tool_name?: string, toolArgs?: Record<string, unknown>, tool_input?: Record<string, unknown>}} call
  * @param {{scope?: {allowed: string[]}, taskId?: string}} [context]
- *   Scope comes from the active task contract. Omit it and the repository-wide
- *   default applies.
  */
 export function evaluateToolCall(call, context = {}) {
   const { rawName, kind, paths, command } = normalizeToolCall(call);
   const prefixes = scopePrefixes(context.scope ?? DEFAULT_SCOPE);
   const where = context.taskId ? `the ${context.taskId} scope` : "the approved scope";
 
-  if (kind === "read" || kind === "search") {
+  // A dangerous string is dangerous whatever the tool claims to be.
+  if (command) {
+    for (const { pattern, reason } of DENIED_COMMAND_PATTERNS) {
+      if (pattern.test(command)) {
+        return deny(reason);
+      }
+    }
+  }
+
+  if (kind === "read") {
     return allow("read-only tool");
   }
 
   if (kind === "edit") {
     if (paths.length === 0) {
-      return deny("write tool call did not name a target path");
+      return ask(`"${rawName}" may write but named no path this policy can check`);
     }
     const blocked = paths.filter((target) => !isWritable(target, prefixes));
     if (blocked.length > 0) {
@@ -150,12 +210,7 @@ export function evaluateToolCall(call, context = {}) {
 
   if (kind === "shell") {
     if (!command) {
-      return deny("shell tool call did not include a command");
-    }
-    for (const { pattern, reason } of DENIED_COMMAND_PATTERNS) {
-      if (pattern.test(command)) {
-        return deny(reason);
-      }
+      return ask(`"${rawName}" may execute but named no command this policy can check`);
     }
     if (ALLOWED_COMMANDS.some((pattern) => pattern.test(command))) {
       return allow("command is in the validation allowlist");
@@ -163,9 +218,10 @@ export function evaluateToolCall(call, context = {}) {
     return deny("command is not in the validation allowlist");
   }
 
-  return deny(`unknown tool "${rawName}" is denied by default`);
+  // Unknown capability. Do not guess in either direction: let the human decide,
+  // and the reason names the tool so the policy can learn it.
+  return ask(`"${rawName}" is not a tool this policy recognizes`);
 }
-
 async function readStdin() {
   const chunks = [];
   for await (const chunk of process.stdin) {

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { evaluateToolCall, parsePayload, renderDecision } from "../../scripts/authorize-tool.mjs";
+import {
+  classifyTool,
+  evaluateToolCall,
+  parsePayload,
+  renderDecision,
+} from "../../scripts/authorize-tool.mjs";
 import { contractFromFile } from "../../scripts/task-contract.mjs";
 
 // The contract comes from the issue. Tests parse the seed file that creates it.
@@ -204,10 +209,12 @@ describe("works with both harness schemas", () => {
     });
   });
 
-  it("still denies an unrecognized tool name from any harness", () => {
-    expect(evaluateToolCall({ tool_name: "deployToProduction" }, context)).toMatchObject({
-      permissionDecision: "deny",
-    });
+  it("asks rather than denies when the tool is unrecognized", () => {
+    // Denying every unfamiliar name breaks the agent on its first read, and the
+    // usual response is to switch the hook off, which removes the boundary.
+    const decision = evaluateToolCall({ tool_name: "deployToProduction" }, context);
+    expect(decision.permissionDecision).toBe("ask");
+    expect(decision.permissionDecisionReason).toMatch(/deployToProduction/);
   });
 });
 
@@ -267,9 +274,50 @@ describe("capability boundary during normal work", () => {
     ).toMatchObject({ permissionDecision: "deny" });
   });
 
-  it("denies unknown tools by default", () => {
-    expect(evaluateToolCall({ toolName: "deploy", toolArgs: {} }, context)).toMatchObject({
-      permissionDecision: "deny",
+  it("asks about unknown tools instead of denying them", () => {
+    expect(evaluateToolCall({ toolName: "somethingNovel", toolArgs: {} }, context)).toMatchObject({
+      permissionDecision: "ask",
     });
+  });
+});
+
+describe("capability is classified from the tool name, not an allowlist", () => {
+  it.each([
+    ["readFile", "read"],
+    ["read_file", "read"],
+    ["listDirectory", "read"],
+    ["fileSearch", "read"],
+    ["textSearch", "read"],
+    ["usages", "read"],
+    ["problems", "read"],
+    ["changes", "read"],
+    ["editFiles", "edit"],
+    ["createFile", "edit"],
+    ["applyPatch", "edit"],
+    ["runInTerminal", "shell"],
+    ["runCommands", "shell"],
+    ["runTests", "shell"],
+    ["someBrandNewTool", "unknown"],
+    ["deployToProduction", "unknown"],
+  ])("classifies %s as %s", (name, kind) => {
+    expect(classifyTool(name)).toBe(kind);
+  });
+
+  it("never denies a read tool it has not seen before", () => {
+    for (const name of ["readNotebookCell", "listCodeUsages", "searchWorkspaceSymbols"]) {
+      expect(
+        evaluateToolCall({ tool_name: name, tool_input: {} }, context).permissionDecision,
+        `${name} should not be denied`,
+      ).not.toBe("deny");
+    }
+  });
+
+  it("still denies a dangerous command whatever the tool is called", () => {
+    expect(
+      evaluateToolCall(
+        { tool_name: "someUnknownRunner", tool_input: { command: "git push origin main" } },
+        context,
+      ),
+    ).toMatchObject({ permissionDecision: "deny" });
   });
 });
