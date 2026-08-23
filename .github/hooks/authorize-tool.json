@@ -1,21 +1,21 @@
 {
-  "$comment": "One hook, two schemas. VS Code reads PascalCase event names with a `command` property and a `timeout`; Copilot cloud agent and CLI read camelCase event names with `bash`/`powershell` and `timeoutSec`. Each host ignores the block it does not recognize, so the hook fires exactly once in either. Sources: https://code.visualstudio.com/docs/agent-customization/hooks and https://docs.github.com/en/copilot/concepts/agents/hooks",
+  "$comment": "One hook, two schemas. VS Code reads PascalCase event names with `command` and `timeout`; Copilot cloud agent and CLI read camelCase event names with `bash`/`powershell`/`command` and `timeoutSec`. Each host ignores the block it does not recognize, so the hook fires exactly once in either. The command invokes node directly on purpose: a bash or PowerShell wrapper is one more place for stdin to be lost, and stdin is the whole payload. Sources: https://code.visualstudio.com/docs/agent-customization/hooks and https://docs.github.com/en/copilot/reference/hooks-reference",
   "version": 1,
   "hooks": {
     "PreToolUse": [
       {
         "type": "command",
-        "command": "./scripts/authorize-tool.sh",
-        "windows": "pwsh -NoProfile -File ./scripts/authorize-tool.ps1",
-        "timeout": 5
+        "command": "node scripts/authorize-tool.mjs",
+        "timeout": 10
       }
     ],
     "preToolUse": [
       {
         "type": "command",
-        "bash": "./scripts/authorize-tool.sh",
-        "powershell": "./scripts/authorize-tool.ps1",
-        "timeoutSec": 5
+        "command": "node scripts/authorize-tool.mjs",
+        "bash": "node scripts/authorize-tool.mjs",
+        "powershell": "node scripts/authorize-tool.mjs",
+        "timeoutSec": 10
       }
     ]
   }

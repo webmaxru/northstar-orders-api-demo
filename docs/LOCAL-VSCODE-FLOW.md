@@ -197,9 +197,9 @@ For the full narrative version, point the agent at
 `docs/fixtures/untrusted-issue-comment.md` and let it try to follow the hostile
 instructions. The model may be persuaded; the decision does not depend on that.
 
-> On Windows the hook runs `scripts/authorize-tool.ps1`; on Unix,
-> `scripts/authorize-tool.sh`. Both delegate to `scripts/authorize-tool.mjs`, so
-> there is one policy and one set of tests.
+> The hook command is `node scripts/authorize-tool.mjs` on every platform.
+> There is deliberately no shell wrapper: the entire payload arrives on stdin,
+> and a bash or PowerShell wrapper is one more place for it to be lost.
 ## Step 6 - Validate locally
 
 ```powershell
@@ -317,3 +317,5 @@ the next run to resolve the contract again.
 | Acceptance tests refuse to connect | `npm run db:up`; compose maps host port **55432** |
 | `npm run validate` fails on `instructions:check` | `.github/copilot-instructions.md` was hand-edited - run `npm run instructions:sync` |
 | The hook never fires in VS Code | Agent hooks are Preview and can be disabled by policy. Check **Developer: Show Agent Debug Logs**, and confirm the event key is `PreToolUse`. |
+| Every call says "the hook received no tool call on stdin" | The hook command is not delivering stdin. It must be `node scripts/authorize-tool.mjs`, with no bash or PowerShell wrapper in between. |
+| The agent says reads are rejected and falls back to a CLI | An older build denied unrecognized tool names. Pull the latest: unknown tools now return `ask`, and read tools are classified by capability. |

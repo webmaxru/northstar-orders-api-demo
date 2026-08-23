@@ -245,7 +245,17 @@ async function readStdin() {
 export function parsePayload(raw) {
   const text = String(raw ?? "").trim();
   if (!text) {
-    return { ok: false, reason: "no tool call was provided on stdin" };
+    // Never block on an empty payload. If the host did not deliver stdin - a
+    // wrapper script swallowing it, a shell quoting problem, an event that
+    // sends nothing - denying would stop the agent on every single call and the
+    // hook would be switched off. Ask instead, and say what to check.
+    return {
+      ok: false,
+      decision: ask(
+        "the hook received no tool call on stdin, so this call could not be evaluated. " +
+          "Check that the hook command runs `node scripts/authorize-tool.mjs` directly rather than through a shell wrapper.",
+      ),
+    };
   }
 
   try {
@@ -285,7 +295,9 @@ export function parsePayload(raw) {
   const preview = text.length > 120 ? `${text.slice(0, 120)}...` : text;
   return {
     ok: false,
-    reason: `tool call payload was not valid JSON. Received: ${JSON.stringify(preview)}. If you pasted a multi-line command, note that a trailing "\\" is a bash line continuation and is not one in PowerShell.`,
+    decision: deny(
+      `tool call payload was not valid JSON. Received: ${JSON.stringify(preview)}. If you pasted a multi-line command, note that a trailing "\\" is a bash line continuation and is not one in PowerShell.`,
+    ),
   };
 }
 
@@ -311,7 +323,7 @@ async function main() {
   const parsed = parsePayload(await readStdin());
   let decision;
   if (!parsed.ok) {
-    decision = deny(parsed.reason);
+    decision = parsed.decision;
   } else {
     try {
       const contract = loadTaskContract();

@@ -34,7 +34,7 @@ export declare function evaluateToolCall(
 
 export type ParsedPayload =
   | { ok: true; value: unknown }
-  | { ok: false; reason: string };
+  | { ok: false; decision: AuthorizationDecision };
 
 export declare function parsePayload(raw: string): ParsedPayload;
 

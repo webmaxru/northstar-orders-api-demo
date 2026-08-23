@@ -132,22 +132,27 @@ describe("stdin payloads survive shell noise", () => {
     }
   });
 
-  it("reports what it received when there is no object at all", () => {
+  it("denies and reports what it received when there is no object at all", () => {
     const parsed = parsePayload("not json at all");
 
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) {
-      expect(parsed.reason).toMatch(/not json at all/);
-      expect(parsed.reason).toMatch(/line continuation/);
+      expect(parsed.decision.permissionDecision).toBe("deny");
+      expect(parsed.decision.permissionDecisionReason).toMatch(/not json at all/);
+      expect(parsed.decision.permissionDecisionReason).toMatch(/line continuation/);
     }
   });
 
-  it("reports an empty payload distinctly", () => {
+  it("asks, rather than denies, when stdin is empty", () => {
+    // A host that does not deliver stdin would otherwise block every call, and
+    // the hook would be turned off. Ask, and say what to check.
     const parsed = parsePayload("   ");
 
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) {
-      expect(parsed.reason).toMatch(/no tool call was provided/);
+      expect(parsed.decision.permissionDecision).toBe("ask");
+      expect(parsed.decision.permissionDecisionReason).toMatch(/no tool call on stdin/);
+      expect(parsed.decision.permissionDecisionReason).toMatch(/authorize-tool\.mjs/);
     }
   });
 });
