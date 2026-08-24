@@ -7,6 +7,7 @@ import {
   planBranch,
   publish,
   renderPlan,
+  resolveBase,
 } from "../../scripts/publish-plan.mjs";
 import { validatePlan } from "../../scripts/check-plan.mjs";
 
@@ -61,15 +62,48 @@ describe("the plan is a pull request, not a chat message", () => {
     expect(calls.some(([a, b]) => a === "pr" && b === "create")).toBe(false);
   });
 
-  it("opens a plan-first PR as a draft off the default branch", () => {
-    const vcs = () => "origin/main\n";
+  it("opens a plan-first PR as a draft off the branch being planned against", () => {
+    const vcs = (args: string[]) => {
+      if (args[1] === "--abbrev-ref" && args[2] === "HEAD") return "demo/implement-start\n";
+      return "abc123\n";
+    };
+    const created: string[][] = [];
     const run = (args: string[]) => {
+      created.push(args);
       if (args[0] === "pr" && args[1] === "list") return "[]";
       return "https://github.com/o/r/pull/12\n";
     };
 
     const result = publish(CONTRACT, GOOD_PLAN, { run, vcs, at: "now" });
     expect(result).toMatchObject({ updated: false, number: 12 });
+
+    const create = created.find(([a, b]) => a === "pr" && b === "create")!;
+    expect(create[create.indexOf("--base") + 1]).toBe("demo/implement-start");
+    expect(create[create.indexOf("--head") + 1]).toBe("plan/wi-1842");
+  });
+});
+
+describe("the plan branch is cut from the branch you are on", () => {
+  // Cutting it from origin/HEAD put the plan branch on a baseline with no
+  // agents, prompts or hooks, so /implement could not run there at all.
+  it("uses the current branch", () => {
+    const vcs = (args: string[]) =>
+      args[2] === "HEAD" ? "demo/implement-start\n" : "main\n";
+    expect(resolveBase(vcs)).toBe("demo/implement-start");
+  });
+
+  it("falls back to the default branch when HEAD is detached", () => {
+    const vcs = (args: string[]) => (args[2] === "HEAD" ? "HEAD\n" : "origin/main\n");
+    expect(resolveBase(vcs)).toBe("main");
+  });
+
+  it("honours an explicit override", () => {
+    const vcs = () => {
+      throw new Error("git should not be consulted when --base is given");
+    };
+    expect(resolveBase(vcs, "origin/demo/engineering-system")).toBe(
+      "demo/engineering-system",
+    );
   });
 });
 

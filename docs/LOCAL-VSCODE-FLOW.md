@@ -80,11 +80,17 @@ the environment: `npm ci` and `npm run db:up` do its job.
 ## One-time setup
 
 ```powershell
-git switch demo/engineering-system
+git switch demo/implement-start
 npm ci
 npm run db:up
 code .
 ```
+
+`demo/implement-start` carries the whole agent harness - `AGENTS.md`, the three
+agents, the prompts, the hooks, the workflows, the migration, the metrics and the
+acceptance suite - but **not** the idempotency implementation, so `/implement 4`
+has real work to do. `demo/engineering-system` is the finished reference: read it
+when you want the answer, not when you want to run the flow.
 
 Confirm VS Code sees the customizations: open the Command Palette and run
 **Chat: Open Customizations**. You should see three agents - `plan`,
@@ -124,7 +130,8 @@ publishes it.
 ## Step 2 - The plan becomes an artifact, then you approve it
 
 When the plan agent stops, its `Stop` hook opens a **plan-first pull request**:
-a branch off `main` with no code changes, whose description is the plan. That is
+a branch off the branch you are on, called `plan/wi-1842`, with no code changes,
+whose description is the plan. That is
 the whole point of the phase boundary - a plan that exists only in a chat thread
 cannot be reviewed by anyone who was not in the session, cannot be resumed
 tomorrow, and disappears when the window closes.
@@ -136,6 +143,14 @@ directly in the PR."
 Read the plan **in the PR**, not in the chat, and approve it with a review. The
 **Plan Gate** check runs against the description, so an empty template fails.
 
+Be clear on stage about what is enforced here and what is not. `require-plan`
+enforces that a plan exists and states scope, success criteria and a rollback or
+escalation path. **No check reads the review decision** - `fetchPlan()` only
+looks for an open PR on `plan/wi-1842` with a plan section. Approval is a human
+act, and the `implement` agent is instructed to trust the cached plan and stop if
+it looks stale. Which means a plan that has drifted from the repository will stop
+implementation, and should.
+
 If the hook could not read the session transcript it says so and gives you the
 command, rather than reporting success and persisting nothing:
 
@@ -146,10 +161,12 @@ node scripts/publish-plan.mjs --file plan.md
 ### Then start implementation in a fresh session
 
 Open a new chat and run `/implement 4` - the same issue number you planned with.
-Implementation commits land on the plan branch, under the approved plan.
+Implementation commits land on `plan/wi-1842`, under the approved plan, so the
+plan and the diff claiming to implement it stay in one review.
 That saved prompt selects the `implement` agent; the hook caches the contract
-and the approved plan beside it. It reads the approved plan
-from the issue.
+at `artifacts/task-contract.json` and the approved plan at
+`artifacts/task-plan.md`, pulled from the plan-first pull request - not from the
+issue. The issue is the contract; the PR is the proposal about it.
 
 The **Implement in this session** handoff button also works, but a fresh session
 is preferable: planning explored options, read files you will not touch, and
@@ -378,21 +395,24 @@ It is `["read", "search"]`: it cannot edit and cannot run commands, so it can
 neither repair what it finds nor be the reason a fix looks verified. Give it the
 diff, not your summary.
 
-## Step 9 - Open the pull request
+## Step 9 - Take the pull request out of draft
+
+There is nothing to create. `plan/wi-1842` and its pull request already exist
+from Step 2, and Step 3 onwards committed onto that branch. Push and mark it
+ready:
 
 ```powershell
-git switch -c wi-1842-local
-git add -A
-git commit -m "WI-1842: durable idempotency for POST /orders"
-git push -u origin wi-1842-local
-gh pr create --fill --body "Closes #4"
+git push
+gh pr ready 5
 ```
 
-Use `.github/pull_request_template.md`: Intent, Plan (paste Step 1's output),
-Evidence bundle, Review, Limits.
+The description already carries the plan; `publish-evidence.mjs` fills in the
+Evidence section once the suites have run, and the Review checklist and Limits
+sections come from `.github/pull_request_template.md`.
 
-`Closes #4` is what the Acceptance workflow greps for to find the contract.
-Without it CI falls back to the seed file and records a weaker provenance.
+`Closes #4` is already in the description, and is what the Acceptance workflow
+greps for to find the contract. Without it CI falls back to the seed file and
+records a weaker provenance.
 
 ## Step 10 - Watch CI re-run everything
 
@@ -430,8 +450,15 @@ what was not validated. Then a human merges.
 ```powershell
 npm run db:down
 Remove-Item -Recurse -Force artifacts
-git switch demo/engineering-system
-git branch -D wi-1842-local
+git switch demo/implement-start
+git branch -D plan/wi-1842
+```
+
+To rehearse again from a clean plan-first PR, recreate it from the sample plan:
+
+```powershell
+npm run contract:fetch -- --issue 4
+node scripts/publish-plan.mjs --file docs/demo-setup/sample-plan.md
 ```
 
 `artifacts/` is gitignored derived state; deleting it loses nothing and forces

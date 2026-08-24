@@ -42,3 +42,24 @@ truth.
 The seed files double as parser fixtures in
 `tests/unit/task-contract.test.ts`, so a change to the issue template that the
 parser cannot read fails CI.
+
+## The sample plan
+
+`sample-plan.md` is the rehearsal artifact for the plan-first pull request. It
+contains the plan and nothing else, because `publish-plan.mjs --file` puts the
+whole file into the PR description verbatim:
+
+```bash
+npm run contract:fetch -- --issue 4
+node scripts/publish-plan.mjs --file docs/demo-setup/sample-plan.md
+```
+
+If a plan-first PR is already open on `plan/wi-1842`, this edits its description
+rather than opening a second one. In a live session the read-only `plan` agent
+produces the plan and its `Stop` hook publishes it; the file exists so the demo
+can be rehearsed offline.
+
+Keep it honest against the branch it ships on. A plan naming files the
+repository does not have is exactly the stale artifact the `implement` agent is
+told to stop on, so this file is part of the demo's correctness rather than
+decoration.

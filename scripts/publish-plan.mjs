@@ -21,6 +21,7 @@
  *   node scripts/publish-plan.mjs --file plan.md
  *   node scripts/publish-plan.mjs < plan.md
  *   node scripts/publish-plan.mjs --show
+ *   node scripts/publish-plan.mjs --base <branch>
  *   node scripts/publish-plan.mjs --transcript <path>   (used by the Stop hook)
  */
 
@@ -199,6 +200,28 @@ export function findPlanPr(taskId, { run = gh } = {}) {
 }
 
 /**
+ * The branch the plan-first PR targets.
+ *
+ * The current branch, not the default branch. The plan proposes a change to the
+ * code you are looking at, and on a demo repository the agent harness itself
+ * lives on a branch - cutting the plan branch from `origin/HEAD` would land it
+ * on a baseline that has no agents, no prompts and no hooks, so `/implement`
+ * could not run there at all.
+ *
+ * Falls back to the default branch when HEAD is detached.
+ */
+export function resolveBase(vcs, override) {
+  if (override) return String(override).replace(/^origin\//, "");
+
+  const head = vcs(["rev-parse", "--abbrev-ref", "HEAD"]).trim();
+  if (head && head !== "HEAD") return head.replace(/^origin\//, "");
+
+  return vcs(["rev-parse", "--abbrev-ref", "origin/HEAD"])
+    .trim()
+    .replace(/^origin\//, "");
+}
+
+/**
  * Open the plan-first PR: a branch whose only content is the plan.
  *
  * The empty commit is deliberate. Option A wants a PR "that contains only the
@@ -206,11 +229,9 @@ export function findPlanPr(taskId, { run = gh } = {}) {
  * Implementation then lands as follow-up commits on the same branch, so the
  * approved plan and the diff claiming to implement it stay in one review.
  */
-function openPlanPr(contract, body, { run = gh, vcs = git } = {}) {
+function openPlanPr(contract, body, { run = gh, vcs = git, base: baseOverride } = {}) {
   const branch = planBranch(contract.id);
-  const base = vcs(["rev-parse", "--abbrev-ref", "origin/HEAD"])
-    .trim()
-    .replace(/^origin\//, "");
+  const base = resolveBase(vcs, baseOverride);
 
   vcs(["fetch", "origin", base]);
 
@@ -324,7 +345,7 @@ async function main() {
     process.exit(1);
   }
 
-  const result = publish(contract, body);
+  const result = publish(contract, body, { base: valueOf("--base") });
   process.stdout.write(
     `${result.updated ? "updated" : "opened"} plan PR #${result.number} for ${contract.id}\n`,
   );

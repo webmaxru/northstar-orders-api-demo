@@ -12,9 +12,14 @@ export interface PublishDeps {
   run?: (args: string[]) => string;
   vcs?: (args: string[]) => string;
   at?: string;
+  base?: string;
 }
 
 export declare function planBranch(taskId: string): string;
+export declare function resolveBase(
+  vcs: (args: string[]) => string,
+  override?: string,
+): string;
 export declare function renderPlan(body: string, meta?: { at?: string; issue?: number }): string;
 export declare function extractPlanSection(prBody: unknown): string | null;
 export declare function extractPlan(raw: unknown): string | null;
