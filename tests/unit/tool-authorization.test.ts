@@ -362,3 +362,36 @@ describe("an ungoverned session is not judged against someone else's task", () =
     ).toMatchObject({ permissionDecision: "deny" });
   });
 });
+describe("environment preparation asks instead of blocking the evidence bundle", () => {
+  // AGENTS.md requires acceptance evidence; the acceptance suite requires
+  // PostgreSQL. Denying the only command that provides it would make the
+  // contract demand evidence the boundary forbids producing.
+  it.each(["npm run db:up", "npm run db:down", "docker compose up -d postgres"])(
+    "asks about %s",
+    (command) => {
+      const decision = evaluateToolCall(
+        { tool_name: "runInTerminal", tool_input: { command } },
+        context,
+      );
+
+      expect(decision.permissionDecision).toBe("ask");
+      expect(decision.permissionDecisionReason).toMatch(/human decision/);
+    },
+  );
+
+  it("still denies dangerous commands in the same session", () => {
+    for (const command of ["git push origin main", "printenv", "npm install redis", "rm -rf /"]) {
+      expect(
+        evaluateToolCall({ tool_name: "runInTerminal", tool_input: { command } }, context)
+          .permissionDecision,
+        command,
+      ).toBe("deny");
+    }
+  });
+
+  it("still denies an unlisted, non-environment command", () => {
+    expect(
+      evaluateToolCall({ tool_name: "runInTerminal", tool_input: { command: "npm run build" } }, context),
+    ).toMatchObject({ permissionDecision: "deny" });
+  });
+});

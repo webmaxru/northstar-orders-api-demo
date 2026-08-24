@@ -184,6 +184,7 @@ the real issue was never read.
 | edit in scope | allow | allow |
 | edit out of scope | **deny**, naming the task | **ask** |
 | allowlisted command | allow | allow |
+| environment command (`db:up`) | **ask** | **ask** |
 | other command | **deny** | **ask** |
 | dangerous command | **deny** | **deny** |
 
@@ -255,7 +256,27 @@ instructions. The model may be persuaded; the decision does not depend on that.
 > The hook command is `node scripts/authorize-tool.mjs` on every platform.
 > There is deliberately no shell wrapper: the entire payload arrives on stdin,
 > and a bash or PowerShell wrapper is one more place for it to be lost.
-## Step 6 - Validate locally
+## Step 6 - Validation runs itself
+
+You do not have to run the suites after the implementer finishes. Its `Stop`
+hook runs `node scripts/agent-stop.mjs`, which runs both suites, rebuilds the
+execution report, and then decides:
+
+| Outcome | What happens |
+| --- | --- |
+| `ready_for_review` | the agent is allowed to stop, with the summary attached |
+| a criterion unproven, or evidence missing | **the stop is blocked** and the agent is handed the specific gap |
+| the acceptance suite cannot reach PostgreSQL | not blocked - an environment failure is not the agent's to repair |
+
+The agent does not decide when it is done. Renaming or weakening the test that
+proves a criterion does not help either: the contract names that test, so the
+criterion simply becomes unproven and the stop is blocked again.
+
+`stop_hook_active` is checked, so the gate never blocks twice in a turn.
+
+You can still run any of it by hand:
+
+## Step 6b - Validate by hand
 
 ```powershell
 npm run validate            # instructions:check, lint, typecheck, unit
@@ -370,7 +391,8 @@ the next run to resolve the contract again.
 | `npm run evidence` exits 2 | No contract resolved. Check `node scripts/session-start.mjs` output, or set `AGENT_TASK_ISSUE`. |
 | Denials say "outside the approved scope" instead of naming WI-1842 | Same: the contract cache is missing. |
 | The agent reads `docs/demo-setup/...` instead of the issue | Pull the latest: the contract is injected at session start and all three agent profiles forbid treating a seed as the contract. |
-| Acceptance tests refuse to connect | `npm run db:up`; compose maps host port **55432** |
+| Acceptance tests refuse to connect | `npm run db:up`; compose maps host port **55432**. If another clone of this repo is running, it holds the same port - stop that container first. |
+| The agent says `npm run db:up` was denied | Pull the latest. Environment commands now ask rather than deny, so approve it once and the acceptance evidence becomes producible. |
 | `npm run validate` fails on `instructions:check` | `.github/copilot-instructions.md` was hand-edited - run `npm run instructions:sync` |
 | The hook never fires in VS Code | Agent hooks are Preview and can be disabled by policy. Check **Developer: Show Agent Debug Logs**, and confirm the event key is `PreToolUse`. |
 | Every call says "the hook received no tool call on stdin" | The hook command is not delivering stdin. It must be `node scripts/authorize-tool.mjs`, with no bash or PowerShell wrapper in between. |

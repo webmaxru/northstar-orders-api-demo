@@ -37,6 +37,23 @@ const ALLOWED_COMMANDS = [
   /^git (status|diff|log)\b/,
 ];
 
+/**
+ * Commands that prepare the environment rather than validate the change.
+ *
+ * These are not dangerous, and the evidence bundle cannot be produced without
+ * them: AGENTS.md requires acceptance tests, and the acceptance suite requires
+ * PostgreSQL. Denying them outright makes the contract demand evidence the
+ * boundary forbids producing.
+ *
+ * They are also not the agent's to decide. Starting a container mutates the
+ * developer's machine, and in the cloud agent the database arrives as a service
+ * container instead. So: ask, and name the human action in the reason.
+ */
+const ENVIRONMENT_COMMANDS = [
+  { pattern: /^npm run db:(up|down)$/, action: "starts or stops the local PostgreSQL container" },
+  { pattern: /^docker compose (up|down)\b/, action: "changes local container state" },
+];
+
 const DENIED_COMMAND_PATTERNS = [
   { pattern: /\bgit\s+push\b/, reason: "publishing requires human approval" },
   { pattern: /\bgh\s+(pr\s+merge|release)\b/, reason: "merging and releasing require human approval" },
@@ -221,6 +238,13 @@ export function evaluateToolCall(call, context = {}) {
     }
     if (ALLOWED_COMMANDS.some((pattern) => pattern.test(command))) {
       return allow("command is in the validation allowlist");
+    }
+    const environment = ENVIRONMENT_COMMANDS.find(({ pattern }) => pattern.test(command));
+    if (environment) {
+      return ask(
+        `"${command}" ${environment.action}. Preparing the environment is a human decision, ` +
+          "not part of the task scope, but the acceptance evidence cannot be produced without it.",
+      );
     }
     return governed
       ? deny("command is not in the validation allowlist")

@@ -12,6 +12,10 @@ hooks:
     - type: command
       command: "node scripts/session-start.mjs --allow-sole-issue"
       timeout: 20
+  Stop:
+    - type: command
+      command: "node scripts/agent-stop.mjs"
+      timeout: 300
 ---
 
 You implement a plan that a human has already approved. You may edit files and
@@ -52,3 +56,9 @@ npm run test:acceptance
 Report the commands you ran and their outcome. Report what you did not
 validate. A green unit suite is not evidence for a criterion that describes
 behavior across process boundaries. Do not weaken a test to make a suite pass.
+
+You do not decide when you are done. When you stop, the `Stop` hook runs the
+suites and rebuilds the execution report. If a success criterion is unproven or
+required evidence is missing, your stop is blocked and you are handed the
+specific gap. Renaming or weakening the test that proves a criterion does not
+help: the contract names that test, so the criterion simply becomes unproven.

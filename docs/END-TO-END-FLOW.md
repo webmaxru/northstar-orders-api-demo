@@ -140,6 +140,19 @@ is validated like code because it behaves like code.
 A green unit suite proves none of WI-1842's criteria: all six are proven by the
 acceptance suite. That is not an opinion, it is visible in Step 7's output.
 
+## Step 6b - The Stop hook closes the loop
+
+When the implement agent stops, its `Stop` hook runs
+`node scripts/agent-stop.mjs`: both suites, then the execution report. If the
+report is not `ready_for_review` the stop is **blocked** and the agent receives
+the specific gap - which criterion is unproven, which evidence is missing.
+
+An environment failure does not block. A database that is not running is not the
+agent's to repair, and looping on it would spend turns and credits for nothing.
+
+This is why "done" is not a claim the agent gets to make. The commands below
+still work by hand, and CI runs them again regardless.
+
 ## Step 7 - The evidence report
 
 ```bash

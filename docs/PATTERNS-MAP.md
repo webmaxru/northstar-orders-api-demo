@@ -63,6 +63,7 @@ the test rules to find the one line that applies to it.
 | `.github/agents/implement.agent.md` | Adds `edit` and `shell`, still cannot publish or approve. |
 | `.github/agents/risk-reviewer.agent.md` | Back to `["read", "search"]`. A reviewer that cannot repair cannot quietly launder its own fix. |
 | `scripts/session-start.mjs` | Resolves the contract from its issue when the session starts and injects it, so no human has to remember a bootstrap command. |
+| `scripts/agent-stop.mjs` | Runs the suites and the evidence gate when the implementer stops, and blocks the stop when a criterion is unproven. The agent does not decide when it is done. |
 | `scripts/task-contract.mjs` | Scope is an input. The authorizer reads it from the active task contract, so least privilege can be per task and per phase. |
 | `.github/hooks/authorize-tool.json` | `PreToolUse` hook wired to `node scripts/authorize-tool.mjs` on every platform. Honored by Copilot cloud agent, Copilot CLI and [VS Code](https://code.visualstudio.com/docs/agent-customization/hooks) (Preview). The file declares both event-name schemas so one hook serves every harness. |
 | `scripts/authorize-tool.mjs` | The policy, unit tested. Classifies tools by capability and returns allow, deny, or ask - never guessing about a tool it does not recognize. |
