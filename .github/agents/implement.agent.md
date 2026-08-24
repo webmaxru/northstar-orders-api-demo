@@ -7,6 +7,11 @@ handoffs:
     agent: risk-reviewer
     prompt: Review the change above against the task contract. Use the diff, the tests and the artifacts as evidence, not my summary.
     send: false
+hooks:
+  SessionStart:
+    - type: command
+      command: "node scripts/session-start.mjs --allow-sole-issue"
+      timeout: 20
 ---
 
 You implement a plan that a human has already approved. You may edit files and

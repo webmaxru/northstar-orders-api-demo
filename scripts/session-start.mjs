@@ -18,8 +18,17 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { rmSync } from "node:fs";
+import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { cacheContract, parseIssueBody } from "./task-contract.mjs";
+import { CONTRACT_CACHE, cacheContract, parseIssueBody } from "./task-contract.mjs";
+
+const REPO_ROOT = resolve(import.meta.dirname, "..");
+
+/** Drop a contract left by an earlier session so it cannot govern this one. */
+function clearContract() {
+  rmSync(resolve(REPO_ROOT, CONTRACT_CACHE), { force: true });
+}
 
 function gh(args) {
   return execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
@@ -51,7 +60,11 @@ function soleAgentTaskIssue() {
   return issues.length === 1 ? issues[0].number : null;
 }
 
-export function resolveIssueNumber({ env = process.env, branch = currentBranch() } = {}) {
+export function resolveIssueNumber({
+  env = process.env,
+  branch = currentBranch(),
+  allowSoleIssue = false,
+} = {}) {
   if (env.AGENT_TASK_ISSUE) {
     return { number: Number(env.AGENT_TASK_ISSUE), how: "AGENT_TASK_ISSUE" };
   }
@@ -65,9 +78,14 @@ export function resolveIssueNumber({ env = process.env, branch = currentBranch()
     }
   }
 
-  const sole = soleAgentTaskIssue();
-  if (sole) {
-    return { number: sole, how: "the only open agent-task issue" };
+  // Only reachable when the caller says this session is about a task - that is,
+  // from an agent-scoped hook. A workspace-wide hook must not query GitHub on
+  // every unrelated chat, and must not adopt a task nobody asked for.
+  if (allowSoleIssue) {
+    const sole = soleAgentTaskIssue();
+    if (sole) {
+      return { number: sole, how: "the only open agent-task issue" };
+    }
   }
 
   return { number: null, how: "nothing" };
@@ -114,24 +132,31 @@ function emit(additionalContext) {
 }
 
 async function main() {
+  const allowSoleIssue = process.argv.includes("--allow-sole-issue");
   let resolution;
   try {
-    resolution = resolveIssueNumber();
+    resolution = resolveIssueNumber({ allowSoleIssue });
   } catch (error) {
+    clearContract();
     emit(
       `No task contract is active: could not query issues (${/** @type {Error} */ (error).message.split("\n")[0]}). ` +
-        "The capability boundary falls back to the repository-wide default. " +
+        "The capability boundary is ungoverned for this session. " +
         "Run `npm run contract:fetch -- --issue <n>` to set one.",
     );
     return;
   }
 
   if (!resolution.number) {
+    // Clear any contract left by a previous session. Inheriting one would mean
+    // an unrelated chat is judged against a task nobody is working on.
+    clearContract();
     emit(
-      "No task contract is active: no agent-task issue could be identified from " +
-        "AGENT_TASK_ISSUE, the branch name, or the open agent-task issues. " +
-        "The capability boundary falls back to the repository-wide default. " +
-        "Do not substitute a seed file from docs/demo-setup.",
+      "No task contract is active for this session. Nothing in the branch name " +
+        "or AGENT_TASK_ISSUE identifies a task, so no issue was read and no " +
+        "GitHub call was made. The capability boundary is ungoverned: reads are " +
+        "allowed and writes ask. Do not substitute a seed file from " +
+        "docs/demo-setup. To work on a task, check out a branch named after it, " +
+        "set AGENT_TASK_ISSUE, or run `npm run contract:fetch -- --issue <n>`.",
     );
     return;
   }

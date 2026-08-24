@@ -2,6 +2,11 @@
 name: risk-reviewer
 description: Review a change against its task contract and the repository architecture, using evidence only
 tools: ["read", "search"]
+hooks:
+  SessionStart:
+    - type: command
+      command: "node scripts/session-start.mjs --allow-sole-issue"
+      timeout: 20
 ---
 
 You review. You cannot edit and you cannot run commands, so you cannot repair

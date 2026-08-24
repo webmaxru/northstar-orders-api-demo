@@ -67,9 +67,11 @@ describe("scope comes from the task contract, not from this file", () => {
     expect(evaluateToolCall({ toolName: "edit", toolArgs: { path: "src/app.ts" } })).toMatchObject({
       permissionDecision: "allow",
     });
+    // Outside the default scope with no contract active: there is no contract
+    // to violate, so this asks. See the ungoverned-session tests below.
     expect(
       evaluateToolCall({ toolName: "edit", toolArgs: { path: "docs/architecture.md" } }),
-    ).toMatchObject({ permissionDecision: "deny" });
+    ).toMatchObject({ permissionDecision: "ask" });
   });
 
   it("honors a narrower scope supplied by a task", () => {
@@ -323,6 +325,40 @@ describe("capability is classified from the tool name, not an allowlist", () => 
         { tool_name: "someUnknownRunner", tool_input: { command: "git push origin main" } },
         context,
       ),
+    ).toMatchObject({ permissionDecision: "deny" });
+  });
+});
+describe("an ungoverned session is not judged against someone else's task", () => {
+  // No taskId means no contract was resolved for this session. There is no
+  // contract to violate, so out-of-scope work asks instead of being denied.
+  it("asks rather than denies an out-of-scope edit", () => {
+    const decision = evaluateToolCall({
+      tool_name: "editFiles",
+      tool_input: { files: ["README.md"] },
+    });
+
+    expect(decision.permissionDecision).toBe("ask");
+    expect(decision.permissionDecisionReason).toMatch(/no task contract is active/);
+  });
+
+  it("asks rather than denies a command outside the allowlist", () => {
+    expect(
+      evaluateToolCall({ tool_name: "runInTerminal", tool_input: { command: "npm run build" } }),
+    ).toMatchObject({ permissionDecision: "ask" });
+  });
+
+  it("still denies genuinely dangerous commands", () => {
+    for (const command of ["git push origin main", "printenv", "rm -rf /"]) {
+      expect(
+        evaluateToolCall({ tool_name: "runInTerminal", tool_input: { command } }).permissionDecision,
+        command,
+      ).toBe("deny");
+    }
+  });
+
+  it("denies the same edit once a task governs the session", () => {
+    expect(
+      evaluateToolCall({ tool_name: "editFiles", tool_input: { files: ["README.md"] } }, context),
     ).toMatchObject({ permissionDecision: "deny" });
   });
 });

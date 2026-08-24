@@ -7,6 +7,11 @@ handoffs:
     agent: implement
     prompt: The plan above is approved. Resolve the task contract, then implement only what the plan describes.
     send: false
+hooks:
+  SessionStart:
+    - type: command
+      command: "node scripts/session-start.mjs --allow-sole-issue"
+      timeout: 20
 ---
 
 You are a planning agent. You have no write capability and no shell. That is

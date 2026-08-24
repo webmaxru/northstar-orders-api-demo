@@ -179,10 +179,12 @@ export function normalizeToolCall(call) {
  */
 export function evaluateToolCall(call, context = {}) {
   const { rawName, kind, paths, command } = normalizeToolCall(call);
+  const governed = Boolean(context.taskId);
   const prefixes = scopePrefixes(context.scope ?? DEFAULT_SCOPE);
-  const where = context.taskId ? `the ${context.taskId} scope` : "the approved scope";
+  const where = governed ? `the ${context.taskId} scope` : "the default scope";
 
-  // A dangerous string is dangerous whatever the tool claims to be.
+  // A dangerous string is dangerous whatever the tool claims to be, and whether
+  // or not a task governs this session.
   if (command) {
     for (const { pattern, reason } of DENIED_COMMAND_PATTERNS) {
       if (pattern.test(command)) {
@@ -200,12 +202,17 @@ export function evaluateToolCall(call, context = {}) {
       return ask(`"${rawName}" may write but named no path this policy can check`);
     }
     const blocked = paths.filter((target) => !isWritable(target, prefixes));
-    if (blocked.length > 0) {
-      return deny(
-        `${blocked.map(normalize).join(", ")} is outside ${where} (${prefixes.join(", ")})`,
-      );
+    if (blocked.length === 0) {
+      return allow(`${paths.map(normalize).join(", ")} is inside ${where}`);
     }
-    return allow(`${paths.map(normalize).join(", ")} is inside ${where}`);
+    // Outside the scope. If a task governs this session that is a real
+    // violation. If none does, there is no contract to violate, so ask instead
+    // of enforcing a boundary nobody agreed to.
+    return governed
+      ? deny(`${blocked.map(normalize).join(", ")} is outside ${where} (${prefixes.join(", ")})`)
+      : ask(
+          `${blocked.map(normalize).join(", ")} is outside the default scope and no task contract is active`,
+        );
   }
 
   if (kind === "shell") {
@@ -215,7 +222,9 @@ export function evaluateToolCall(call, context = {}) {
     if (ALLOWED_COMMANDS.some((pattern) => pattern.test(command))) {
       return allow("command is in the validation allowlist");
     }
-    return deny("command is not in the validation allowlist");
+    return governed
+      ? deny("command is not in the validation allowlist")
+      : ask("command is not in the validation allowlist and no task contract is active");
   }
 
   // Unknown capability. Do not guess in either direction: let the human decide,

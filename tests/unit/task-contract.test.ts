@@ -99,4 +99,14 @@ describe("the active task resolves without a manual step", () => {
       number: 7,
     });
   });
+
+  it("does not adopt the sole open issue unless asked", () => {
+    // A workspace-wide hook fires on every session, including chats about
+    // something else entirely. Adopting a task nobody asked for would both cost
+    // a network round trip and govern unrelated work.
+    expect(resolveIssueNumber({ env: {}, branch: "main" })).toEqual({
+      number: null,
+      how: "nothing",
+    });
+  });
 });

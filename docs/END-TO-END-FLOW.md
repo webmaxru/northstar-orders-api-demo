@@ -70,10 +70,20 @@ diff, which is the entire argument for keeping Steps 2 and 4 apart.
 ## Step 4 - The contract resolves itself at session start
 
 The `SessionStart` hook runs `node scripts/session-start.mjs`. It identifies the
-issue that defines the current task - from `AGENT_TASK_ISSUE`, else the branch
-name, else the only open `agent-task` issue - reads it with `gh issue view`,
-caches the parsed contract at `artifacts/task-contract.json`, and injects it
-into the conversation.
+issue that defines the current task, reads it with `gh issue view`, caches the
+parsed contract at `artifacts/task-contract.json`, and injects it into the
+conversation.
+
+Workspace hooks fire for every agent session, so discovery is split. The
+workspace hook only consults `AGENT_TASK_ISSUE` and the branch name, and makes
+no network call when neither identifies a task. The three task agents declare
+the same hook in their frontmatter with `--allow-sole-issue`, because choosing
+one of them is itself the signal that the session is about the task.
+
+When nothing resolves, the hook clears any cached contract so an unrelated
+session is not judged against a task nobody is working on, and the boundary
+becomes ungoverned: reads allowed, out-of-scope writes and unlisted commands
+ask, dangerous commands still denied.
 
 **Why automatic:** a contract you must remember to fetch is a contract that will
 be missing exactly when it matters, and the boundary would quietly fall back to

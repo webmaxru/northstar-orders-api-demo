@@ -146,16 +146,50 @@ constraints, success criteria and stop conditions already in context, and the
 
 Which issue? Most explicit first:
 
-| Order | Source |
-| --- | --- |
-| 1 | `AGENT_TASK_ISSUE` environment variable |
-| 2 | the current branch name, if it contains a task id such as `wi-1842` |
-| 3 | the only open issue labelled `agent-task` |
+| Order | Source | Available to |
+| --- | --- | --- |
+| 1 | `AGENT_TASK_ISSUE` environment variable | every session |
+| 2 | the current branch name, if it contains a task id such as `wi-1842` | every session |
+| 3 | the only open issue labelled `agent-task` | only the three task agents |
 
-If none resolves, the session still starts and the injected note says no
-contract is active. It does **not** fall back to a seed file: silently treating
+### Which sessions run it
+
+Workspace hooks in `.github/hooks/*.json` fire for **every** agent session in
+the workspace, including chats about something else entirely. That matters, so
+the discovery is deliberately split:
+
+- The **workspace** hook only looks at `AGENT_TASK_ISSUE` and the branch name.
+  With neither, it makes **no GitHub call at all** - about 0.3s rather than 4s -
+  and reports that no task is active.
+- The **agent-scoped** hook, declared in the `hooks:` frontmatter of
+  `plan`, `implement` and `risk-reviewer`, adds `--allow-sole-issue`. Choosing
+  one of those agents *is* the signal that this session is about the task.
+
+Agent-scoped hooks are Preview and need `chat.useCustomAgentHooks: true`. Without
+it, use a `wi-1842-...` branch or set `AGENT_TASK_ISSUE`.
+
+When no task resolves, the hook **clears** any cached contract from an earlier
+session. Otherwise a chat about the README would be judged against a task nobody
+is working on.
+
+It does **not** fall back to a seed file: silently treating
 `docs/demo-setup/WI-1842.issue-seed.md` as the contract would hide the fact that
 the real issue was never read.
+
+### Governed and ungoverned sessions
+
+| | Task contract active | No contract |
+| --- | --- | --- |
+| read | allow | allow |
+| edit in scope | allow | allow |
+| edit out of scope | **deny**, naming the task | **ask** |
+| allowlisted command | allow | allow |
+| other command | **deny** | **ask** |
+| dangerous command | **deny** | **deny** |
+
+The boundary is defined by a contract. With no contract there is nothing to
+enforce, so it asks rather than pretending. Genuinely dangerous commands are
+denied either way.
 
 To see what the agent receives:
 
