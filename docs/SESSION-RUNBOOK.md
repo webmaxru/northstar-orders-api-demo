@@ -41,7 +41,7 @@ Every command below is identical on PowerShell, bash, and zsh.
 git switch demo/engineering-system
 npm ci
 npm run db:up
-npm run validate            # 28 unit tests
+npm run validate            # instructions:check, lint, typecheck, unit
 npm run test:acceptance     # 8 tests against PostgreSQL
 npm run test:unit:ci
 npm run test:acceptance:ci
@@ -190,7 +190,7 @@ mv artifacts/acceptance-junit.xml /tmp/ ; npm run evidence --silent ; echo "exit
 ```
 
 ```
-decision=review_required  unit=25 tests, 0 failed  acceptance=absent  criteriaProven=0/6
+decision=review_required  unit=94 tests, 0 failed  acceptance=absent  criteriaProven=0/6
 missing evidence: acceptance-tests; unproven criteria: AC1, AC2, AC3, AC4, AC5, AC6
 exit=1
 ```

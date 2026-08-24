@@ -125,7 +125,28 @@ model's reasoning - see `docs/fixtures/untrusted-issue-comment.md`.
 Path-scoped rules in `.github/instructions/*.instructions.md` load only for the
 files being edited, so a migration change never has to read the test rules.
 
-## Step 6 - Local validation
+## Step 6 - The Stop hook runs validation and builds the evidence
+
+When the implement agent stops, its `Stop` hook runs
+`node scripts/agent-stop.mjs`, which performs the bundle in the only order that
+works:
+
+```bash
+npm run test:unit:ci        # writes artifacts/unit-junit.xml
+npm run test:acceptance:ci  # writes artifacts/acceptance-junit.xml
+npm run evidence            # writes artifacts/report.json
+```
+
+If the report is not `ready_for_review` the stop is **blocked** and the agent
+receives the specific gap - which criterion is unproven, which evidence is
+missing. An environment failure does not block: a database that is not running
+is not the agent's to repair, and looping on it would spend turns and credits
+for nothing.
+
+This is why "done" is not a claim the agent gets to make.
+
+Nobody has to type these commands after an agent turn. They remain available for
+working without the implement agent:
 
 ```bash
 npm run db:up
@@ -137,29 +158,7 @@ npm run test:acceptance     # against PostgreSQL
 `.github/copilot-instructions.md` has drifted from `AGENTS.md`. Durable context
 is validated like code because it behaves like code.
 
-A green unit suite proves none of WI-1842's criteria: all six are proven by the
-acceptance suite. That is not an opinion, it is visible in Step 7's output.
-
-## Step 6b - The Stop hook closes the loop
-
-When the implement agent stops, its `Stop` hook runs
-`node scripts/agent-stop.mjs`: both suites, then the execution report. If the
-report is not `ready_for_review` the stop is **blocked** and the agent receives
-the specific gap - which criterion is unproven, which evidence is missing.
-
-An environment failure does not block. A database that is not running is not the
-agent's to repair, and looping on it would spend turns and credits for nothing.
-
-This is why "done" is not a claim the agent gets to make. The commands below
-still work by hand, and CI runs them again regardless.
-
-## Step 7 - The evidence report
-
-```bash
-npm run test:unit:ci        # writes artifacts/unit-junit.xml
-npm run test:acceptance:ci  # writes artifacts/acceptance-junit.xml
-npm run evidence            # writes artifacts/report.json
-```
+## Step 7 - How the evidence report decides
 
 `scripts/build-execution-report.mjs`:
 
@@ -171,12 +170,17 @@ npm run evidence            # writes artifacts/report.json
    `ready_for_review`.
 
 **Why the ordering is forced:** the report is an index over evidence that
-already exists. Run it before the suites and it can only report absence.
+already exists. Run it before the suites and it can only report absence. This is
+why the Stop hook runs the suites first rather than trusting a previous run.
 
-Try it: delete `artifacts/acceptance-junit.xml` and run it again. The decision
-flips to `review_required`, `criteriaProven` drops to `0/6`, and the exit code
-becomes `1`.
+A green unit suite proves none of WI-1842's criteria: all six are proven by the
+acceptance suite. Delete `artifacts/acceptance-junit.xml` and rebuild - the
+decision flips to `review_required`, `criteriaProven` drops to `0/6`, and the
+exit code becomes `1`.
 
+Matching on `provenBy` also means weakening a test cannot fake completion.
+Rename the test that proves a criterion and the criterion becomes unproven, even
+though every test still passes.
 ## Step 8 - The pull request
 
 Open a PR whose body follows `.github/pull_request_template.md` - Intent, Plan,
@@ -251,15 +255,27 @@ A human merges. Agents propose; humans and policy accept.
 
 ---
 
-## Known limitation
+## Known limitations
 
-`copilot-setup-steps.yml` does **not** resolve the task contract, because the
-issue number is not reliably available to that workflow. The cloud agent must
-therefore run Step 4 itself as its first action; `.github/agents/implement.agent.md`
-instructs it to.
+**`copilot-setup-steps.yml` does not resolve the contract.** It does not need
+to: the `SessionStart` hook does, and it fires for Copilot cloud agent and
+Copilot CLI as well as VS Code. Setup steps prepare the toolchain; the contract
+is session state.
 
-If it forgets, nothing breaks unsafely - the hook falls back to the narrow
-repository-wide default, which is the correct failure direction for a security
-boundary - but the denials will say "outside the approved scope" rather than
-naming the task, and a task with a narrower scope than the default would not be
-enforced. Check `contractSource` in `report.json` if a run looks suspicious.
+**How the session identifies the task varies by harness.** The workspace hook
+uses `AGENT_TASK_ISSUE` or a task id in the branch name. The sole-open-issue
+fallback is opt-in via `--allow-sole-issue`, declared in the `hooks:` frontmatter
+of the three task agents - and agent-scoped hooks are a VS Code preview feature.
+Whether the cloud agent honours hooks declared in an agent profile has not been
+verified here. On a branch that does not carry a task id, set
+`AGENT_TASK_ISSUE`, or run `npm run contract:fetch -- --issue <n>`, which is on
+the tool allowlist so the boundary can bootstrap itself.
+
+**When no contract resolves, the session is ungoverned, not restricted.** The
+hook clears any cached contract so an unrelated session cannot inherit one.
+Reads are allowed, out-of-scope writes and unlisted commands ask, and dangerous
+commands are still denied. The boundary is defined by a contract; with no
+contract there is nothing to enforce, so it asks rather than pretending.
+
+Check `contractSource` in `report.json` if a run looks suspicious. It names the
+issue the grading came from, or says it came from a seed file.

@@ -256,11 +256,18 @@ instructions. The model may be persuaded; the decision does not depend on that.
 > The hook command is `node scripts/authorize-tool.mjs` on every platform.
 > There is deliberately no shell wrapper: the entire payload arrives on stdin,
 > and a bash or PowerShell wrapper is one more place for it to be lost.
-## Step 6 - Validation runs itself
+## Step 6 - Validation and evidence run themselves
 
-You do not have to run the suites after the implementer finishes. Its `Stop`
-hook runs `node scripts/agent-stop.mjs`, which runs both suites, rebuilds the
-execution report, and then decides:
+You do not run anything here. When the implement agent stops, its `Stop` hook
+runs `node scripts/agent-stop.mjs`, which performs the whole evidence bundle:
+
+```
+npm run test:unit:ci        -> artifacts/unit-junit.xml
+npm run test:acceptance:ci  -> artifacts/acceptance-junit.xml
+npm run evidence            -> artifacts/report.json
+```
+
+and then decides:
 
 | Outcome | What happens |
 | --- | --- |
@@ -274,37 +281,23 @@ criterion simply becomes unproven and the stop is blocked again.
 
 `stop_hook_active` is checked, so the gate never blocks twice in a turn.
 
-You can still run any of it by hand:
+## Step 7 - Inspect the evidence
 
-## Step 6b - Validate by hand
+The artifacts already exist. Your job is to read them, not to produce them.
 
-```powershell
-npm run validate            # instructions:check, lint, typecheck, unit
-npm run test:acceptance     # against the Docker PostgreSQL
-```
-
-`instructions:check` fails if `.github/copilot-instructions.md` has drifted from
-`AGENTS.md`. Durable context is validated like code.
-
-## Step 7 - Build the evidence
-
-```powershell
-npm run test:unit:ci
-npm run test:acceptance:ci
-npm run evidence
-```
+Open `artifacts/report.json`. The summary line the hook reported looks like:
 
 ```
-task=WI-1842  contract=issue #4  decision=ready_for_review  unit=56 tests, 0 failed  acceptance=8 tests, 0 failed  criteriaProven=6/6
+task=WI-1842  contract=issue #4  decision=ready_for_review  unit=94 tests, 0 failed  acceptance=8 tests, 0 failed  criteriaProven=6/6
 ```
 
-**Written:** `artifacts/unit-junit.xml`, `artifacts/acceptance-junit.xml`, then
-`artifacts/report.json`.
+Two fields are worth pointing at:
 
-Open `artifacts/report.json` in the editor. `contractSource` names issue #4 and
-links to it, so the grading is traceable to the contract that defined it.
+- `contractSource` names **issue #4** and links to it, so the grading is
+  traceable to the contract that defined it.
+- `successCriteria[].provenBy` names, per criterion, the test that proves it.
 
-To feel the gate close:
+To feel the gate close, delete a piece of evidence and rebuild:
 
 ```powershell
 Move-Item artifacts/acceptance-junit.xml $env:TEMP/a.xml
@@ -313,8 +306,23 @@ Move-Item $env:TEMP/a.xml artifacts/acceptance-junit.xml
 ```
 
 All six criteria are proven by the acceptance suite, so removing it proves
-nothing - which is the point of the slide.
+nothing. A green unit suite is not evidence for this work item.
 
+### Running it by hand
+
+You still need the commands when you are not driving the implement agent -
+rehearsing the talk, or working in plain chat:
+
+```powershell
+npm run validate            # instructions:check, lint, typecheck, unit
+npm run test:acceptance     # against the Docker PostgreSQL
+npm run test:unit:ci
+npm run test:acceptance:ci
+npm run evidence
+```
+
+`instructions:check` fails if `.github/copilot-instructions.md` has drifted from
+`AGENTS.md`. Durable context is validated like code.
 ## Step 8 - Independent review
 
 Switch to the `risk-reviewer` agent, or use the **Independent review** handoff

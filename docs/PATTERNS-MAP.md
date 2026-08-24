@@ -162,7 +162,7 @@ Identical on PowerShell, bash, and zsh. The acceptance suite defaults to the
 ```bash
 npm ci
 npm run db:up
-npm run validate            # lint, typecheck, 28 unit tests
+npm run validate            # instructions:check, lint, typecheck, unit
 npm run test:acceptance     # 8 tests against PostgreSQL
 npm run contract:fetch -- --issue 4  # or --file docs/demo-setup/WI-1842.issue-seed.md
 npm run evidence                     # ready_for_review, criteriaProven=6/6
