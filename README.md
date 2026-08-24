@@ -39,6 +39,22 @@ npm run evidence                      # build artifacts/report.json and gate on 
 npm run repair:check    # decide repair or escalate from an attempt log
 ```
 
+## Branches
+
+| Branch | What it holds | Use it to |
+| --- | --- | --- |
+| `main` | The baseline API, tagged `demo-baseline`. No idempotency, no agent harness. | Show the starting point. |
+| `demo/naive-reference` | Baseline plus the plausible wrong answer: process-local state that passes a single-process test and fails across instances. | Show the failure the talk opens with. |
+| `demo/context-enabled` | Durable context - `AGENTS.md`, path-scoped instructions - with the implementation still absent. | Show context as code, before and after. |
+| `demo/governed-reference` | A governed implementation with the acceptance suite. | Show the answer with its evidence. |
+| **`demo/implement-start`** | The full agent harness - agents, prompts, hooks, workflows, migration, metrics, acceptance suite - **without** the idempotency implementation. | **Run the flow.** `/plan 4` and `/implement 4` have real work to do here. |
+| `demo/engineering-system` | The same harness with the implementation finished. | Read the answer, and present Mode A of the session runbook. |
+| `plan/wi-1842` | The plan-first pull request branch, cut from whichever branch you planned on. | Review intent before any code exists. |
+
+`demo/implement-start` is the one to start from if you want to drive the agents
+yourself: on `demo/engineering-system` the work is already done, so
+`/implement 4` correctly finds nothing to do.
+
 ## Safety
 
 - No customer or production data.
