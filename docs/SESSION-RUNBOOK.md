@@ -45,7 +45,7 @@ npm run validate            # instructions:check, lint, typecheck, unit
 npm run test:acceptance     # 8 tests against PostgreSQL
 npm run test:unit:ci
 npm run test:acceptance:ci
-npm run contract:fetch -- --file docs/demo-setup/WI-1842.issue-seed.md
+npm run contract:fetch -- --issue 4     # the live issue, not the seed file
 npm run evidence
 ```
 
@@ -63,12 +63,24 @@ Also have open, in order, as editor tabs:
 3. `.github/instructions/services.instructions.md`
 4. `.github/agents/plan.agent.md`, `implement.agent.md`, `risk-reviewer.agent.md`
 5. `docs/fixtures/untrusted-issue-comment.md`
+   5b. `.github/prompts/plan.prompt.md` and `implement.prompt.md`
 6. `artifacts/report.json`
 7. `docs/RECOVERY-POLICY.md`
 8. `docs/CONTEXT-ARCHITECTURE.md` (for questions about why nothing durable names a task)
 
-Plus a terminal in the repo root and a browser on
-[PR #3](https://github.com/webmaxru/northstar-orders-api-demo/pull/3).
+Plus a terminal in the repo root, and two browser tabs:
+
+- [PR #5](https://github.com/webmaxru/northstar-orders-api-demo/pull/5) - the
+  plan-first PR: draft, **0 changed files**, description is the plan
+- [PR #3](https://github.com/webmaxru/northstar-orders-api-demo/pull/3) - the
+  implementation PR, for the checks and evidence acts
+
+If PR #5 is closed, reopen it in one command:
+
+```bash
+npm run contract:fetch -- --issue 4
+node scripts/publish-plan.mjs --file docs/demo-setup/sample-plan.md
+```
 
 Font size 16pt or larger. Dark editor theme matches the deck's dark slides.
 
@@ -106,8 +118,8 @@ commentary needed beyond "this is the plausible wrong answer".
 | 9     | 2:15   | `AGENTS.md`, then `.github/agents/implement.agent.md`                     | 45s. Required evidence bundle, then the stop conditions. The point: refusal is configured, not requested. Note that neither file names a task - scope comes from the contract.                                                                                                                                                                                               |
 | 10    | 2:00   | `AGENTS.md`, then `docs/architecture.md`                                  | 40s. Authoritative sources, each with a reason to exist. `architecture.md` carries the constraint that decides the design. Two sentences worth saying: the durable files name no task, which is why they still apply to the next one; and `.github/copilot-instructions.md` is generated from `AGENTS.md`, because the vendor-neutral file is not read on every surface yet. |
 | 11    | 1:15   | `.github/instructions/services.instructions.md`                           | 30s. Highlight the `applyTo: "src/services/**"` frontmatter. An agent editing a migration never loads these rules.                                                                                                                                                                                                                                                           |
-| 12    | 1:30   | `.github/prompts/plan.prompt.md`                                          | 25s. Note `agent: plan` in the frontmatter - the prompt is bound to a read-only role.                                                                                                                                                                                                                                                                                        |
-| 13    | 1:15   | Slide only                                                                | A plan is cheaper to challenge than a diff.                                                                                                                                                                                                                                                                                                                                  |
+| 12    | 1:30   | `.github/prompts/plan.prompt.md`                                          | 25s. Two things: `agent: plan` binds the prompt to a read-only role, and the issue number is an argument - `/plan 4`. Nothing is inferred from the branch name. Worth one sentence: a resolver that is usually right is the kind nobody checks.                                                                                                                              |
+| 13    | 1:15   | **[PR #5](https://github.com/webmaxru/northstar-orders-api-demo/pull/5)** | 45s. No longer slide-only. Open the Files tab first: **0 changed files**. Then the description - that is the plan. Then the `require-plan` check. This is Learn's plan-first option: review intent before any code exists. Implementation lands as commits on this same branch, under the approved plan.                                                                     |
 
 ### Act 3 - Boundaries (slides 14-17, 7:00)
 
@@ -145,24 +157,25 @@ echo '{"toolName":"edit","toolArgs":{"path":"src/../.github/workflows/ci.yml"}}'
 
 ### Act 4 - Evidence (slides 18-22, 8:45)
 
-| Slide | Timing | Show                                                             | Duration                                                                                                                                                                                                                                |
-| ----- | ------ | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 18    | 1:45   | `.github/workflows/` file list + `.github/CODEOWNERS`            | 30s. Four independent gates, listed below. Land the point on CodeQL: `check-sarif.mjs` makes findings _fail the run_ instead of only being uploaded.                                                                                    |
-| 19    | 1:45   | `.github/pull_request_template.md`, then `artifacts/report.json` | 45s. Template first (Objective, Plan, Evidence, Risks, Rollback), then the machine-readable index. Point at `contractSource`: it names **issue #4** and links to it, so the grading can be traced back to the contract that defined it. |
-| 20    | 2:00   | `.github/agents/risk-reviewer.agent.md`                          | 35s. It cannot edit and cannot run commands, so it cannot be the reason a fix looks verified.                                                                                                                                           |
-| 21    | 1:30   | PR #3 artifacts list                                             | 25s. `execution-report`, `unit-test-evidence`, `acceptance-test-evidence`, `codeql-sarif-evidence`. Versioned handoffs, not chat history.                                                                                               |
-| 22    | 1:45   | `docs/RECOVERY-POLICY.md`                                        | 30s. The table of layers.                                                                                                                                                                                                               |
+| Slide | Timing | Show                                                             | Duration                                                                                                                                                                                                                                                                                                                                                         |
+| ----- | ------ | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 18    | 1:45   | `.github/workflows/` file list + `.github/CODEOWNERS`            | 30s. Five independent gates, listed below. Land the point on CodeQL: `check-sarif.mjs` makes findings _fail the run_ instead of only being uploaded.                                                                                                                                                                                                             |
+| 19    | 1:45   | `.github/pull_request_template.md`, then `artifacts/report.json` | 45s. Template first - **Plan (required)**, Evidence, Review checklist, Limits - and say that `require-plan` reads the first section, so an empty template fails the check rather than passing it. Then the machine-readable index. Point at `contractSource`: it names **issue #4** and links to it, so the grading traces back to the contract that defined it. |
+| 20    | 2:00   | `.github/agents/risk-reviewer.agent.md`                          | 35s. It cannot edit and cannot run commands, so it cannot be the reason a fix looks verified.                                                                                                                                                                                                                                                                    |
+| 21    | 1:30   | PR #3 artifacts list                                             | 25s. `execution-report`, `unit-test-evidence`, `acceptance-test-evidence`, `codeql-sarif-evidence`. Versioned handoffs, not chat history.                                                                                                                                                                                                                        |
+| 22    | 1:45   | `docs/RECOVERY-POLICY.md`                                        | 30s. The table of layers.                                                                                                                                                                                                                                                                                                                                        |
 
-#### The four gates on slide 18
+#### The five gates on slide 18
 
 Each runs independently, on a different signal, and each leaves an artifact.
 
-| Workflow                | Check name   | Runs on             | What it enforces                                                                                                       | Artifact                                       |
-| ----------------------- | ------------ | ------------------- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| `ci.yml`                | `quality`    | push + PR           | `npm run lint`, `npm run typecheck`, `npm run test:unit:ci`                                                            | `unit-test-evidence`                           |
-| `acceptance.yml`        | `acceptance` | PR + manual         | PostgreSQL service container, unit and acceptance suites, resolves the task contract, then builds the execution report | `acceptance-test-evidence`, `execution-report` |
-| `codeql.yml`            | `analyze`    | push to `main` + PR | CodeQL init and analyze, then `scripts/check-sarif.mjs` fails the run if the SARIF holds any finding                   | `codeql-sarif-evidence`                        |
-| `dependency-review.yml` | `review`     | PR                  | `npm audit --audit-level=high`                                                                                         | none                                           |
+| Workflow                | Check name     | Runs on                            | What it enforces                                                                                                       | Artifact                                       |
+| ----------------------- | -------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| `ci.yml`                | `quality`      | push + PR                          | `npm run lint`, `npm run typecheck`, `npm run test:unit:ci`                                                            | `unit-test-evidence`                           |
+| `acceptance.yml`        | `acceptance`   | PR + manual                        | PostgreSQL service container, unit and acceptance suites, resolves the task contract, then builds the execution report | `acceptance-test-evidence`, `execution-report` |
+| `codeql.yml`            | `analyze`      | push to `main` + PR                | CodeQL init and analyze, then `scripts/check-sarif.mjs` fails the run if the SARIF holds any finding                   | `codeql-sarif-evidence`                        |
+| `dependency-review.yml` | `review`       | PR                                 | `npm audit --audit-level=high`                                                                                         | none                                           |
+| `plan-gate.yml`         | `require-plan` | PR, including on description edits | The PR description carries a plan with scope, success criteria and a rollback path                                     | none - the plan is the artifact                |
 
 Two things worth saying out loud, because someone will ask:
 
@@ -173,9 +186,21 @@ Two things worth saying out loud, because someone will ask:
   action.** The workflow name is aspirational; say "dependency gate" rather
   than naming the action.
 
-`.github/CODEOWNERS` is a fifth control but not one of the four: it is a human
+`.github/CODEOWNERS` is a further control but not one of the five: it is a human
 gate on `/migrations/` and `/src/services/`, and it belongs to slide 24's
 risk-and-reversibility argument rather than to the automated-gates slide.
+
+The plan gate is the one worth pausing on, because it is where this repository
+deliberately departs from the Learn snippet. Learn checks that
+`pull_request_template.md` exists in the repository; that passes on a pull
+request whose description is empty, so it proves the template exists rather than
+that this PR used it. `scripts/check-plan.mjs` reads the description instead.
+Demonstrate it in one line if asked:
+
+```bash
+node scripts/check-plan.mjs --pr 5    # pass
+node scripts/check-plan.mjs --pr 3    # was failing until PR #3 got a plan
+```
 
 Slide 19 has the best optional live beat in the deck. If you have 30 spare
 seconds and want the room to feel the gate:
@@ -240,24 +265,29 @@ The sample is committed, so there is nothing to prepare for this one.
 
 ## Mode B: the 8-minute live block
 
-Replaces slides 9, 10, 16, and 20. Use slide 45 as the on-screen timer.
-Everything below maps the deck's generic runbook to this repository.
+Replaces slides 9, 10, 16, and 20. Use the deck's final hidden slide as the
+on-screen timer. Everything below maps the deck's generic runbook to this
+repository.
 
-| Mark | Deck step              | Here                                                      |
-| ---- | ---------------------- | --------------------------------------------------------- |
-| 0:00 | Open the task contract | Issue #4; scope, success criteria, stop conditions        |
-| 0:45 | Inspect context files  | `AGENTS.md`, `.github/instructions/`, ADR-007             |
-| 1:30 | Start the agent        | Assign WI-1842 to the cloud agent from a prepared session |
-| 2:30 | Jump to prepared state | Switch to PR #3 rather than waiting on model latency      |
-| 3:15 | Review PR evidence     | `execution-report` artifact, then `report.json`           |
-| 4:45 | Run the reviewer       | `.github/agents/risk-reviewer.agent.md`, read-only        |
-| 6:15 | Show the hook denial   | The slide-16 command above                                |
-| 7:30 | Close the loop         | Contract, context, capability, evidence                   |
+The 2:30 cut is now stronger than it was: it lands on a pull request that
+contains a plan and no code, which is the pattern rather than a workaround for
+model latency.
+
+| Mark | Deck step              | Here                                                        |
+| ---- | ---------------------- | ----------------------------------------------------------- |
+| 0:00 | Open the task contract | Issue #4; scope, success criteria, stop conditions          |
+| 0:45 | Inspect context files  | `AGENTS.md`, `.github/instructions/`, ADR-007               |
+| 1:30 | Start the agent        | `/plan 4` in VS Code, or assign WI-1842 to the cloud agent  |
+| 2:30 | Jump to prepared state | **PR #5** - the plan, 0 changed files, `require-plan` green |
+| 3:15 | Review PR evidence     | PR #3: `execution-report` artifact, then `report.json`      |
+| 4:45 | Run the reviewer       | `.github/agents/risk-reviewer.agent.md`, read-only          |
+| 6:15 | Show the hook denial   | The slide-16 command above                                  |
+| 7:30 | Close the loop         | Contract, context, capability, evidence                     |
 
 Rules for the live block:
 
 - Never wait on a live agent run. Cut to prepared state at 2:30 regardless.
-- If authentication fails, do not troubleshoot on stage. Go to slide 37.
+- If authentication fails, do not troubleshoot on stage. Go to the hidden demo slides.
 - Demo-only credentials. The repository is private and synthetic.
 
 ## Fallbacks
@@ -266,7 +296,7 @@ Rules for the live block:
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | No network              | Mode A only. Every command in Mode A runs offline; only the PR tab needs network.                                                      |
 | Docker unavailable      | Skip `npm run db:up`. Unit tests and both live commands still run. Use the committed `report.json` screenshot instead of regenerating. |
-| Live command misbehaves | Hidden slides 37-44 are captured states of exactly these steps.                                                                        |
+| Live command misbehaves | The hidden demo slides are captured states of exactly these steps.                                                                     |
 | Running long            | Drop the slide-19 gate demo, then slide 26's `git branch -r`. Never drop slide 16.                                                     |
 
 ## Reset
