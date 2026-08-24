@@ -102,6 +102,7 @@ persuaded. The decision does not depend on whether it was.
 | `.github/CODEOWNERS` | `/migrations/` and `/src/services/` need a named human. |
 | `.github/pull_request_template.md` | Intent, plan, evidence bundle, review, limits. |
 | `scripts/build-execution-report.mjs` | Produces `artifacts/report.json`. |
+| `scripts/publish-evidence.mjs` | Writes the decision into the pull request timeline, because artifacts are deleted after 90 days by default and the timeline is not. |
 | `.github/agents/risk-reviewer.agent.md` | Criticism separated from creation. |
 
 The report is the observability model from Microsoft Learn made concrete:

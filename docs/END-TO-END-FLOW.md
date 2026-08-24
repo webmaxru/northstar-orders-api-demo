@@ -221,6 +221,40 @@ failing run is the one a reviewer needs.
 
 `.github/CODEOWNERS` adds a human gate on `/migrations/` and `/src/services/`.
 
+### Evidence expires; the pull request does not
+
+Microsoft Learn lists what GitHub keeps as the system of record - "repositories
+and branches, commits and pull requests, issues and discussions (context and
+intent), workflow runs and artifacts (evidence), review history (decisions)" -
+and separately states that "workflow logs and artifacts are retained for 90 days
+by default and automatically deleted afterward". Private repositories can extend
+this to 400 days; public repositories cannot exceed 90.
+
+The layer Learn labels "(evidence)" is therefore the one that expires. An
+evidence bundle that lives only in artifacts becomes a dead link after the
+retention window, and "missing evidence = failure" would then be true of every
+audited change.
+
+So the run does both:
+
+| Where | What | Lifetime |
+| --- | --- | --- |
+| `execution-report` artifact | full `report.json` | 90 days, set explicitly |
+| `acceptance-test-evidence`, `unit-test-evidence` | JUnit XML | 90 days |
+| `codeql-sarif-evidence` | SARIF | 90 days |
+| **pull request comment** | decision, per-criterion coverage, which evidence was present | **as long as the pull request** |
+
+`scripts/publish-evidence.mjs` writes that comment and rewrites it in place on
+each run rather than appending. It carries the verdict, every criterion with the
+test that proved it, and any absent evidence - so a reviewer reading the pull
+request in a year still learns what was verified, even though the links no
+longer resolve. This follows Learn's own guidance to include "links to workflow
+runs and relevant artifacts in the PR under an 'Evidence' section".
+
+Retention is set explicitly in the workflow rather than inherited from the
+organization default, because Learn's guidance is that artifacts be "retained
+long enough for audits and incident response" and a default is not a decision.
+
 ## Step 10 - Independent review
 
 The `risk-reviewer` agent is `tools: ["read", "search"]` - it cannot edit and

@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
   issues: read
-  pull-requests: read
+  pull-requests: write
 
 jobs:
   acceptance:
@@ -64,10 +64,22 @@ jobs:
           name: execution-report
           path: artifacts/report.json
           if-no-files-found: error
+          # Explicit, not left to the org default. Learn: artifacts should be
+          # "retained long enough for audits and incident response".
+          retention-days: 90
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: acceptance-test-evidence
           path: artifacts/acceptance-junit.xml
           if-no-files-found: warn
+          retention-days: 90
+      - name: Publish the evidence decision to the pull request
+        # Artifacts expire; the pull request timeline does not. This writes the
+        # decision and per-criterion coverage where they outlive retention.
+        if: always() && github.event_name == 'pull_request'
+        run: node scripts/publish-evidence.mjs --pr "$PR"
+        env:
+          PR: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
 
