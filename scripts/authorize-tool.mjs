@@ -34,6 +34,7 @@ const ALLOWED_COMMANDS = [
   // very boundary that governs it. It only reads an issue and writes into
   // artifacts/, so it grants no authority over the working tree.
   /^npm run contract:fetch\b/,
+  /^npm run plan:show\b/,
   /^npm run lint$/,
   /^npm run typecheck$/,
   /^npm run test:unit$/,

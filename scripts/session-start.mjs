@@ -22,6 +22,7 @@ import { rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { CONTRACT_CACHE, cacheContract, parseIssueBody, splitProhibitions } from "./task-contract.mjs";
+import { fetchPlan } from "./publish-plan.mjs";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 
@@ -91,10 +92,27 @@ export function resolveIssueNumber({
   return { number: null, how: "nothing" };
 }
 
-function summarize(contract, how) {
+function summarize(contract, how, plan) {
   const criteria = contract.successCriteria
     .map((c) => `  ${c.id}: ${c.statement} (proven by: ${c.provenBy})`)
     .join("\n");
+
+  const planSection = plan
+    ? [
+        "",
+        "APPROVED PLAN, from a comment on the same issue:",
+        "",
+        plan,
+        "",
+        "Implement only what this plan describes. If it is missing or looks stale,",
+        "stop and say so rather than planning again inside an implementation session.",
+      ]
+    : [
+        "",
+        "No plan has been persisted to this issue yet. If you are implementing,",
+        "stop: run the plan agent first, or approve a plan on the issue. Do not",
+        "plan and implement in the same session.",
+      ];
 
   return [
     `ACTIVE TASK CONTRACT: ${contract.id} - ${contract.title}`,
@@ -114,6 +132,7 @@ function summarize(contract, how) {
     criteria,
     "",
     `Stop conditions: ${contract.stopConditions.join("; ")}`,
+    ...planSection,
   ].join("\n");
 }
 
@@ -171,7 +190,16 @@ async function main() {
       source: `issue #${issue.number}`,
     });
     cacheContract(contract);
-    emit(summarize(contract, resolution.how));
+    // The approved plan lives in a comment on the same issue. Injecting it here
+    // means a fresh implementation session needs no command to find it - and the
+    // command it would otherwise need is not on the tool allowlist.
+    let plan = null;
+    try {
+      plan = fetchPlan(resolution.number);
+    } catch {
+      plan = null;
+    }
+    emit(summarize(contract, resolution.how, plan));
   } catch (error) {
     emit(
       `Issue #${resolution.number} was found but could not be read as a task contract: ` +

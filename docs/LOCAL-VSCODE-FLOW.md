@@ -11,15 +11,15 @@ hook schema differs between harnesses.
 
 ## What works where
 
-| Artifact | VS Code Chat | Copilot CLI | Cloud agent |
-| --- | --- | --- | --- |
-| `AGENTS.md` | yes | yes | yes |
-| `.github/copilot-instructions.md` | yes | yes | yes |
-| `.github/instructions/*.instructions.md` | yes | yes | yes |
-| `.github/prompts/*.prompt.md` | yes | yes | n/a |
-| `.github/agents/*.agent.md` | yes | yes | yes |
-| `.github/hooks/*.json` (`PreToolUse`) | yes (Preview) | yes | yes |
-| MCP tool allowlist | via VS Code MCP config | yes | repository settings |
+| Artifact                                 | VS Code Chat           | Copilot CLI | Cloud agent         |
+| ---------------------------------------- | ---------------------- | ----------- | ------------------- |
+| `AGENTS.md`                              | yes                    | yes         | yes                 |
+| `.github/copilot-instructions.md`        | yes                    | yes         | yes                 |
+| `.github/instructions/*.instructions.md` | yes                    | yes         | yes                 |
+| `.github/prompts/*.prompt.md`            | yes                    | yes         | n/a                 |
+| `.github/agents/*.agent.md`              | yes                    | yes         | yes                 |
+| `.github/hooks/*.json` (`PreToolUse`)    | yes (Preview)          | yes         | yes                 |
+| MCP tool allowlist                       | via VS Code MCP config | yes         | repository settings |
 
 Sources: [custom instructions support matrix](https://docs.github.com/en/copilot/reference/custom-instructions-support),
 [agent hooks in VS Code](https://code.visualstudio.com/docs/agent-customization/hooks),
@@ -37,14 +37,14 @@ call, so the capability boundary **is** enforced locally. Two caveats:
 - The two hosts use different schemas. `.github/hooks/authorize-tool.json`
   declares both, so one file serves both:
 
-| | VS Code | Cloud agent and CLI |
-| --- | --- | --- |
-| Event key | `PreToolUse` | `preToolUse` |
-| Command property | `command`, with `windows`/`linux`/`osx` overrides | `bash` and `powershell` |
-| Timeout property | `timeout` | `timeoutSec` |
-| Input fields | `tool_name`, `tool_input` | `toolName`, `toolArgs` |
-| Tool names | `editFiles`, `runCommands`, ... | `edit`, `bash`, ... |
-| Output | nested in `hookSpecificOutput` | flat `permissionDecision` |
+|                  | VS Code                                           | Cloud agent and CLI       |
+| ---------------- | ------------------------------------------------- | ------------------------- |
+| Event key        | `PreToolUse`                                      | `preToolUse`              |
+| Command property | `command`, with `windows`/`linux`/`osx` overrides | `bash` and `powershell`   |
+| Timeout property | `timeout`                                         | `timeoutSec`              |
+| Input fields     | `tool_name`, `tool_input`                         | `toolName`, `toolArgs`    |
+| Tool names       | `editFiles`, `runCommands`, ...                   | `edit`, `bash`, ...       |
+| Output           | nested in `hookSpecificOutput`                    | flat `permissionDecision` |
 
 `scripts/authorize-tool.mjs` reads both input shapes, classifies the tool, and
 writes both output shapes.
@@ -56,12 +56,12 @@ Tool names are host-specific and numerous. VS Code alone ships `readFile`,
 `runTests` and more, and the set grows. So the policy classifies by
 **capability**, from explicit names first and then from the words in the name:
 
-| Classified as | Decision |
-| --- | --- |
-| read | `allow` |
-| edit | `allow` inside the contract scope, `deny` outside |
-| shell | `deny` on the dangerous patterns, `allow` on the validation allowlist, otherwise `deny` |
-| unknown | **`ask`** |
+| Classified as | Decision                                                                                |
+| ------------- | --------------------------------------------------------------------------------------- |
+| read          | `allow`                                                                                 |
+| edit          | `allow` inside the contract scope, `deny` outside                                       |
+| shell         | `deny` on the dangerous patterns, `allow` on the validation allowlist, otherwise `deny` |
+| unknown       | **`ask`**                                                                               |
 
 `ask` matters. An earlier version denied every unrecognized tool name, which
 sounds stricter and is actually worse: the agent was denied its first
@@ -143,7 +143,10 @@ node scripts/publish-plan.mjs --issue 4 --file plan.md
 
 ### Then start implementation in a fresh session
 
-Open a new chat and select the `implement` agent. It reads the approved plan
+Open a new chat and run `/implement`. That saved prompt selects the `implement`
+agent and states the preconditions. You never tell it which issue you are on:
+the `SessionStart` hook resolves the contract and injects both it and the
+approved plan comment. It gets the approved plan
 from the issue.
 
 The **Implement in this session** handoff button also works, but a fresh session
@@ -154,6 +157,7 @@ short plans and for demos where switching sessions costs stage time.
 
 Either way the implementer reads the artifact, so both paths start from the same
 place.
+
 ## Step 3 - The contract resolves itself
 
 Nothing to run. When the agent session starts, the `SessionStart` hook runs
@@ -170,11 +174,11 @@ constraints, success criteria and stop conditions already in context, and the
 
 Which issue? Most explicit first:
 
-| Order | Source | Available to |
-| --- | --- | --- |
-| 1 | `AGENT_TASK_ISSUE` environment variable | every session |
-| 2 | the current branch name, if it contains a task id such as `wi-1842` | every session |
-| 3 | the only open issue labelled `agent-task` | only the three task agents |
+| Order | Source                                                              | Available to               |
+| ----- | ------------------------------------------------------------------- | -------------------------- |
+| 1     | `AGENT_TASK_ISSUE` environment variable                             | every session              |
+| 2     | the current branch name, if it contains a task id such as `wi-1842` | every session              |
+| 3     | the only open issue labelled `agent-task`                           | only the three task agents |
 
 ### Which sessions run it
 
@@ -187,7 +191,7 @@ the discovery is deliberately split:
   and reports that no task is active.
 - The **agent-scoped** hook, declared in the `hooks:` frontmatter of
   `plan`, `implement` and `risk-reviewer`, adds `--allow-sole-issue`. Choosing
-  one of those agents *is* the signal that this session is about the task.
+  one of those agents _is_ the signal that this session is about the task.
 
 Agent-scoped hooks are Preview and need `chat.useCustomAgentHooks: true`. Without
 it, use a `wi-1842-...` branch or set `AGENT_TASK_ISSUE`.
@@ -202,15 +206,15 @@ the real issue was never read.
 
 ### Governed and ungoverned sessions
 
-| | Task contract active | No contract |
-| --- | --- | --- |
-| read | allow | allow |
-| edit in scope | allow | allow |
-| edit out of scope | **deny**, naming the task | **ask** |
-| allowlisted command | allow | allow |
-| environment command (`db:up`) | **ask** | **ask** |
-| other command | **deny** | **ask** |
-| dangerous command | **deny** | **deny** |
+|                               | Task contract active      | No contract |
+| ----------------------------- | ------------------------- | ----------- |
+| read                          | allow                     | allow       |
+| edit in scope                 | allow                     | allow       |
+| edit out of scope             | **deny**, naming the task | **ask**     |
+| allowlisted command           | allow                     | allow       |
+| environment command (`db:up`) | **ask**                   | **ask**     |
+| other command                 | **deny**                  | **ask**     |
+| dangerous command             | **deny**                  | **deny**    |
 
 The boundary is defined by a contract. With no contract there is nothing to
 enforce, so it asks rather than pretending. Genuinely dangerous commands are
@@ -227,6 +231,7 @@ You can still resolve one by hand when you want a specific issue:
 ```powershell
 npm run contract:fetch -- --issue 4
 ```
+
 ## Step 4 - Implement
 
 The `implement` agent has `["read", "search", "edit", "shell"]`. Work the plan.
@@ -280,6 +285,7 @@ instructions. The model may be persuaded; the decision does not depend on that.
 > The hook command is `node scripts/authorize-tool.mjs` on every platform.
 > There is deliberately no shell wrapper: the entire payload arrives on stdin,
 > and a bash or PowerShell wrapper is one more place for it to be lost.
+
 ## Step 6 - Validation and evidence run themselves
 
 You do not run anything here. When the implement agent stops, its `Stop` hook
@@ -293,10 +299,10 @@ npm run evidence            -> artifacts/report.json
 
 and then decides:
 
-| Outcome | What happens |
-| --- | --- |
-| `ready_for_review` | the agent is allowed to stop, with the summary attached |
-| a criterion unproven, or evidence missing | **the stop is blocked** and the agent is handed the specific gap |
+| Outcome                                      | What happens                                                      |
+| -------------------------------------------- | ----------------------------------------------------------------- |
+| `ready_for_review`                           | the agent is allowed to stop, with the summary attached           |
+| a criterion unproven, or evidence missing    | **the stop is blocked** and the agent is handed the specific gap  |
 | the acceptance suite cannot reach PostgreSQL | not blocked - an environment failure is not the agent's to repair |
 
 The agent does not decide when it is done. Renaming or weakening the test that
@@ -347,6 +353,7 @@ npm run evidence
 
 `instructions:check` fails if `.github/copilot-instructions.md` has drifted from
 `AGENTS.md`. Durable context is validated like code.
+
 ## Step 8 - Independent review
 
 Switch to the `risk-reviewer` agent, or use the **Independent review** handoff
@@ -417,15 +424,15 @@ the next run to resolve the contract again.
 
 ## Troubleshooting
 
-| Symptom | Cause |
-| --- | --- |
-| Agents missing from the picker | Files must be in `.github/agents` and end in `.agent.md` |
-| `npm run evidence` exits 2 | No contract resolved. Check `node scripts/session-start.mjs` output, or set `AGENT_TASK_ISSUE`. |
-| Denials say "outside the approved scope" instead of naming WI-1842 | Same: the contract cache is missing. |
-| The agent reads `docs/demo-setup/...` instead of the issue | Pull the latest: the contract is injected at session start and all three agent profiles forbid treating a seed as the contract. |
-| Acceptance tests refuse to connect | `npm run db:up`; compose maps host port **55432**. If another clone of this repo is running, it holds the same port - stop that container first. |
-| The agent says `npm run db:up` was denied | Pull the latest. Environment commands now ask rather than deny, so approve it once and the acceptance evidence becomes producible. |
-| `npm run validate` fails on `instructions:check` | `.github/copilot-instructions.md` was hand-edited - run `npm run instructions:sync` |
-| The hook never fires in VS Code | Agent hooks are Preview and can be disabled by policy. Check **Developer: Show Agent Debug Logs**, and confirm the event key is `PreToolUse`. |
-| Every call says "the hook received no tool call on stdin" | The hook command is not delivering stdin. It must be `node scripts/authorize-tool.mjs`, with no bash or PowerShell wrapper in between. |
-| The agent says reads are rejected and falls back to a CLI | An older build denied unrecognized tool names. Pull the latest: unknown tools now return `ask`, and read tools are classified by capability. |
+| Symptom                                                            | Cause                                                                                                                                            |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Agents missing from the picker                                     | Files must be in `.github/agents` and end in `.agent.md`                                                                                         |
+| `npm run evidence` exits 2                                         | No contract resolved. Check `node scripts/session-start.mjs` output, or set `AGENT_TASK_ISSUE`.                                                  |
+| Denials say "outside the approved scope" instead of naming WI-1842 | Same: the contract cache is missing.                                                                                                             |
+| The agent reads `docs/demo-setup/...` instead of the issue         | Pull the latest: the contract is injected at session start and all three agent profiles forbid treating a seed as the contract.                  |
+| Acceptance tests refuse to connect                                 | `npm run db:up`; compose maps host port **55432**. If another clone of this repo is running, it holds the same port - stop that container first. |
+| The agent says `npm run db:up` was denied                          | Pull the latest. Environment commands now ask rather than deny, so approve it once and the acceptance evidence becomes producible.               |
+| `npm run validate` fails on `instructions:check`                   | `.github/copilot-instructions.md` was hand-edited - run `npm run instructions:sync`                                                              |
+| The hook never fires in VS Code                                    | Agent hooks are Preview and can be disabled by policy. Check **Developer: Show Agent Debug Logs**, and confirm the event key is `PreToolUse`.    |
+| Every call says "the hook received no tool call on stdin"          | The hook command is not delivering stdin. It must be `node scripts/authorize-tool.mjs`, with no bash or PowerShell wrapper in between.           |
+| The agent says reads are rejected and falls back to a CLI          | An older build denied unrecognized tool names. Pull the latest: unknown tools now return `ask`, and read tools are classified by capability.     |

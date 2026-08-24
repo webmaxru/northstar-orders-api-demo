@@ -72,3 +72,24 @@ describe("extracting a plan from a session transcript", () => {
     expect(extractPlan(JSON.stringify([{ role: "user", content: "no assistant turn" }]))).toBeNull();
   });
 });
+
+describe("a fresh implementation session needs no lookup", () => {
+  // The implementer was told to "read the plan from the issue" while the
+  // command that would fetch it was not on the tool allowlist, and nothing told
+  // it which issue. The plan is injected at session start instead.
+  it("round-trips: what is published is what is read back", () => {
+    const plan = "## Assumptions\n- ADR-007 binding\n\n## Files\n- src/app.ts";
+    const comment = renderPlan(plan, { at: "2026-08-24T09:00:00.000Z" });
+
+    // fetchPlan strips the marker and preamble at the "---" divider.
+    const recovered = comment.split("\n---\n").slice(1).join("\n---\n").trim();
+    expect(recovered).toBe(plan);
+  });
+
+  it("keeps a divider inside the plan body intact", () => {
+    const plan = "## Design\n\n---\n\n## Rollback";
+    const comment = renderPlan(plan);
+    const recovered = comment.split("\n---\n").slice(1).join("\n---\n").trim();
+    expect(recovered).toBe(plan);
+  });
+});

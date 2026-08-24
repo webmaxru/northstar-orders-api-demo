@@ -124,6 +124,20 @@ export function publish(issue, body) {
   return { updated: false, id: JSON.parse(created).id };
 }
 
+/** Read the persisted plan back from the task issue, or null if none. */
+export function fetchPlan(issue) {
+  const raw = gh(["api", `repos/{owner}/{repo}/issues/${issue}/comments`, "--jq", ".[] | {body}"]);
+  for (const line of raw.split("\n").filter(Boolean)) {
+    const comment = JSON.parse(line);
+    if (comment.body?.includes(MARKER)) {
+      // Strip the marker and the preamble; return the plan itself.
+      const parts = comment.body.split("\n---\n");
+      return (parts.length > 1 ? parts.slice(1).join("\n---\n") : comment.body).trim();
+    }
+  }
+  return null;
+}
+
 async function readStdin() {
   if (process.stdin.isTTY) return "";
   const chunks = [];
@@ -141,6 +155,17 @@ async function main() {
   const issue = valueOf("--issue") ?? contract?.source?.issue;
   const transcript = valueOf("--transcript");
   const file = valueOf("--file");
+
+  if (process.argv.includes("--show")) {
+    const target = issue ?? valueOf("--issue");
+    if (!target) {
+      process.stderr.write("No task issue. Resolve a contract first.\n");
+      process.exit(2);
+    }
+    const plan = fetchPlan(target);
+    process.stdout.write(plan ? `${plan}\n` : `No plan has been posted to issue #${target}.\n`);
+    process.exit(plan ? 0 : 1);
+  }
 
   let body;
   if (file) {
