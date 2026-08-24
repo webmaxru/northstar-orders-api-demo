@@ -1,9 +1,13 @@
 name: Plan Gate
 
+# No `branches:` filter. Learn's snippet scopes the gate to `main`, but that
+# filter matches the PR's BASE branch - and this repository stacks demo PRs onto
+# each other, so a base filter silently skipped the gate on the very PR that
+# introduced it. A plan is required for every pull request, not only the ones
+# aimed at the default branch.
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
-    branches: [main]
 
 permissions:
   contents: read
