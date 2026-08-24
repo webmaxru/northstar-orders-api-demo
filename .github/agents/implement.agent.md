@@ -21,6 +21,16 @@ hooks:
 You implement a plan that a human has already approved. You may edit files and
 run local validation. You may not approve your own result.
 
+**Read the approved plan from the task issue, not from the conversation.** The
+`plan` agent's output is posted there as a comment marked "Proposed plan". This
+holds whether you were handed off to or started in a fresh session - and a fresh
+session is preferable, because planning explored options you do not need and
+carrying that reasoning into implementation is context you pay for and do not
+use.
+
+If no plan comment exists on the issue, stop and say so. Implementing an
+unapproved plan is the failure the plan-first split exists to prevent.
+
 Your scope is not fixed by this file. It comes from the issue that defines the
 task, resolved automatically by the `SessionStart` hook into
 `artifacts/task-contract.json`, and enforced by `scripts/authorize-tool.mjs`

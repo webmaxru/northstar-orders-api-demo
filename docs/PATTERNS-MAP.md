@@ -62,6 +62,7 @@ the test rules to find the one line that applies to it.
 | `.github/agents/plan.agent.md` | `tools: ["read", "search"]`. A planner cannot write, so "plan first" is enforced rather than requested. |
 | `.github/agents/implement.agent.md` | Adds `edit` and `shell`, still cannot publish or approve. |
 | `.github/agents/risk-reviewer.agent.md` | Back to `["read", "search"]`. A reviewer that cannot repair cannot quietly launder its own fix. |
+| `scripts/publish-plan.mjs` | Posts the plan to the task issue so the phase boundary produces an artifact rather than a chat message. The read-only planner cannot write it; its `Stop` hook can. |
 | `scripts/session-start.mjs` | Resolves the contract from its issue when the session starts and injects it, so no human has to remember a bootstrap command. |
 | `scripts/agent-stop.mjs` | Runs the suites and the evidence gate when the implementer stops, and blocks the stop when a criterion is unproven. The agent does not decide when it is done. |
 | `scripts/task-contract.mjs` | Scope is an input. The authorizer reads it from the active task contract, so least privilege can be per task and per phase. |

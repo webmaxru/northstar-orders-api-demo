@@ -11,6 +11,7 @@ executed while writing this document.
 | File | Written by | Read by | Committed? |
 | --- | --- | --- | --- |
 | the GitHub issue | a human, via the **Agent task** template | everything, indirectly | n/a - it is not a file |
+| the plan comment on the task issue | `scripts/plan-stop.mjs` via `scripts/publish-plan.mjs` |
 | `artifacts/task-contract.json` | `scripts/session-start.mjs`, or `scripts/fetch-task-contract.mjs` | `authorize-tool.mjs`, `build-execution-report.mjs` | no, gitignored |
 | `artifacts/unit-junit.xml` | `vitest` via `npm run test:unit:ci` | `build-execution-report.mjs` | no |
 | `artifacts/acceptance-junit.xml` | `vitest` via `npm run test:acceptance:ci` | `build-execution-report.mjs` | no |
@@ -55,9 +56,16 @@ suite needs a database. Environment discovery is not reasoning.
 `.github/prompts/plan-wi-1842.prompt.md` names the task and binds it to the
 `plan` agent, whose frontmatter is `tools: ["read", "search"]`.
 
-**Nothing is written.** The planner has no `edit` and no `shell`, so
-"plan first" is a capability, not a request. The plan is produced as text and
-belongs in the pull request description or an issue comment.
+**The agent writes nothing.** The planner has no `edit` and no `shell`, so
+"plan first" is a capability, not a request. But that also means it cannot
+persist its own plan, and a plan that exists only in a chat thread is not "an
+inspectable plan" and not something a second person can review or resume.
+
+The `Stop` hook resolves that tension. It runs outside the agent's tool
+boundary - the system persists the artifact, the agent still cannot write - and
+posts the plan as a comment on the task issue, where Learn says planning
+belongs. If the transcript cannot be read it says so and gives the exact
+command, rather than reporting success and persisting nothing.
 
 The plan must map every success criterion in the issue to the check that will
 prove it. That mapping is what Step 7 later verifies mechanically.
@@ -66,6 +74,12 @@ prove it. That mapping is what Step 7 later verifies mechanically.
 
 The only step with no automation. Approving a plan is cheaper than reviewing a
 diff, which is the entire argument for keeping Steps 2 and 4 apart.
+
+Approve it **on the issue**, not in the chat. The implementer reads the comment,
+so implementation can begin in a fresh session rather than inheriting the
+planning conversation - which explored options, read files it will not touch,
+and argued with itself. Handing that forward through conversation context is the
+agent-to-agent chatter that versioned artifacts replace.
 
 ## Step 4 - The contract resolves itself at session start
 

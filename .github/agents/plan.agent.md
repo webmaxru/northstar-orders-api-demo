@@ -3,15 +3,19 @@ name: plan
 description: Produce a reviewable plan for an assigned work item without changing any file
 tools: ["read", "search"]
 handoffs:
-  - label: Start implementation
+  - label: Implement in this session
     agent: implement
-    prompt: The plan above is approved. Resolve the task contract, then implement only what the plan describes.
+    prompt: The plan is approved. Read the approved plan from the task issue, not from this conversation, then implement only what it describes.
     send: false
 hooks:
   SessionStart:
     - type: command
       command: "node scripts/session-start.mjs --allow-sole-issue"
       timeout: 20
+  Stop:
+    - type: command
+      command: "node scripts/plan-stop.mjs"
+      timeout: 60
 ---
 
 You are a planning agent. You have no write capability and no shell. That is

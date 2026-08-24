@@ -121,15 +121,39 @@ That is the demonstration.
 **Written:** nothing. The plan is chat output. Copy it into the pull request
 description later, or into an issue comment now.
 
-## Step 2 - Approve the plan, then hand off
+## Step 2 - The plan becomes an artifact, then you approve it
 
-Read the plan. Check it maps every success criterion in issue #4 to a specific
-check.
+When the plan agent stops, its `Stop` hook posts the plan as a comment on the
+task issue. That is the whole point of the phase boundary: a plan that exists
+only in a chat thread cannot be reviewed by anyone who was not in the session,
+cannot be resumed tomorrow, and disappears when the window closes.
 
-When the response finishes, a **Start implementation** button appears - that is
-the handoff declared in `plan.agent.md`. It switches to the `implement` agent
-with a pre-filled prompt and does not send it, so you stay in control.
+Microsoft Learn puts planning in "a PR description, an issue comment, or a
+`.github/pull_request_template.md` artifact", and lists "an inspectable plan"
+in the minimum audit trail. A chat thread is none of those.
 
+Read the plan **on the issue**, not in the chat, and approve it there.
+
+If the hook could not read the session transcript it says so and gives you the
+command, rather than reporting success and persisting nothing:
+
+```powershell
+node scripts/publish-plan.mjs --issue 4 --file plan.md
+```
+
+### Then start implementation in a fresh session
+
+Open a new chat and select the `implement` agent. It reads the approved plan
+from the issue.
+
+The **Implement in this session** handoff button also works, but a fresh session
+is preferable: planning explored options, read files you will not touch, and
+argued with itself. None of that is needed to execute an approved plan, and
+carrying it in is context you pay for and do not use. The handoff exists for
+short plans and for demos where switching sessions costs stage time.
+
+Either way the implementer reads the artifact, so both paths start from the same
+place.
 ## Step 3 - The contract resolves itself
 
 Nothing to run. When the agent session starts, the `SessionStart` hook runs
