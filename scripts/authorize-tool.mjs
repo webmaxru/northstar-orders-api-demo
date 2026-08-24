@@ -14,7 +14,14 @@
 
 import { pathToFileURL } from "node:url";
 import { Buffer } from "node:buffer";
-import { DEFAULT_SCOPE, loadTaskContract, scopePrefixes, taskScope } from "./task-contract.mjs";
+import {
+  DEFAULT_SCOPE,
+  loadTaskContract,
+  matchesPattern,
+  scopePrefixes,
+  splitProhibitions,
+  taskScope,
+} from "./task-contract.mjs";
 
 /**
  * Repository-wide fallback, used when no task contract is in scope. A task
@@ -218,9 +225,27 @@ export function evaluateToolCall(call, context = {}) {
     if (paths.length === 0) {
       return ask(`"${rawName}" may write but named no path this policy can check`);
     }
+
+    // Prohibited beats allowed. A contract that says src/** but not src/api/**
+    // means the second, and checking allowed first would let it through.
+    const { paths: prohibitedPaths, advisory } = splitProhibitions(context.scope ?? DEFAULT_SCOPE);
+    for (const target of paths) {
+      const hit = prohibitedPaths.find((pattern) => matchesPattern(target, pattern));
+      if (hit) {
+        return deny(`${normalize(target)} is prohibited by the contract (${hit})`);
+      }
+    }
+
     const blocked = paths.filter((target) => !isWritable(target, prefixes));
     if (blocked.length === 0) {
-      return allow(`${paths.map(normalize).join(", ")} is inside ${where}`);
+      // Inside the allowed paths and not path-prohibited. Any remaining
+      // prohibitions are stated in prose, which a path check cannot evaluate,
+      // so say so rather than implying they were verified.
+      return allow(
+        advisory.length > 0
+          ? `${paths.map(normalize).join(", ")} is inside ${where}; not checked against the contract's prose prohibitions (${advisory.join("; ")})`
+          : `${paths.map(normalize).join(", ")} is inside ${where}`,
+      );
     }
     // Outside the scope. If a task governs this session that is a real
     // violation. If none does, there is no contract to violate, so ask instead

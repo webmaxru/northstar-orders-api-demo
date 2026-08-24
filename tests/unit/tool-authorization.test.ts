@@ -5,7 +5,7 @@ import {
   parsePayload,
   renderDecision,
 } from "../../scripts/authorize-tool.mjs";
-import { contractFromFile } from "../../scripts/task-contract.mjs";
+import { contractFromFile, isPathPattern } from "../../scripts/task-contract.mjs";
 
 // The contract comes from the issue. Tests parse the seed file that creates it.
 const contract = contractFromFile("docs/demo-setup/WI-1842.issue-seed.md");
@@ -393,5 +393,75 @@ describe("environment preparation asks instead of blocking the evidence bundle",
     expect(
       evaluateToolCall({ tool_name: "runInTerminal", tool_input: { command: "npm run build" } }, context),
     ).toMatchObject({ permissionDecision: "deny" });
+  });
+});
+describe("prohibited scope beats allowed scope", () => {
+  // Reported defect: the parser captured prohibited entries but the hook built
+  // prefixes only from allowed, so a prohibition inside an allowed tree was
+  // ignored. Prohibited now takes precedence.
+  const scoped = {
+    taskId: "WI-1842",
+    scope: {
+      allowed: ["src/**", "tests/**"],
+      prohibited: ["src/api/**", "**/*.deploy.yml", "public API response fields"],
+    },
+  };
+
+  const decide = (path: string) =>
+    evaluateToolCall({ tool_name: "editFiles", tool_input: { files: [path] } }, scoped);
+
+  it("denies a path prohibition nested inside an allowed tree", () => {
+    const decision = decide("src/api/openapi-schema.ts");
+    expect(decision.permissionDecision).toBe("deny");
+    expect(decision.permissionDecisionReason).toMatch(/prohibited by the contract \(src\/api\/\*\*\)/);
+  });
+
+  it("denies at any depth below a prohibited directory", () => {
+    expect(decide("src/api/v2/nested/thing.ts").permissionDecision).toBe("deny");
+  });
+
+  it("denies a suffix prohibition anywhere in the tree", () => {
+    expect(decide("src/services/prod.deploy.yml").permissionDecision).toBe("deny");
+  });
+
+  it("still allows the rest of the allowed scope", () => {
+    expect(decide("src/services/order-service.ts").permissionDecision).toBe("allow");
+  });
+
+  it("denies if any file in a multi-file edit is prohibited", () => {
+    expect(
+      evaluateToolCall(
+        { tool_name: "editFiles", tool_input: { files: ["src/app.ts", "src/api/schema.ts"] } },
+        scoped,
+      ).permissionDecision,
+    ).toBe("deny");
+  });
+
+  it("says which prose prohibitions it could not check", () => {
+    // Claiming to have enforced a sentence would be worse than saying it did not.
+    expect(decide("src/services/order-service.ts").permissionDecisionReason).toMatch(
+      /not checked against the contract's prose prohibitions \(public API response fields\)/,
+    );
+  });
+
+  it("does not mention prose prohibitions when there are none", () => {
+    const decision = evaluateToolCall(
+      { tool_name: "editFiles", tool_input: { files: ["src/app.ts"] } },
+      { taskId: "WI-9002", scope: { allowed: ["src/**"], prohibited: ["src/api/**"] } },
+    );
+    expect(decision.permissionDecisionReason).not.toMatch(/prose prohibitions/);
+  });
+});
+
+describe("classifying prohibitions", () => {
+  it.each([
+    ["src/api/**", true],
+    ["**/*.deploy.yml", true],
+    ["src/config/deploy.ts", true],
+    ["public API response fields", false],
+    ["authentication and authorization", false],
+    ["deployment configuration", false],
+  ])("treats %s as a path pattern: %s", (entry, expected) => {
+    expect(isPathPattern(entry)).toBe(expected);
   });
 });

@@ -54,10 +54,15 @@ body:
     id: prohibited-scope
     attributes:
       label: Prohibited scope
-      description: One item per line. Things that must not change even inside the allowed paths.
+      description: >
+        One per line. A path or glob is enforced by the pre-tool hook and beats
+        the allowed scope, so prefer one where the rule is about files. A plain
+        sentence cannot be enforced by a path check and is reviewer guidance
+        only - it is surfaced to the agent and the reviewer, not blocked.
       placeholder: |
+        src/api/openapi-schema.ts
+        **/*.deploy.yml
         public API response fields
-        deployment configuration
     validations:
       required: false
 

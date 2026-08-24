@@ -69,3 +69,14 @@ export declare function loadTaskContract(cachePath?: string): TaskContract | nul
 export declare function taskScope(contract?: TaskContract | null): TaskScope;
 
 export declare function scopePrefixes(scope?: TaskScope): string[];
+
+export declare function isPathPattern(entry: string): boolean;
+
+export declare function splitProhibitions(scope?: TaskScope): {
+  /** Prohibitions a path check enforces. These beat the allowed scope. */
+  paths: string[];
+  /** Prohibitions stated in prose. Reviewer guidance, not enforced. */
+  advisory: string[];
+};
+
+export declare function matchesPattern(filePath: string, pattern: string): boolean;

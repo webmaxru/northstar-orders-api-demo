@@ -21,7 +21,7 @@ import { execFileSync } from "node:child_process";
 import { rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { CONTRACT_CACHE, cacheContract, parseIssueBody } from "./task-contract.mjs";
+import { CONTRACT_CACHE, cacheContract, parseIssueBody, splitProhibitions } from "./task-contract.mjs";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 
@@ -105,7 +105,8 @@ function summarize(contract, how) {
     "issue, not the issue itself.",
     "",
     `Allowed scope: ${contract.inputs.scope.allowed.join(", ")}`,
-    `Prohibited: ${contract.inputs.scope.prohibited.join("; ") || "none stated"}`,
+    `Prohibited paths, enforced before every tool call: ${splitProhibitions(contract.inputs.scope).paths.join(", ") || "none stated"}`,
+    `Prohibited in prose, NOT enforced by any check - honour these yourself: ${splitProhibitions(contract.inputs.scope).advisory.join("; ") || "none stated"}`,
     `Authoritative sources: ${contract.inputs.authoritativeSources.join(", ")}`,
     `Constraints: ${contract.inputs.constraints.join("; ")}`,
     "",

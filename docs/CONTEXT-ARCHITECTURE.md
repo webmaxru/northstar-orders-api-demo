@@ -88,7 +88,7 @@ Reads Layer 2. Contains no task identity of its own.
 | Script | Reads | Effect |
 | --- | --- | --- |
 | `scripts/fetch-task-contract.mjs` | `--issue <n>` or `--file <seed>` | Parses the issue into `artifacts/task-contract.json` and records the source |
-| `scripts/authorize-tool.mjs` | the resolved contract's `inputs.scope.allowed` | Denies writes outside the task's allowed scope before the tool runs |
+| `scripts/authorize-tool.mjs` | the resolved contract's `inputs.scope` | Denies writes outside `allowed`, and denies path patterns in `prohibited` even when they sit inside an allowed tree |
 | `scripts/build-execution-report.mjs` | the resolved contract's `successCriteria[].provenBy` | Fails when a criterion has no proof |
 
 Both gates work with no contract resolved. The authorizer falls back to a

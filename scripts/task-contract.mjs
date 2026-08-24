@@ -151,3 +151,51 @@ export function scopePrefixes(scope) {
   const allowed = scope?.allowed?.length ? scope.allowed : DEFAULT_SCOPE.allowed;
   return allowed.map((pattern) => pattern.replace(/\*+$/, "").replace(/\/+$/, "/"));
 }
+
+/**
+ * Does this prohibition name a path, or a concept?
+ *
+ * An issue may prohibit "deployment configuration" or "src/api/**". The first
+ * is a semantic rule a reviewer applies; the second is something a path check
+ * can enforce. Treating them alike would either ignore real boundaries or claim
+ * to enforce sentences.
+ */
+export function isPathPattern(entry) {
+  const text = String(entry ?? "").trim();
+  if (!text || /\s/.test(text.replace(/\s*,\s*/g, ""))) {
+    // Contains whitespace between words: prose, not a path.
+    return /[/*]/.test(text) && !/\s/.test(text);
+  }
+  return /[/*]/.test(text) || /\.[A-Za-z0-9]+$/.test(text);
+}
+
+/** Prohibitions a path check can enforce, and those only a human can. */
+export function splitProhibitions(scope) {
+  const entries = scope?.prohibited ?? [];
+  return {
+    paths: entries.filter(isPathPattern),
+    advisory: entries.filter((entry) => !isPathPattern(entry)),
+  };
+}
+
+/**
+ * Match a path against a prohibition pattern.
+ * Supports `dir/**`, exact paths, and `**\/*.ext` suffix patterns.
+ */
+export function matchesPattern(filePath, pattern) {
+  const path = String(filePath).replace(/\\/g, "/").replace(/^\.\//, "");
+  const raw = String(pattern).trim().replace(/^\.\//, "");
+
+  if (raw.startsWith("**/")) {
+    const suffix = raw.slice(3).replace(/^\*/, "");
+    return path.endsWith(suffix) || path.split("/").pop() === suffix;
+  }
+  if (raw.endsWith("/**") || raw.endsWith("/*")) {
+    const prefix = raw.replace(/\/\*+$/, "/");
+    return path.startsWith(prefix);
+  }
+  if (raw.endsWith("*")) {
+    return path.startsWith(raw.slice(0, -1));
+  }
+  return path === raw || path.startsWith(`${raw}/`);
+}
