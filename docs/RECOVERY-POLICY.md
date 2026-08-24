@@ -18,13 +18,13 @@ actually one unchanged problem.
 
 ## Which layer changes
 
-| Signal in the failure | Layer | Action | What actually changes |
-| --- | --- | --- | --- |
-| permission, forbidden, denied, 401, 403 | policy | escalate | authority, not the prompt |
-| ECONNREFUSED, ETIMEDOUT, ENOTFOUND | environment | repair | the bootstrap, so the dependency is present before reasoning starts |
-| cannot find module, type not assignable | context | repair | retrieve the missing source of truth |
-| assertion mismatch | reasoning | repair | the plan, never the assertion |
-| anything else | unknown | escalate | classify before spending another attempt |
+| Signal in the failure                   | Layer       | Action   | What actually changes                                               |
+| --------------------------------------- | ----------- | -------- | ------------------------------------------------------------------- |
+| permission, forbidden, denied, 401, 403 | policy      | escalate | authority, not the prompt                                           |
+| ECONNREFUSED, ETIMEDOUT, ENOTFOUND      | environment | repair   | the bootstrap, so the dependency is present before reasoning starts |
+| cannot find module, type not assignable | context     | repair   | retrieve the missing source of truth                                |
+| assertion mismatch                      | reasoning   | repair   | the plan, never the assertion                                       |
+| anything else                           | unknown     | escalate | classify before spending another attempt                            |
 
 ## Stop conditions
 

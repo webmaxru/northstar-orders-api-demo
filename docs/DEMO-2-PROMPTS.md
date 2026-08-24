@@ -15,4 +15,3 @@ Implement the approved plan. Run focused tests, then PostgreSQL acceptance tests
 ## Review
 
 Produce the evidence bundle and recommend merge, revise, revert, or escalate.
-

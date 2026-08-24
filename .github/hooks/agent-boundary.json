@@ -17,6 +17,22 @@
         "timeoutSec": 20
       }
     ],
+    "UserPromptSubmit": [
+      {
+        "type": "command",
+        "command": "node scripts/resolve-task.mjs",
+        "timeout": 20
+      }
+    ],
+    "userPromptSubmit": [
+      {
+        "type": "command",
+        "command": "node scripts/resolve-task.mjs",
+        "bash": "node scripts/resolve-task.mjs",
+        "powershell": "node scripts/resolve-task.mjs",
+        "timeoutSec": 20
+      }
+    ],
     "PreToolUse": [
       {
         "type": "command",

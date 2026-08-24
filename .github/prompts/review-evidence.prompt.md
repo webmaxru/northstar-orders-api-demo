@@ -13,4 +13,3 @@ Return an evidence bundle with:
 - unexpected scope,
 - limits and unverified assumptions,
 - merge, revise, revert, or escalate recommendation.
-

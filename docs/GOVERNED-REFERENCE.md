@@ -22,4 +22,3 @@ npm run db:down
 ```
 
 The acceptance suite creates two service instances, sends cross-instance and concurrent retries, and verifies that exactly one order exists.
-

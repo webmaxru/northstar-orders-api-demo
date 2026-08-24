@@ -88,7 +88,7 @@ code .
 
 Confirm VS Code sees the customizations: open the Command Palette and run
 **Chat: Open Customizations**. You should see three agents - `plan`,
-`implement`, `risk-reviewer` - and the prompt file `plan-wi-1842`.
+`implement`, `risk-reviewer` - and the prompt files `plan` and `implement`.
 
 If the agents do not appear, check that the folder is `.github/agents` and the
 files end in `.agent.md`.
@@ -109,7 +109,7 @@ gh issue create --title "[Agent task] WI-1842 Stop duplicate orders after client
 
 ## Step 1 - Run the plan prompt
 
-In the Chat view, type `/plan-wi-1842`.
+In the Chat view, type `/plan 4` - the number is the task issue.
 
 The prompt file's frontmatter says `agent: plan`, so VS Code switches to the
 `plan` agent, whose frontmatter is `tools: ["read", "search"]`.
@@ -143,10 +143,9 @@ node scripts/publish-plan.mjs --issue 4 --file plan.md
 
 ### Then start implementation in a fresh session
 
-Open a new chat and run `/implement`. That saved prompt selects the `implement`
-agent and states the preconditions. You never tell it which issue you are on:
-the `SessionStart` hook resolves the contract and injects both it and the
-approved plan comment. It gets the approved plan
+Open a new chat and run `/implement 4` - the same issue number you planned with.
+That saved prompt selects the `implement` agent; the hook caches the contract
+and the approved plan beside it. It reads the approved plan
 from the issue.
 
 The **Implement in this session** handoff button also works, but a fresh session
@@ -158,43 +157,56 @@ short plans and for demos where switching sessions costs stage time.
 Either way the implementer reads the artifact, so both paths start from the same
 place.
 
-## Step 3 - The contract resolves itself
+## Step 3 - The contract resolves from the number you gave
 
-Nothing to run. When the agent session starts, the `SessionStart` hook runs
-`node scripts/session-start.mjs`, which:
+Nothing to run. Submitting `/plan 4` fires the `UserPromptSubmit` hook, which
+runs `node scripts/resolve-task.mjs`. It:
 
-1. works out which issue defines the current task,
-2. reads it with `gh issue view`,
+1. takes the issue number out of the prompt - it does not work one out,
+2. reads that issue with `gh issue view`,
 3. caches the parsed contract at `artifacts/task-contract.json`,
-4. injects it into the conversation as `additionalContext`.
+4. caches the approved plan at `artifacts/task-plan.md`, if the issue has one.
 
-The agent therefore begins with the goal, allowed and prohibited scope,
-constraints, success criteria and stop conditions already in context, and the
-`PreToolUse` hook already knows the scope it must enforce.
+The agent then reads the contract as its first act, so the goal, allowed and
+prohibited scope, constraints, success criteria and stop conditions are all
+grounded in a file you can open, and the `PreToolUse` hook already knows the
+scope it must enforce.
 
-Which issue? Most explicit first:
+The hook writes files rather than injecting text because `UserPromptSubmit` is
+documented to support only the common output fields - `continue`, `stopReason`
+and `systemMessage`. Turning that constraint into an artifact is an improvement
+anyway: a paragraph in a context window is not reviewable, and a file is.
 
-| Order | Source                                                              | Available to               |
-| ----- | ------------------------------------------------------------------- | -------------------------- |
-| 1     | `AGENT_TASK_ISSUE` environment variable                             | every session              |
-| 2     | the current branch name, if it contains a task id such as `wi-1842` | every session              |
-| 3     | the only open issue labelled `agent-task`                           | only the three task agents |
+Which issue? The one you type:
+
+```
+/plan 4
+```
+
+There is no second way in an interactive session, and nothing is inferred. The
+`UserPromptSubmit` hook (`scripts/resolve-task.mjs`) reads the number out of the
+prompt, fetches issue #4, and caches:
+
+| Artifact                       | Contents                             |
+| ------------------------------ | ------------------------------------ |
+| `artifacts/task-contract.json` | the parsed contract                  |
+| `artifacts/task-plan.md`       | the approved plan, if one was posted |
+
+Omit the number and the turn **stops before any tokens are spent**:
+
+> No task issue number. The plan and implement prompts take the issue as an
+> argument - for example `/plan 4` or `/implement 4`.
 
 ### Which sessions run it
 
-Workspace hooks in `.github/hooks/*.json` fire for **every** agent session in
-the workspace, including chats about something else entirely. That matters, so
-the discovery is deliberately split:
+Workspace hooks fire for **every** agent session and every prompt, including
+chats about something else. `resolve-task.mjs` therefore checks one regex first:
+unless the prompt invokes `/plan` or `/implement`, it returns `{continue:true}`
+and makes no network call.
 
-- The **workspace** hook only looks at `AGENT_TASK_ISSUE` and the branch name.
-  With neither, it makes **no GitHub call at all** - about 0.3s rather than 4s -
-  and reports that no task is active.
-- The **agent-scoped** hook, declared in the `hooks:` frontmatter of
-  `plan`, `implement` and `risk-reviewer`, adds `--allow-sole-issue`. Choosing
-  one of those agents _is_ the signal that this session is about the task.
-
-Agent-scoped hooks are Preview and need `chat.useCustomAgentHooks: true`. Without
-it, use a `wi-1842-...` branch or set `AGENT_TASK_ISSUE`.
+`SessionStart` still runs, but it now reads only `AGENT_TASK_ISSUE` - the path
+CI and the cloud agent use, where there is no prompt to read. Unset, it makes no
+GitHub call either.
 
 When no task resolves, the hook **clears** any cached contract from an earlier
 session. Otherwise a chat about the README would be judged against a task nobody
@@ -427,7 +439,7 @@ the next run to resolve the contract again.
 | Symptom                                                            | Cause                                                                                                                                            |
 | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Agents missing from the picker                                     | Files must be in `.github/agents` and end in `.agent.md`                                                                                         |
-| `npm run evidence` exits 2                                         | No contract resolved. Check `node scripts/session-start.mjs` output, or set `AGENT_TASK_ISSUE`.                                                  |
+| `npm run evidence` exits 2                                         | No contract resolved. Rerun the prompt with an issue number, or set `AGENT_TASK_ISSUE`.                                                          |
 | Denials say "outside the approved scope" instead of naming WI-1842 | Same: the contract cache is missing.                                                                                                             |
 | The agent reads `docs/demo-setup/...` instead of the issue         | Pull the latest: the contract is injected at session start and all three agent profiles forbid treating a seed as the contract.                  |
 | Acceptance tests refuse to connect                                 | `npm run db:up`; compose maps host port **55432**. If another clone of this repo is running, it holds the same port - stop that container first. |

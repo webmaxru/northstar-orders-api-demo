@@ -1,30 +1,19 @@
 ---
-description: Implement the approved plan for the active task
+description: Implement the approved plan for a GitHub issue
+name: implement
+argument-hint: <issue-number>
 agent: implement
 ---
 
-Implement the approved plan.
+Task issue: #${input:issue}
 
-Everything you need is already in this session. The `SessionStart` hook resolved
-the task contract from its issue and injected it, together with the approved
-plan posted as a comment on that same issue. You do not need to look up the
-issue number or fetch anything.
+The `UserPromptSubmit` hook reads that issue, caches the contract at
+`artifacts/task-contract.json` and the approved plan at
+`artifacts/task-plan.md`, and stops the turn if no number was given.
 
-Before you edit:
+Implement only what the cached plan describes. If `artifacts/task-plan.md` is
+absent, stop: plan first, in its own session. Do not re-plan here - silently
+improving an approved plan turns a reviewed artifact back into an unreviewed
+one.
 
-1. Confirm the injected context names an **active task contract**. If it says no
-   contract is active, stop and say so.
-2. Confirm it contains an **approved plan**. If it says no plan has been
-   persisted, stop - run the `plan` agent first. Do not plan and implement in
-   the same session.
-3. Read `AGENTS.md`, `docs/architecture.md`, and every authoritative source the
-   contract names.
-
-Then implement **only what the plan describes**, inside the contract's allowed
-scope and outside its prohibited paths.
-
-Do not re-plan. If the plan is wrong or incomplete, say which part and stop -
-silently improving it turns an approved artifact back into an unreviewed one.
-
-When you finish, the `Stop` hook runs the suites and rebuilds the evidence
-report. If a success criterion is unproven it will block and hand you the gap.
+The rest of the rules live in `AGENTS.md` and the `implement` agent profile.

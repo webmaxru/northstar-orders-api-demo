@@ -19,4 +19,3 @@ Northstar Orders API is a stateless HTTP service deployed as multiple instances 
 ## Privacy
 
 Raw idempotency keys and request payloads are sensitive correlation data. Store only hashes and do not write either value to logs.
-

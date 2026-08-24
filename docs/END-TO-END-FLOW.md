@@ -1,6 +1,6 @@
 # End-to-end flow
 
-From running `plan-wi-1842.prompt.md` to a pull request that is ready to merge.
+From running `/plan <issue>` to a pull request that is ready to merge.
 
 Every step names the script that runs, the file it reads, the file it writes,
 and why that ordering is forced. Nothing here is aspirational: each command was
@@ -8,16 +8,16 @@ executed while writing this document.
 
 ## The files that move between steps
 
-| File | Written by | Read by | Committed? |
-| --- | --- | --- | --- |
-| the GitHub issue | a human, via the **Agent task** template | everything, indirectly | n/a - it is not a file |
-| the plan comment on the task issue | `scripts/plan-stop.mjs` via `scripts/publish-plan.mjs` |
-| `artifacts/task-contract.json` | `scripts/session-start.mjs`, or `scripts/fetch-task-contract.mjs` | `authorize-tool.mjs`, `build-execution-report.mjs` | no, gitignored |
-| `artifacts/unit-junit.xml` | `vitest` via `npm run test:unit:ci` | `build-execution-report.mjs` | no |
-| `artifacts/acceptance-junit.xml` | `vitest` via `npm run test:acceptance:ci` | `build-execution-report.mjs` | no |
-| `artifacts/codeql/**.sarif` | `github/codeql-action/analyze` | `check-sarif.mjs` | no |
-| `artifacts/report.json` | `scripts/build-execution-report.mjs` | reviewers, uploaded as `execution-report` | no |
-| `.github/copilot-instructions.md` | `scripts/sync-agent-instructions.mjs` | Copilot surfaces that do not read `AGENTS.md` | yes, generated |
+| File                               | Written by                                                        | Read by                                            | Committed?             |
+| ---------------------------------- | ----------------------------------------------------------------- | -------------------------------------------------- | ---------------------- |
+| the GitHub issue                   | a human, via the **Agent task** template                          | everything, indirectly                             | n/a - it is not a file |
+| the plan comment on the task issue | `scripts/plan-stop.mjs` via `scripts/publish-plan.mjs`            |
+| `artifacts/task-contract.json`     | `scripts/session-start.mjs`, or `scripts/fetch-task-contract.mjs` | `authorize-tool.mjs`, `build-execution-report.mjs` | no, gitignored         |
+| `artifacts/unit-junit.xml`         | `vitest` via `npm run test:unit:ci`                               | `build-execution-report.mjs`                       | no                     |
+| `artifacts/acceptance-junit.xml`   | `vitest` via `npm run test:acceptance:ci`                         | `build-execution-report.mjs`                       | no                     |
+| `artifacts/codeql/**.sarif`        | `github/codeql-action/analyze`                                    | `check-sarif.mjs`                                  | no                     |
+| `artifacts/report.json`            | `scripts/build-execution-report.mjs`                              | reviewers, uploaded as `execution-report`          | no                     |
+| `.github/copilot-instructions.md`  | `scripts/sync-agent-instructions.mjs`                             | Copilot surfaces that do not read `AGENTS.md`      | yes, generated         |
 
 Everything under `artifacts/` is derived state. If it were committed, the
 repository would quietly become the source of truth again and the contract in
@@ -53,7 +53,7 @@ suite needs a database. Environment discovery is not reasoning.
 
 ## Step 2 - You run the plan prompt
 
-`.github/prompts/plan-wi-1842.prompt.md` names the task and binds it to the
+`.github/prompts/plan.prompt.md` names the task and binds it to the
 `plan` agent, whose frontmatter is `tools: ["read", "search"]`.
 
 **The agent writes nothing.** The planner has no `edit` and no `shell`, so
@@ -83,16 +83,26 @@ agent-to-agent chatter that versioned artifacts replace.
 
 ## Step 4 - The contract resolves itself at session start
 
-The `SessionStart` hook runs `node scripts/session-start.mjs`. It identifies the
-issue that defines the current task, reads it with `gh issue view`, caches the
-parsed contract at `artifacts/task-contract.json`, and injects it into the
-conversation.
+The task is an **input**, so it is named, never inferred. There are exactly two
+ways it enters a session, and both are explicit:
 
-Workspace hooks fire for every agent session, so discovery is split. The
-workspace hook only consults `AGENT_TASK_ISSUE` and the branch name, and makes
-no network call when neither identifies a task. The three task agents declare
-the same hook in their frontmatter with `--allow-sole-issue`, because choosing
-one of them is itself the signal that the session is about the task.
+| Where              | How                                                       | Used by                |
+| ------------------ | --------------------------------------------------------- | ---------------------- |
+| `UserPromptSubmit` | the issue number given to `/plan <n>` or `/implement <n>` | interactive sessions   |
+| `SessionStart`     | the `AGENT_TASK_ISSUE` environment variable               | CI and the cloud agent |
+
+`scripts/resolve-task.mjs` runs on `UserPromptSubmit`. It reads the issue with
+`gh issue view`, caches the parsed contract at `artifacts/task-contract.json`
+and the approved plan at `artifacts/task-plan.md`. On a prompt that does not
+invoke a task agent it returns immediately and makes no network call.
+
+`scripts/session-start.mjs` calls the same resolver, so both paths produce
+byte-identical artifacts.
+
+Branch-name matching and "the only open `agent-task` issue" used to resolve the
+task as well. Both are gone. They were usually right, which is exactly why
+nobody checked them - and a session governed by the wrong contract is worse
+than a session told it has none.
 
 When nothing resolves, the hook clears any cached contract so an unrelated
 session is not judged against a task nobody is working on, and the boundary
@@ -110,6 +120,7 @@ this design exists to prevent.
 
 `npm run contract:fetch -- --issue <n>` remains available for pinning a specific
 issue, and is on the tool allowlist so the boundary can bootstrap itself.
+
 ## Step 5 - The agent implements, one gated tool call at a time
 
 The `implement` agent has `tools: ["read", "search", "edit", "shell"]`.
@@ -195,6 +206,7 @@ exit code becomes `1`.
 Matching on `provenBy` also means weakening a test cannot fake completion.
 Rename the test that proves a criterion and the criterion becomes unproven, even
 though every test still passes.
+
 ## Step 8 - The pull request
 
 Open a PR whose body follows `.github/pull_request_template.md` - Intent, Plan,
@@ -211,12 +223,12 @@ item.
 
 Four workflows, none of which trusts the agent's local run.
 
-| Check | Workflow | Enforces |
-| --- | --- | --- |
-| `quality` | `ci.yml` | lint, typecheck, unit; uploads `unit-test-evidence` |
-| `acceptance` | `acceptance.yml` | PostgreSQL service, both suites, resolves the contract, builds the report; uploads `acceptance-test-evidence` and `execution-report` |
-| `analyze` | `codeql.yml` | CodeQL, then `check-sarif.mjs` fails the run on any finding |
-| `review` | `dependency-review.yml` | `npm audit --audit-level=high` |
+| Check        | Workflow                | Enforces                                                                                                                             |
+| ------------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `quality`    | `ci.yml`                | lint, typecheck, unit; uploads `unit-test-evidence`                                                                                  |
+| `acceptance` | `acceptance.yml`        | PostgreSQL service, both suites, resolves the contract, builds the report; uploads `acceptance-test-evidence` and `execution-report` |
+| `analyze`    | `codeql.yml`            | CodeQL, then `check-sarif.mjs` fails the run on any finding                                                                          |
+| `review`     | `dependency-review.yml` | `npm audit --audit-level=high`                                                                                                       |
 
 Inside `acceptance.yml` the order mirrors Steps 4 and 6, but CI resolves the
 contract itself rather than trusting the agent's session:
@@ -251,12 +263,12 @@ audited change.
 
 So the run does both:
 
-| Where | What | Lifetime |
-| --- | --- | --- |
-| `execution-report` artifact | full `report.json` | 90 days, set explicitly |
-| `acceptance-test-evidence`, `unit-test-evidence` | JUnit XML | 90 days |
-| `codeql-sarif-evidence` | SARIF | 90 days |
-| **pull request comment** | decision, per-criterion coverage, which evidence was present | **as long as the pull request** |
+| Where                                            | What                                                         | Lifetime                        |
+| ------------------------------------------------ | ------------------------------------------------------------ | ------------------------------- |
+| `execution-report` artifact                      | full `report.json`                                           | 90 days, set explicitly         |
+| `acceptance-test-evidence`, `unit-test-evidence` | JUnit XML                                                    | 90 days                         |
+| `codeql-sarif-evidence`                          | SARIF                                                        | 90 days                         |
+| **pull request comment**                         | decision, per-criterion coverage, which evidence was present | **as long as the pull request** |
 
 `scripts/publish-evidence.mjs` writes that comment and rewrites it in place on
 each run rather than appending. It carries the verdict, every criterion with the
@@ -314,14 +326,20 @@ to: the `SessionStart` hook does, and it fires for Copilot cloud agent and
 Copilot CLI as well as VS Code. Setup steps prepare the toolchain; the contract
 is session state.
 
-**How the session identifies the task varies by harness.** The workspace hook
-uses `AGENT_TASK_ISSUE` or a task id in the branch name. The sole-open-issue
-fallback is opt-in via `--allow-sole-issue`, declared in the `hooks:` frontmatter
-of the three task agents - and agent-scoped hooks are a VS Code preview feature.
-Whether the cloud agent honours hooks declared in an agent profile has not been
-verified here. On a branch that does not carry a task id, set
-`AGENT_TASK_ISSUE`, or run `npm run contract:fetch -- --issue <n>`, which is on
-the tool allowlist so the boundary can bootstrap itself.
+**`UserPromptSubmit` is documented to return only the common output fields.**
+`continue`, `stopReason` and `systemMessage` - not `additionalContext`. So the
+hook does not inject the contract as text; it writes the artifacts and the agent
+profiles tell the agents to read them. That is why the contract is a file and
+not a paragraph.
+
+**Whether that hook receives the typed text or the expanded prompt file is not
+documented.** `resolve-task.mjs` matches both `/plan 4` and the expanded
+`Task issue: #4`, so it behaves the same either way. An unsubstituted
+`${input:issue}` stops the turn rather than resolving to a guess.
+
+**Non-interactive runs have no prompt**, so CI and the cloud agent set
+`AGENT_TASK_ISSUE`. `npm run contract:fetch -- --issue <n>` is on the tool
+allowlist as the manual equivalent.
 
 **When no contract resolves, the session is ungoverned, not restricted.** The
 hook clears any cached contract so an unrelated session cannot inherit one.

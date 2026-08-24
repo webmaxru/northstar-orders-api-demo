@@ -84,29 +84,25 @@ describe("parser handles real GitHub issue-form output", () => {
   });
 });
 
-describe("the active task resolves without a manual step", () => {
-  it("prefers an explicit AGENT_TASK_ISSUE", () => {
-    expect(resolveIssueNumber({ env: { AGENT_TASK_ISSUE: "42" }, branch: "main" })).toEqual({
+describe("the active task is given, never inferred", () => {
+  it("reads the one explicit source, for non-interactive runs", () => {
+    expect(resolveIssueNumber({ env: { AGENT_TASK_ISSUE: "42" } })).toEqual({
       number: 42,
       how: "AGENT_TASK_ISSUE",
     });
   });
 
-  it("reads a task id out of the branch name before querying anything", () => {
-    // Only the explicit rule is exercised here. The branch and sole-issue rules
-    // query GitHub, which a unit test must not do.
-    expect(resolveIssueNumber({ env: { AGENT_TASK_ISSUE: "7" }, branch: "wi-1842-idempotency" })).toMatchObject({
-      number: 7,
-    });
+  it("infers nothing from a branch that names a task", () => {
+    // Branch-name matching used to resolve this. It was usually right, which is
+    // exactly why nobody checked it - and being governed by the wrong contract
+    // is worse than being told no contract is active.
+    expect(resolveIssueNumber({ env: {} })).toEqual({ number: null, how: "nothing" });
   });
 
-  it("does not adopt the sole open issue unless asked", () => {
-    // A workspace-wide hook fires on every session, including chats about
-    // something else entirely. Adopting a task nobody asked for would both cost
-    // a network round trip and govern unrelated work.
-    expect(resolveIssueNumber({ env: {}, branch: "main" })).toEqual({
-      number: null,
-      how: "nothing",
-    });
+  it("never adopts the only open agent-task issue", () => {
+    // A workspace hook fires on every session, including chats about something
+    // else. Adopting a task nobody named cost a network round trip and governed
+    // unrelated work.
+    expect(resolveIssueNumber({ env: {} }).number).toBeNull();
   });
 });

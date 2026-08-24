@@ -4,12 +4,12 @@ This repository supports the three demos in **From Prompt to Production** withou
 
 ## Stable refs
 
-| Ref | Purpose | Expected result |
-| --- | --- | --- |
-| `main` / `demo-baseline` | Initial API with no idempotency | Unit validation passes |
-| `demo/context-enabled` | Task contract, ADR, instructions, and red acceptance tests | Unit passes; acceptance fails |
-| `demo/naive-reference` | Process-local idempotency fallback | Narrow tests pass; adversarial acceptance fails |
-| `demo/governed-reference` | PostgreSQL transaction and durable evidence | All validation passes |
+| Ref                       | Purpose                                                    | Expected result                                 |
+| ------------------------- | ---------------------------------------------------------- | ----------------------------------------------- |
+| `main` / `demo-baseline`  | Initial API with no idempotency                            | Unit validation passes                          |
+| `demo/context-enabled`    | Task contract, ADR, instructions, and red acceptance tests | Unit passes; acceptance fails                   |
+| `demo/naive-reference`    | Process-local idempotency fallback                         | Narrow tests pass; adversarial acceptance fails |
+| `demo/governed-reference` | PostgreSQL transaction and durable evidence                | All validation passes                           |
 
 ## Prepare disposable worktrees
 
@@ -64,4 +64,3 @@ npm run demo:state
 ```
 
 `main` must remain at tag `demo-baseline` with a clean worktree.
-

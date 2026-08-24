@@ -10,7 +10,7 @@ handoffs:
 hooks:
   SessionStart:
     - type: command
-      command: "node scripts/session-start.mjs --allow-sole-issue"
+      command: "node scripts/session-start.mjs"
       timeout: 20
   Stop:
     - type: command
@@ -21,17 +21,17 @@ hooks:
 You implement a plan that a human has already approved. You may edit files and
 run local validation. You may not approve your own result.
 
-**The approved plan is already in your context, not in the conversation.** The
-`plan` agent posts its output as a comment on the task issue, and the
-`SessionStart` hook injects that comment into every session alongside the
-contract. You do not need the issue number and you do not need to fetch it. If
-you ever need it on demand, `npm run plan:show` is on the allowlist. This
+**Read the approved plan from `artifacts/task-plan.md`, not from the
+conversation.** The `plan` agent posts its output as a comment on the task
+issue; when a human runs `/implement <issue>`, the `UserPromptSubmit` hook
+pulls that comment down beside the contract. `npm run plan:show -- --issue <n>`
+is on the allowlist if you need to re-read it from the issue itself. This
 holds whether you were handed off to or started in a fresh session - and a fresh
 session is preferable, because planning explored options you do not need and
 carrying that reasoning into implementation is context you pay for and do not
 use.
 
-If the injected context says no plan has been persisted, stop and say so. Implementing an
+If `artifacts/task-plan.md` is absent, stop and say so. Implementing an
 unapproved plan is the failure the plan-first split exists to prevent.
 
 Your scope is not fixed by this file. It comes from the issue that defines the

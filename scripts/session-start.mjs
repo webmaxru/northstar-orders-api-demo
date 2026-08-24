@@ -5,90 +5,39 @@
  * before working: a contract you must remember to fetch is a contract that will
  * be missing exactly when it matters.
  *
- * Resolution order, most explicit first:
- *   1. AGENT_TASK_ISSUE - an issue number set for this session
- *   2. the current branch name, if it contains a task id such as wi-1842
- *   3. exactly one open issue labelled `agent-task`
+ * The task is an INPUT. This hook reads exactly one source - the
+ * AGENT_TASK_ISSUE environment variable - which exists for non-interactive
+ * runs (CI and the cloud agent) where no human types a prompt.
  *
- * If none of those resolves, the session still starts. The hook reports that no
- * contract is active and the boundary falls back to the repository-wide
- * default. It deliberately does NOT fall back to a seed file in docs/demo-setup:
+ * Interactive sessions do not use it. There, the human passes the issue number
+ * to `/plan` or `/implement` and the UserPromptSubmit hook resolves it. Nothing
+ * is inferred from the branch name or the open issue list any more: those
+ * guesses were usually right, which is precisely why nobody checked them.
+ *
+ * With no issue, the session still starts and reports that no contract is
+ * active. It deliberately does NOT fall back to a seed file in docs/demo-setup:
  * those exist to recreate an issue, and silently treating one as the contract
  * would hide the fact that the real one was never read.
  */
 
-import { execFileSync } from "node:child_process";
 import { rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { CONTRACT_CACHE, cacheContract, parseIssueBody, splitProhibitions } from "./task-contract.mjs";
-import { fetchPlan } from "./publish-plan.mjs";
+import { CONTRACT_CACHE, splitProhibitions } from "./task-contract.mjs";
+import { PLAN_CACHE, resolveTask } from "./resolve-task.mjs";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 
 /** Drop a contract left by an earlier session so it cannot govern this one. */
 function clearContract() {
   rmSync(resolve(REPO_ROOT, CONTRACT_CACHE), { force: true });
+  rmSync(resolve(REPO_ROOT, PLAN_CACHE), { force: true });
 }
 
-function gh(args) {
-  return execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-}
-
-function currentBranch() {
-  try {
-    return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-  } catch {
-    return "";
-  }
-}
-
-/** Find the agent-task issue whose title carries this id, for example WI-1842. */
-function issueForTaskId(taskId) {
-  const raw = gh(["issue", "list", "--label", "agent-task", "--state", "open", "--json", "number,title", "--limit", "50"]);
-  const match = JSON.parse(raw).find((issue) =>
-    issue.title.toUpperCase().includes(taskId.toUpperCase()),
-  );
-  return match?.number ?? null;
-}
-
-function soleAgentTaskIssue() {
-  const raw = gh(["issue", "list", "--label", "agent-task", "--state", "open", "--json", "number", "--limit", "50"]);
-  const issues = JSON.parse(raw);
-  return issues.length === 1 ? issues[0].number : null;
-}
-
-export function resolveIssueNumber({
-  env = process.env,
-  branch = currentBranch(),
-  allowSoleIssue = false,
-} = {}) {
+export function resolveIssueNumber({ env = process.env } = {}) {
   if (env.AGENT_TASK_ISSUE) {
     return { number: Number(env.AGENT_TASK_ISSUE), how: "AGENT_TASK_ISSUE" };
   }
-
-  const fromBranch = /\b(wi[-_]?\d+)\b/i.exec(branch);
-  if (fromBranch) {
-    const taskId = fromBranch[1].replace(/[-_]/, "-").toUpperCase();
-    const number = issueForTaskId(taskId);
-    if (number) {
-      return { number, how: `branch ${branch}` };
-    }
-  }
-
-  // Only reachable when the caller says this session is about a task - that is,
-  // from an agent-scoped hook. A workspace-wide hook must not query GitHub on
-  // every unrelated chat, and must not adopt a task nobody asked for.
-  if (allowSoleIssue) {
-    const sole = soleAgentTaskIssue();
-    if (sole) {
-      return { number: sole, how: "the only open agent-task issue" };
-    }
-  }
-
   return { number: null, how: "nothing" };
 }
 
@@ -100,7 +49,7 @@ function summarize(contract, how, plan) {
   const planSection = plan
     ? [
         "",
-        "APPROVED PLAN, from a comment on the same issue:",
+        "APPROVED PLAN, cached at artifacts/task-plan.md from a comment on the same issue:",
         "",
         plan,
         "",
@@ -152,53 +101,27 @@ function emit(additionalContext) {
 }
 
 async function main() {
-  const allowSoleIssue = process.argv.includes("--allow-sole-issue");
-  let resolution;
-  try {
-    resolution = resolveIssueNumber({ allowSoleIssue });
-  } catch (error) {
-    clearContract();
-    emit(
-      `No task contract is active: could not query issues (${/** @type {Error} */ (error).message.split("\n")[0]}). ` +
-        "The capability boundary is ungoverned for this session. " +
-        "Run `npm run contract:fetch -- --issue <n>` to set one.",
-    );
-    return;
-  }
+  const resolution = resolveIssueNumber();
 
   if (!resolution.number) {
     // Clear any contract left by a previous session. Inheriting one would mean
     // an unrelated chat is judged against a task nobody is working on.
     clearContract();
     emit(
-      "No task contract is active for this session. Nothing in the branch name " +
-        "or AGENT_TASK_ISSUE identifies a task, so no issue was read and no " +
-        "GitHub call was made. The capability boundary is ungoverned: reads are " +
-        "allowed and writes ask. Do not substitute a seed file from " +
-        "docs/demo-setup. To work on a task, check out a branch named after it, " +
-        "set AGENT_TASK_ISSUE, or run `npm run contract:fetch -- --issue <n>`.",
+      "No task contract is active yet. AGENT_TASK_ISSUE is unset, so no issue " +
+        "was read and no GitHub call was made. Nothing was inferred from the " +
+        "branch name or the open issue list, by design. The capability boundary " +
+        "is ungoverned: reads are allowed and writes ask. Do not substitute a " +
+        "seed file from docs/demo-setup. To work on a task, name its issue: " +
+        "`/plan <issue>` or `/implement <issue>`.",
     );
     return;
   }
 
   try {
-    const raw = gh(["issue", "view", String(resolution.number), "--json", "number,title,body,url"]);
-    const issue = JSON.parse(raw);
-    const contract = parseIssueBody(issue.body, {
-      number: issue.number,
-      url: issue.url,
-      source: `issue #${issue.number}`,
-    });
-    cacheContract(contract);
-    // The approved plan lives in a comment on the same issue. Injecting it here
-    // means a fresh implementation session needs no command to find it - and the
-    // command it would otherwise need is not on the tool allowlist.
-    let plan = null;
-    try {
-      plan = fetchPlan(resolution.number);
-    } catch {
-      plan = null;
-    }
+    // Same resolver the UserPromptSubmit hook uses, so an interactive session
+    // and a non-interactive one end up with byte-identical artifacts.
+    const { contract, plan } = resolveTask(resolution.number);
     emit(summarize(contract, resolution.how, plan));
   } catch (error) {
     emit(

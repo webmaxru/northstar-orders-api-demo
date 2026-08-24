@@ -7,5 +7,4 @@ export interface IssueResolution {
 
 export declare function resolveIssueNumber(options?: {
   env?: Record<string, string | undefined>;
-  branch?: string;
 }): IssueResolution;

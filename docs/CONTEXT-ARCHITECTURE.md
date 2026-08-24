@@ -5,7 +5,7 @@ Three layers, with one rule between them:
 > **Durable context must not name a task.**
 
 `AGENTS.md`, `.github/agents/*.agent.md`, and
-`.github/instructions/*.instructions.md` are loaded for *every* task in this
+`.github/instructions/*.instructions.md` are loaded for _every_ task in this
 repository. If any of them says "read WI-1842", then every future task starts by
 reading a work item that has nothing to do with it. The instruction is wrong for
 all but one task, and it is wrong silently.
@@ -16,14 +16,14 @@ This repository got that wrong at first, and the rest of this file is the fix.
 
 Loaded for every task. Task-agnostic by construction.
 
-| File | Holds |
-| --- | --- |
-| `AGENTS.md` | The only hand-authored durable file: how to start any task, invariants, capability boundary model, required evidence bundle |
-| `.github/copilot-instructions.md` | **Generated** from `AGENTS.md`. Some Copilot surfaces do not read `AGENTS.md` yet, so a shim must exist; generating it prevents a second source of truth. |
-| `docs/architecture.md` | Runtime, delivery, and privacy boundaries |
-| `docs/adr/*.md` | Accepted architecture decisions |
-| `.github/instructions/*.instructions.md` | Path-scoped rules, via `applyTo` |
-| `.github/agents/*.agent.md` | Roles defined by capability |
+| File                                     | Holds                                                                                                                                                     |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENTS.md`                              | The only hand-authored durable file: how to start any task, invariants, capability boundary model, required evidence bundle                               |
+| `.github/copilot-instructions.md`        | **Generated** from `AGENTS.md`. Some Copilot surfaces do not read `AGENTS.md` yet, so a shim must exist; generating it prevents a second source of truth. |
+| `docs/architecture.md`                   | Runtime, delivery, and privacy boundaries                                                                                                                 |
+| `docs/adr/*.md`                          | Accepted architecture decisions                                                                                                                           |
+| `.github/instructions/*.instructions.md` | Path-scoped rules, via `applyTo`                                                                                                                          |
+| `.github/agents/*.agent.md`              | Roles defined by capability                                                                                                                               |
 
 The test: **could this file be true a year from now, after the current backlog
 is gone?** If not, it belongs in Layer 2.
@@ -43,15 +43,15 @@ not live in the repository.
 >
 > — [Microsoft Learn](https://learn.microsoft.com/en-us/training/modules/design-agent-architecture-integration/3-inputs-outputs-success-criteria)
 
-| Where | Holds |
-| --- | --- |
-| **The GitHub issue** | The contract itself: goal, authoritative sources, allowed and prohibited scope, constraints, outputs, success criteria, stop conditions |
-| `.github/ISSUE_TEMPLATE/agent-task.yml` | The shape the issue must take. Durable, and names no task. |
-| `docs/demo-setup/<ID>.issue-seed.md` | Demo setup only: the text used to create that issue |
-| `.github/prompts/plan-<id>.prompt.md` | The task's entry point, which invokes a task-agnostic agent |
+| Where                                   | Holds                                                                                                                                   |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| **The GitHub issue**                    | The contract itself: goal, authoritative sources, allowed and prohibited scope, constraints, outputs, success criteria, stop conditions |
+| `.github/ISSUE_TEMPLATE/agent-task.yml` | The shape the issue must take. Durable, and names no task.                                                                              |
+| `docs/demo-setup/<ID>.issue-seed.md`    | Demo setup only: the text used to create that issue                                                                                     |
+| `.github/prompts/plan-<id>.prompt.md`   | The task's entry point, which invokes a task-agnostic agent                                                                             |
 
 The repository holds the **template**, not the contract. A prompt file named
-after a task is not a violation - it *is* the task input. The violation is
+after a task is not a violation - it _is_ the task input. The violation is
 putting task identity into something loaded unconditionally.
 
 ### Why a seed file exists
@@ -67,15 +67,15 @@ parser cannot read fails CI rather than failing on stage.
 
 ### What is and is not standard here
 
-| Element | Source |
-| --- | --- |
-| The task contract concept | Microsoft Learn |
-| Inputs / Outputs / Success criteria | Microsoft Learn |
-| The contract living in the issue | Microsoft Learn |
-| Scoping changes to allowed paths | Microsoft Learn |
+| Element                                           | Source          |
+| ------------------------------------------------- | --------------- |
+| The task contract concept                         | Microsoft Learn |
+| Inputs / Outputs / Success criteria               | Microsoft Learn |
+| The contract living in the issue                  | Microsoft Learn |
+| Scoping changes to allowed paths                  | Microsoft Learn |
 | The `ID \| statement \| proving test` line format | This repository |
-| `stopConditions` | This repository |
-| Caching a parsed contract to `artifacts/` | This repository |
+| `stopConditions`                                  | This repository |
+| Caching a parsed contract to `artifacts/`         | This repository |
 
 Learn keeps criteria as prose and makes them binding through **required status
 checks**. This repository adds a parse step so a criterion can be checked
@@ -85,11 +85,11 @@ individually, which is an addition to Learn's model, not a part of it.
 
 Reads Layer 2. Contains no task identity of its own.
 
-| Script | Reads | Effect |
-| --- | --- | --- |
-| `scripts/fetch-task-contract.mjs` | `--issue <n>` or `--file <seed>` | Parses the issue into `artifacts/task-contract.json` and records the source |
-| `scripts/authorize-tool.mjs` | the resolved contract's `inputs.scope` | Denies writes outside `allowed`, and denies path patterns in `prohibited` even when they sit inside an allowed tree |
-| `scripts/build-execution-report.mjs` | the resolved contract's `successCriteria[].provenBy` | Fails when a criterion has no proof |
+| Script                               | Reads                                                | Effect                                                                                                              |
+| ------------------------------------ | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `scripts/fetch-task-contract.mjs`    | `--issue <n>` or `--file <seed>`                     | Parses the issue into `artifacts/task-contract.json` and records the source                                         |
+| `scripts/authorize-tool.mjs`         | the resolved contract's `inputs.scope`               | Denies writes outside `allowed`, and denies path patterns in `prohibited` even when they sit inside an allowed tree |
+| `scripts/build-execution-report.mjs` | the resolved contract's `successCriteria[].provenBy` | Fails when a criterion has no proof                                                                                 |
 
 Both gates work with no contract resolved. The authorizer falls back to a
 narrow repository-wide default; the report refuses to run and says why:
@@ -106,7 +106,7 @@ wrong contract would be worse than no report.
 
 ## Why this matters more than it looks
 
-Least privilege is per task *and* per phase. That is only achievable if scope is
+Least privilege is per task _and_ per phase. That is only achievable if scope is
 an input. When the boundary is hardcoded in a durable file, every task gets the
 union of every scope anyone ever needed, and the boundary widens permanently.
 

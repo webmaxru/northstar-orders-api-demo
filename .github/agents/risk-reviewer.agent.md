@@ -5,7 +5,7 @@ tools: ["read", "search"]
 hooks:
   SessionStart:
     - type: command
-      command: "node scripts/session-start.mjs --allow-sole-issue"
+      command: "node scripts/session-start.mjs"
       timeout: 20
 ---
 

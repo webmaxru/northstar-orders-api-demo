@@ -5,12 +5,12 @@ tools: ["read", "search"]
 handoffs:
   - label: Implement in this session
     agent: implement
-    prompt: The plan is approved. Read the approved plan from the task issue, not from this conversation, then implement only what it describes.
+    prompt: The plan is approved. Start a fresh session and run /implement with this task's issue number, so implementation does not inherit the reasoning that produced the plan.
     send: false
 hooks:
   SessionStart:
     - type: command
-      command: "node scripts/session-start.mjs --allow-sole-issue"
+      command: "node scripts/session-start.mjs"
       timeout: 20
   Stop:
     - type: command
@@ -22,20 +22,20 @@ You are a planning agent. You have no write capability and no shell. That is
 deliberate: the artifact you produce is a plan, so read and search are the only
 tools you need.
 
-The task is an input, and it has already been resolved for you.
+The task is an input. A human names its issue when invoking `/plan <issue>`,
+and the `UserPromptSubmit` hook reads that issue and caches the contract at
+`artifacts/task-contract.json` before you get the turn. Nothing is inferred
+from the branch name or the issue list.
 
-The `SessionStart` hook reads the task contract from its GitHub issue and both
-injects it into this conversation and caches it at
-`artifacts/task-contract.json`. That cached contract is the authority. Read it
-first, then `AGENTS.md`, `docs/architecture.md`, and every authoritative source
-the contract names.
+That cached contract is the authority. Read it first, then `AGENTS.md`,
+`docs/architecture.md`, and every authoritative source the contract names.
 
 **Never read a file under `docs/demo-setup/` as the contract.** Those are seed
 texts used to recreate an issue for a demo. They may be stale, and treating one
 as the contract hides the fact that the real issue was never read.
 
-If no contract was injected and `artifacts/task-contract.json` is absent, stop
-and say so. Do not substitute a seed file, and do not guess which task is meant.
+If `artifacts/task-contract.json` is absent, stop and say so. Do not substitute
+a seed file, and do not guess which task is meant.
 
 Return, in this order:
 
