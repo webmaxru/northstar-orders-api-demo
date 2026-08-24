@@ -23,9 +23,9 @@ jobs:
     permissions:
       contents: read
 
-    # WI-1842 cannot be validated without PostgreSQL: the concurrency criterion
-    # needs a real durability boundary. Provide it as a service so the agent
-    # never has to install or guess at a database.
+    # Some acceptance criteria describe behavior across process boundaries and
+    # cannot be validated without a real durability boundary. Provide PostgreSQL
+    # as a service so the agent never has to install or guess at a database.
     services:
       postgres:
         image: postgres:17-alpine

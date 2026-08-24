@@ -35,6 +35,19 @@ describe("durable context is task-agnostic", () => {
     ).toEqual([]);
   });
 
+  it("keeps workflows free of hardcoded task identity", () => {
+    // A workflow that names one task grades every unlinked pull request against
+    // it, which is the same failure as durable context naming a task.
+    for (const workflow of globSync(".github/workflows/*.yml")) {
+      const body = readFileSync(workflow, "utf8");
+      const codeOnly = body
+        .split("\n")
+        .filter((line) => !line.trim().startsWith("#"))
+        .join("\n");
+      expect(WORK_ITEM_PATTERN.test(codeOnly), `${workflow} hardcodes a work item`).toBe(false);
+    }
+  });
+
   it("keeps enforcement scripts free of hardcoded task identity", () => {
     for (const script of ["scripts/authorize-tool.mjs", "scripts/build-execution-report.mjs"]) {
       const body = readFileSync(script, "utf8");

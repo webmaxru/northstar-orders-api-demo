@@ -187,8 +187,11 @@ Open a PR whose body follows `.github/pull_request_template.md` - Intent, Plan,
 Evidence bundle, Review, Limits - and includes `Closes #<issue>`.
 
 **Why the keyword matters:** the Acceptance workflow greps the PR body for it to
-find the contract. Without it CI falls back to the seed file, which still works
-but records a weaker provenance.
+find the contract. Without it the workflow **fails** with "No task issue
+linked". There is deliberately no seed-file fallback: grading a change against a
+contract it never claimed would be worse than not grading it, and a hardcoded
+task id in a workflow would judge every unlinked pull request against one work
+item.
 
 ## Step 9 - CI re-runs the gates independently
 
@@ -201,7 +204,8 @@ Four workflows, none of which trusts the agent's local run.
 | `analyze` | `codeql.yml` | CodeQL, then `check-sarif.mjs` fails the run on any finding |
 | `review` | `dependency-review.yml` | `npm audit --audit-level=high` |
 
-Inside `acceptance.yml` the order is exactly Step 4 → Step 7:
+Inside `acceptance.yml` the order mirrors Steps 4 and 6, but CI resolves the
+contract itself rather than trusting the agent's session:
 
 ```
 npm run test:unit:ci
