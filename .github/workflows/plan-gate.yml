@@ -1,0 +1,27 @@
+name: Plan Gate
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  require-plan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # `edited` is in the trigger list on purpose: the plan lives in the pull
+      # request description, so editing the description must re-run the gate.
+      - name: Require a reviewable plan in the PR description
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/check-plan.mjs --pr ${{ github.event.pull_request.number }}

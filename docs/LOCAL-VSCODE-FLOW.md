@@ -118,32 +118,35 @@ The prompt file's frontmatter says `agent: plan`, so VS Code switches to the
 change and it cannot - not because it declined, but because it has no edit tool.
 That is the demonstration.
 
-**Written:** nothing. The plan is chat output. Copy it into the pull request
-description later, or into an issue comment now.
+**Written:** nothing yet. The plan is chat output until the `Stop` hook
+publishes it.
 
 ## Step 2 - The plan becomes an artifact, then you approve it
 
-When the plan agent stops, its `Stop` hook posts the plan as a comment on the
-task issue. That is the whole point of the phase boundary: a plan that exists
-only in a chat thread cannot be reviewed by anyone who was not in the session,
-cannot be resumed tomorrow, and disappears when the window closes.
+When the plan agent stops, its `Stop` hook opens a **plan-first pull request**:
+a branch off `main` with no code changes, whose description is the plan. That is
+the whole point of the phase boundary - a plan that exists only in a chat thread
+cannot be reviewed by anyone who was not in the session, cannot be resumed
+tomorrow, and disappears when the window closes.
 
-Microsoft Learn puts planning in "a PR description, an issue comment, or a
-`.github/pull_request_template.md` artifact", and lists "an inspectable plan"
-in the minimum audit trail. A chat thread is none of those.
+This is Learn's Option A: "the agent opens a pull request that contains only the
+plan (no code changes yet); reviewers discuss, refine, and approve the plan
+directly in the PR."
 
-Read the plan **on the issue**, not in the chat, and approve it there.
+Read the plan **in the PR**, not in the chat, and approve it with a review. The
+**Plan Gate** check runs against the description, so an empty template fails.
 
 If the hook could not read the session transcript it says so and gives you the
 command, rather than reporting success and persisting nothing:
 
 ```powershell
-node scripts/publish-plan.mjs --issue 4 --file plan.md
+node scripts/publish-plan.mjs --file plan.md
 ```
 
 ### Then start implementation in a fresh session
 
 Open a new chat and run `/implement 4` - the same issue number you planned with.
+Implementation commits land on the plan branch, under the approved plan.
 That saved prompt selects the `implement` agent; the hook caches the contract
 and the approved plan beside it. It reads the approved plan
 from the issue.

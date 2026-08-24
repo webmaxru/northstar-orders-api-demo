@@ -35,6 +35,7 @@ const ALLOWED_COMMANDS = [
   // artifacts/, so it grants no authority over the working tree.
   /^npm run contract:fetch\b/,
   /^npm run plan:show\b/,
+  /^npm run plan:gate\b/,
   /^npm run lint$/,
   /^npm run typecheck$/,
   /^npm run test:unit$/,
@@ -58,19 +59,46 @@ const ALLOWED_COMMANDS = [
  * container instead. So: ask, and name the human action in the reason.
  */
 const ENVIRONMENT_COMMANDS = [
-  { pattern: /^npm run db:(up|down)$/, action: "starts or stops the local PostgreSQL container" },
-  { pattern: /^docker compose (up|down)\b/, action: "changes local container state" },
+  {
+    pattern: /^npm run db:(up|down)$/,
+    action: "starts or stops the local PostgreSQL container",
+  },
+  {
+    pattern: /^docker compose (up|down)\b/,
+    action: "changes local container state",
+  },
 ];
 
 const DENIED_COMMAND_PATTERNS = [
   { pattern: /\bgit\s+push\b/, reason: "publishing requires human approval" },
-  { pattern: /\bgh\s+(pr\s+merge|release)\b/, reason: "merging and releasing require human approval" },
-  { pattern: /\bnpm\s+(i|install|add)\s+\S/, reason: "adding a dependency is outside the capability boundary" },
-  { pattern: /\b(printenv|env)\b/, reason: "environment enumeration is not needed for this task" },
-  { pattern: /\$\{?[A-Z_]*(TOKEN|SECRET|PASSWORD|KEY)\b/, reason: "secret material must not flow through a tool call" },
-  { pattern: /\b(curl|wget|nc|Invoke-WebRequest|Invoke-RestMethod)\b/, reason: "outbound network calls are not in the allowlist" },
-  { pattern: /\bDROP\s+(TABLE|COLUMN|DATABASE)\b/i, reason: "destructive schema change requires human approval" },
-  { pattern: /\brm\s+-rf\b/, reason: "recursive delete is outside the capability boundary" },
+  {
+    pattern: /\bgh\s+(pr\s+merge|release)\b/,
+    reason: "merging and releasing require human approval",
+  },
+  {
+    pattern: /\bnpm\s+(i|install|add)\s+\S/,
+    reason: "adding a dependency is outside the capability boundary",
+  },
+  {
+    pattern: /\b(printenv|env)\b/,
+    reason: "environment enumeration is not needed for this task",
+  },
+  {
+    pattern: /\$\{?[A-Z_]*(TOKEN|SECRET|PASSWORD|KEY)\b/,
+    reason: "secret material must not flow through a tool call",
+  },
+  {
+    pattern: /\b(curl|wget|nc|Invoke-WebRequest|Invoke-RestMethod)\b/,
+    reason: "outbound network calls are not in the allowlist",
+  },
+  {
+    pattern: /\bDROP\s+(TABLE|COLUMN|DATABASE)\b/i,
+    reason: "destructive schema change requires human approval",
+  },
+  {
+    pattern: /\brm\s+-rf\b/,
+    reason: "recursive delete is outside the capability boundary",
+  },
 ];
 
 function normalize(filePath) {
@@ -138,17 +166,58 @@ const EXPLICIT_KINDS = {
 };
 
 const READ_WORDS = new Set([
-  "read", "view", "list", "search", "find", "get", "inspect", "usage", "usages",
-  "problem", "problems", "change", "changes", "diff", "fetch", "browse",
-  "think", "todo", "todos", "codebase", "grep", "glob", "symbol", "symbols",
+  "read",
+  "view",
+  "list",
+  "search",
+  "find",
+  "get",
+  "inspect",
+  "usage",
+  "usages",
+  "problem",
+  "problems",
+  "change",
+  "changes",
+  "diff",
+  "fetch",
+  "browse",
+  "think",
+  "todo",
+  "todos",
+  "codebase",
+  "grep",
+  "glob",
+  "symbol",
+  "symbols",
 ]);
 const EDIT_WORDS = new Set([
-  "edit", "write", "create", "apply", "patch", "insert", "replace",
-  "delete", "remove", "rename", "move",
+  "edit",
+  "write",
+  "create",
+  "apply",
+  "patch",
+  "insert",
+  "replace",
+  "delete",
+  "remove",
+  "rename",
+  "move",
 ]);
 const SHELL_WORDS = new Set([
-  "run", "exec", "execute", "terminal", "command", "commands", "shell",
-  "bash", "powershell", "task", "tasks", "process", "install",
+  "run",
+  "exec",
+  "execute",
+  "terminal",
+  "command",
+  "commands",
+  "shell",
+  "bash",
+  "powershell",
+  "task",
+  "tasks",
+  "process",
+  "install",
 ]);
 
 /** Split editFiles / run_in_terminal / read-file into lowercase words. */
@@ -224,16 +293,24 @@ export function evaluateToolCall(call, context = {}) {
 
   if (kind === "edit") {
     if (paths.length === 0) {
-      return ask(`"${rawName}" may write but named no path this policy can check`);
+      return ask(
+        `"${rawName}" may write but named no path this policy can check`,
+      );
     }
 
     // Prohibited beats allowed. A contract that says src/** but not src/api/**
     // means the second, and checking allowed first would let it through.
-    const { paths: prohibitedPaths, advisory } = splitProhibitions(context.scope ?? DEFAULT_SCOPE);
+    const { paths: prohibitedPaths, advisory } = splitProhibitions(
+      context.scope ?? DEFAULT_SCOPE,
+    );
     for (const target of paths) {
-      const hit = prohibitedPaths.find((pattern) => matchesPattern(target, pattern));
+      const hit = prohibitedPaths.find((pattern) =>
+        matchesPattern(target, pattern),
+      );
       if (hit) {
-        return deny(`${normalize(target)} is prohibited by the contract (${hit})`);
+        return deny(
+          `${normalize(target)} is prohibited by the contract (${hit})`,
+        );
       }
     }
 
@@ -252,7 +329,9 @@ export function evaluateToolCall(call, context = {}) {
     // violation. If none does, there is no contract to violate, so ask instead
     // of enforcing a boundary nobody agreed to.
     return governed
-      ? deny(`${blocked.map(normalize).join(", ")} is outside ${where} (${prefixes.join(", ")})`)
+      ? deny(
+          `${blocked.map(normalize).join(", ")} is outside ${where} (${prefixes.join(", ")})`,
+        )
       : ask(
           `${blocked.map(normalize).join(", ")} is outside the default scope and no task contract is active`,
         );
@@ -260,12 +339,16 @@ export function evaluateToolCall(call, context = {}) {
 
   if (kind === "shell") {
     if (!command) {
-      return ask(`"${rawName}" may execute but named no command this policy can check`);
+      return ask(
+        `"${rawName}" may execute but named no command this policy can check`,
+      );
     }
     if (ALLOWED_COMMANDS.some((pattern) => pattern.test(command))) {
       return allow("command is in the validation allowlist");
     }
-    const environment = ENVIRONMENT_COMMANDS.find(({ pattern }) => pattern.test(command));
+    const environment = ENVIRONMENT_COMMANDS.find(({ pattern }) =>
+      pattern.test(command),
+    );
     if (environment) {
       return ask(
         `"${command}" ${environment.action}. Preparing the environment is a human decision, ` +
@@ -274,7 +357,9 @@ export function evaluateToolCall(call, context = {}) {
     }
     return governed
       ? deny("command is not in the validation allowlist")
-      : ask("command is not in the validation allowlist and no task contract is active");
+      : ask(
+          "command is not in the validation allowlist and no task contract is active",
+        );
   }
 
   // Unknown capability. Do not guess in either direction: let the human decide,
@@ -394,7 +479,9 @@ async function main() {
       decision = deny(/** @type {Error} */ (error).message);
     }
   }
-  process.stdout.write(`${JSON.stringify(renderDecision(decision), null, 2)}\n`);
+  process.stdout.write(
+    `${JSON.stringify(renderDecision(decision), null, 2)}\n`,
+  );
 }
 
 const invokedDirectly =

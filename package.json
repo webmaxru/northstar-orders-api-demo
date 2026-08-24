@@ -21,6 +21,7 @@
     "validate": "npm run instructions:check && npm run lint && npm run typecheck && npm run test:unit",
     "contract:fetch": "node scripts/fetch-task-contract.mjs",
     "plan:show": "node scripts/publish-plan.mjs --show",
+    "plan:gate": "node scripts/check-plan.mjs",
     "instructions:sync": "node scripts/sync-agent-instructions.mjs",
     "instructions:check": "node scripts/sync-agent-instructions.mjs --check",
     "evidence": "node scripts/build-execution-report.mjs",

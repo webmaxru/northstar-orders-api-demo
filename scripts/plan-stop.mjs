@@ -8,8 +8,9 @@
  * implementer.
  *
  * The hook resolves that. It runs outside the agent's tool boundary - the
- * system persists the artifact, the agent still cannot write - and posts the
- * plan as a comment on the task issue, where Learn says planning belongs.
+ * system persists the artifact, the agent still cannot write - and opens the
+ * plan-first pull request Learn's Option A describes: a PR containing only the
+ * plan, no code changes, reviewed and approved before implementation begins.
  *
  * If the transcript cannot be read, it says so and gives the exact command,
  * rather than reporting success and persisting nothing.
@@ -45,11 +46,10 @@ async function main() {
   }
 
   const contract = loadTaskContract();
-  const issue = contract?.source?.issue;
-  if (!issue) {
+  if (!contract) {
     emit(
-      "Plan not persisted: no task issue is active, so there is nowhere durable to put it. " +
-        "Resolve a contract, then run node scripts/publish-plan.mjs --issue <n> --file <plan.md>.",
+      "Plan not persisted: no task contract is active, so there is nowhere durable to put it. " +
+        "Run /plan <issue>, then node scripts/publish-plan.mjs --file <plan.md>.",
     );
     return;
   }
@@ -65,30 +65,31 @@ async function main() {
 
   if (!body) {
     emit(
-      `Plan not persisted: the session transcript could not be read, so nothing was written to issue #${issue}. ` +
+      "Plan not persisted: the session transcript could not be read, so no pull request was opened. " +
         "The plan currently exists only in this chat. Save it and run: " +
-        `node scripts/publish-plan.mjs --issue ${issue} --file <plan.md>`,
+        "node scripts/publish-plan.mjs --file <plan.md>",
     );
     return;
   }
 
   try {
-    const result = publish(issue, body);
+    const result = publish(contract, body);
     emit(
-      `Plan ${result.updated ? "updated on" : "posted to"} issue #${issue}. ` +
-        "It is now a durable artifact: approve it there, and start implementation in a fresh " +
+      `Plan ${result.updated ? "updated on" : "published as"} PR #${result.number} (${result.url}). ` +
+        "It contains the plan and no code. Review and approve it there, then implement in a fresh " +
         "session so planning context is not carried into it.",
     );
   } catch (error) {
     emit(
       `Plan not persisted: ${/** @type {Error} */ (error).message.split("\n")[0]}. ` +
-        `Run node scripts/publish-plan.mjs --issue ${issue} --file <plan.md>`,
+        "Run node scripts/publish-plan.mjs --file <plan.md>",
     );
   }
 }
 
 const invokedDirectly =
-  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(process.argv[1]).href;
 
 if (invokedDirectly) {
   await main();

@@ -22,10 +22,13 @@ You implement a plan that a human has already approved. You may edit files and
 run local validation. You may not approve your own result.
 
 **Read the approved plan from `artifacts/task-plan.md`, not from the
-conversation.** The `plan` agent posts its output as a comment on the task
-issue; when a human runs `/implement <issue>`, the `UserPromptSubmit` hook
-pulls that comment down beside the contract. `npm run plan:show -- --issue <n>`
-is on the allowlist if you need to re-read it from the issue itself. This
+conversation.** The `plan` agent's output is the description of the task's
+plan-first pull request; when a human runs `/implement <issue>`, the
+`UserPromptSubmit` hook pulls it down beside the contract. `npm run plan:show`
+is on the allowlist if you need to re-read it from the PR.
+
+Commit on that plan branch. The approved plan and the diff that claims to
+implement it belong in one review. This
 holds whether you were handed off to or started in a fresh session - and a fresh
 session is preferable, because planning explored options you do not need and
 carrying that reasoning into implementation is context you pay for and do not

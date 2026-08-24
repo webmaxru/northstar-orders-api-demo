@@ -1,27 +1,31 @@
-## Intent
+<!-- Plan-first: the plan lands here before any code. Learn, "Separate planning,
+     reasoning, and execution", Option A. The Plan Gate check reads this section,
+     so an empty template fails rather than passes. -->
 
-Link the issue or work item and restate the acceptance criteria addressed.
+## Plan (required)
 
-## Plan
+- **Goal:**
+- **Scope (paths/files):**
+- **Steps:** 1. 2.
+- **Success criteria (verifiable):**
+  - [ ] Required checks pass
+  - [ ] Security signals reviewed
+- **Risks + mitigations:**
+- **Rollback / escalation:**
 
-- [ ] Scope and assumptions are explicit
-- [ ] Capability boundary is explicit
-- [ ] High-risk changes have human approval
+## Evidence
 
-## Evidence bundle
+- Workflow run(s):
+- Scan results (if applicable):
 
-- [ ] Unit tests
-- [ ] Acceptance/integration tests
-- [ ] Security and dependency checks
-- [ ] Relevant logs or workflow artifacts
+## Review checklist
 
-## Review
-
-- [ ] Scope matches intent
+- [ ] Plan reviewed and approved
+- [ ] Required reviews satisfied
+- [ ] Required checks satisfied
+- [ ] Scope matches intent - no unexpected files changed
 - [ ] No raw idempotency keys or payloads are logged
-- [ ] Rollback or escalation path is recorded
 
 ## Limits
 
 State what was not validated.
-

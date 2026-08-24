@@ -1,95 +1,115 @@
 import { describe, expect, it } from "vitest";
-import { extractPlan, renderPlan } from "../../scripts/publish-plan.mjs";
 
-/**
- * A plan that lives only in a chat thread is not "an inspectable plan": nobody
- * outside the session can review, resume, or implement from it. Microsoft Learn
- * puts planning in "a PR description, an issue comment, or a
- * .github/pull_request_template.md artifact".
- */
-describe("the durable plan comment", () => {
-  const body = renderPlan("1. Assumptions\n2. Design", { at: "2026-08-24T09:00:00.000Z" });
+import {
+  PLAN_HEADING,
+  extractPlan,
+  extractPlanSection,
+  planBranch,
+  publish,
+  renderPlan,
+} from "../../scripts/publish-plan.mjs";
+import { validatePlan } from "../../scripts/check-plan.mjs";
 
-  it("carries a marker so re-planning updates one comment", () => {
-    expect(body).toContain("<!-- northstar:plan -->");
+const CONTRACT = { id: "WI-1842", source: { issue: 4 } };
+
+const GOOD_PLAN = [
+  "## Assumptions",
+  "- ADR-007 is binding",
+  "",
+  "## Scope",
+  "- src/services/postgres-idempotent-order-service.ts",
+  "",
+  "## Success criteria",
+  "- SC-1 proven by tests/acceptance/idempotency.test.ts",
+  "",
+  "## Rollback",
+  "- Revert the branch; the migration is additive",
+].join("\n");
+
+describe("the plan is a pull request, not a chat message", () => {
+  it("puts the plan in the PR description under the heading the gate reads", () => {
+    const body = renderPlan(GOOD_PLAN, { issue: 4, at: "2026-08-24T09:00:00.000Z" });
+    expect(body).toContain(PLAN_HEADING);
+    expect(body).toContain("Closes #4");
+    expect(extractPlanSection(body)).toBe(GOOD_PLAN);
   });
 
-  it("says the plan is not yet approved", () => {
-    expect(body).toContain("Not yet approved");
+  it("leaves Evidence empty, because a plan-first PR has no commits yet", () => {
+    // Learn's Option A: a PR "that contains only the plan (no code changes
+    // yet)". Pre-filling evidence would claim proof that cannot exist.
+    const body = renderPlan(GOOD_PLAN);
+    expect(body).toMatch(/## Evidence\n\n_No commits yet\./);
   });
 
-  it("tells the reader implementation reads from here, not from a chat", () => {
-    expect(body).toMatch(/reads\s+it from here rather than from a chat thread/);
-    expect(body).toContain("fresh session");
+  it("names the plan branch after the task, not the session", () => {
+    expect(planBranch("WI-1842")).toBe("plan/wi-1842");
   });
 
-  it("preserves the plan body", () => {
-    expect(body).toContain("1. Assumptions");
+  it("edits the existing plan PR instead of opening a second one", () => {
+    const calls: string[][] = [];
+    const run = (args: string[]) => {
+      calls.push(args);
+      if (args[0] === "pr" && args[1] === "list") {
+        return JSON.stringify([{ number: 11, body: "old", url: "https://example/pull/11" }]);
+      }
+      return "";
+    };
+
+    const result = publish(CONTRACT, GOOD_PLAN, { run, at: "now" });
+
+    expect(result).toMatchObject({ updated: true, number: 11 });
+    expect(calls.some(([a, b]) => a === "pr" && b === "create")).toBe(false);
+  });
+
+  it("opens a plan-first PR as a draft off the default branch", () => {
+    const vcs = () => "origin/main\n";
+    const run = (args: string[]) => {
+      if (args[0] === "pr" && args[1] === "list") return "[]";
+      return "https://github.com/o/r/pull/12\n";
+    };
+
+    const result = publish(CONTRACT, GOOD_PLAN, { run, vcs, at: "now" });
+    expect(result).toMatchObject({ updated: false, number: 12 });
   });
 });
 
-describe("extracting a plan from a session transcript", () => {
-  // VS Code documents transcript_path but warns the format "is not a stable
-  // hook API and may change", so the extractor accepts the shapes we know and
-  // returns null rather than guessing.
-  it("reads JSON Lines transcripts and takes the last assistant turn", () => {
-    const jsonl = [
-      JSON.stringify({ role: "user", content: "plan WI-1842" }),
-      JSON.stringify({ role: "assistant", content: "first draft" }),
-      JSON.stringify({ role: "user", content: "revise" }),
-      JSON.stringify({ role: "assistant", content: "final plan" }),
-    ].join("\n");
-
-    expect(extractPlan(jsonl)).toBe("final plan");
+describe("the plan gate reads the description, not the repository", () => {
+  it("passes a plan that states scope, success criteria and rollback", () => {
+    expect(validatePlan(renderPlan(GOOD_PLAN))).toMatchObject({ ok: true });
   });
 
-  it("reads a single document with a messages array", () => {
-    const doc = JSON.stringify({
-      messages: [
-        { role: "user", content: "plan" },
-        { role: "assistant", content: "the plan" },
-      ],
-    });
-
-    expect(extractPlan(doc)).toBe("the plan");
+  it("fails a PR whose description has no plan section", () => {
+    expect(validatePlan("Some changes.").ok).toBe(false);
   });
 
-  it("joins structured content parts", () => {
-    const doc = JSON.stringify([
-      { role: "assistant", content: [{ text: "part one " }, { text: "part two" }] },
-    ]);
-
-    expect(extractPlan(doc)).toBe("part one part two");
+  it("fails an unfilled template", () => {
+    // Learn's own snippet checks that pull_request_template.md exists in the
+    // repository. That would pass here, on a PR with an empty plan - it proves
+    // the template exists, not that this pull request used it.
+    const empty = `${PLAN_HEADING}\n\n- **Goal:** TBD\n\n## Evidence\n`;
+    expect(validatePlan(empty).ok).toBe(false);
   });
 
-  it("accepts alternative role names", () => {
-    expect(extractPlan(JSON.stringify([{ role: "model", content: "plan text" }]))).toBe("plan text");
+  it("says which part of a reviewable plan is missing", () => {
+    const noRollback = `${PLAN_HEADING}\n\nScope: src/**\nSuccess criteria: SC-1\n\n## Evidence\n`;
+    const result = validatePlan(noRollback);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/rollback or escalation/);
   });
+});
 
-  it("returns null on an unknown format rather than guessing", () => {
-    expect(extractPlan("just some prose, not a transcript")).toBeNull();
+describe("the plan survives the transcript being unreadable", () => {
+  it("returns null rather than persisting a guess", () => {
+    expect(extractPlan("not json at all")).toBeNull();
     expect(extractPlan("")).toBeNull();
-    expect(extractPlan(JSON.stringify([{ role: "user", content: "no assistant turn" }]))).toBeNull();
-  });
-});
-
-describe("a fresh implementation session needs no lookup", () => {
-  // The implementer was told to "read the plan from the issue" while the
-  // command that would fetch it was not on the tool allowlist, and nothing told
-  // it which issue. The plan is injected at session start instead.
-  it("round-trips: what is published is what is read back", () => {
-    const plan = "## Assumptions\n- ADR-007 binding\n\n## Files\n- src/app.ts";
-    const comment = renderPlan(plan, { at: "2026-08-24T09:00:00.000Z" });
-
-    // fetchPlan strips the marker and preamble at the "---" divider.
-    const recovered = comment.split("\n---\n").slice(1).join("\n---\n").trim();
-    expect(recovered).toBe(plan);
   });
 
-  it("keeps a divider inside the plan body intact", () => {
-    const plan = "## Design\n\n---\n\n## Rollback";
-    const comment = renderPlan(plan);
-    const recovered = comment.split("\n---\n").slice(1).join("\n---\n").trim();
-    expect(recovered).toBe(plan);
+  it("reads the last assistant message from a JSONL transcript", () => {
+    const transcript = [
+      JSON.stringify({ role: "user", content: "plan it" }),
+      JSON.stringify({ role: "assistant", content: "first pass" }),
+      JSON.stringify({ role: "assistant", content: GOOD_PLAN }),
+    ].join("\n");
+    expect(extractPlan(transcript)).toBe(GOOD_PLAN);
   });
 });

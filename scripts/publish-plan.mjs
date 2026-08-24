@@ -1,20 +1,26 @@
 /**
- * Persist a plan as a comment on the task issue.
+ * Publish the plan as the description of a plan-first pull request.
  *
- * Microsoft Learn says where a plan belongs: "Planning appears in a PR
- * description, an issue comment, or a .github/pull_request_template.md
- * artifact", and the minimum audit trail requires "an inspectable plan (PR plan
- * section or file)".
+ * Microsoft Learn, "Separate planning, reasoning, and execution", Option A:
  *
- * A plan that exists only in a chat thread is none of those. It cannot be
- * reviewed by someone who was not in the session, cannot be resumed tomorrow,
- * and disappears if the window is closed. Handing it to the next agent through
- * conversation context is exactly the agent-to-agent chatter that versioned
- * artifacts are supposed to replace.
+ *   - A plan is generated.
+ *   - The agent opens a pull request that contains only the plan (no code
+ *     changes yet).
+ *   - Reviewers discuss, refine, and approve the plan directly in the PR.
+ *   - After approval, the agent proceeds to implement the plan in follow-up
+ *     commits or a new PR.
+ *
+ * https://learn.microsoft.com/en-us/training/modules/design-agent-architecture-integration/4-plan-reason-execution
+ *
+ * The issue stays what Learn calls it - context and intent, the task contract.
+ * The plan is a proposal about that intent, so it belongs where proposals are
+ * reviewed. That also makes approval a real GitHub review event with a person
+ * attached, rather than a thumbs-up on a comment.
  *
  * Usage:
- *   node scripts/publish-plan.mjs --issue 4 --file plan.md
- *   node scripts/publish-plan.mjs --issue 4 < plan.md
+ *   node scripts/publish-plan.mjs --file plan.md
+ *   node scripts/publish-plan.mjs < plan.md
+ *   node scripts/publish-plan.mjs --show
  *   node scripts/publish-plan.mjs --transcript <path>   (used by the Stop hook)
  */
 
@@ -27,22 +33,74 @@ import { loadTaskContract } from "./task-contract.mjs";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 const MARKER = "<!-- northstar:plan -->";
+export const PLAN_HEADING = "## Plan (required)";
 
+// The plan carries its own `## ` headings, so the section cannot be delimited by
+// "the next heading" - that would truncate the plan at its first subheading.
+// These comments are invisible in rendered Markdown and unambiguous to parse.
+const PLAN_START = "<!-- northstar:plan:start -->";
+const PLAN_END = "<!-- northstar:plan:end -->";
+
+/** The branch a plan-first PR is opened from. */
+export function planBranch(taskId) {
+  return `plan/${String(taskId).toLowerCase()}`;
+}
+
+/**
+ * The PR description: the plan, plus the sections the PR template requires.
+ *
+ * Evidence stays empty on purpose. A plan-first PR has no commits yet, so there
+ * is nothing to evidence; `publish-evidence.mjs` fills it in once implementation
+ * has run and the gate has something to measure.
+ */
 export function renderPlan(body, meta = {}) {
   return [
     MARKER,
-    "## Proposed plan",
+    meta.issue ? `Closes #${meta.issue}` : "",
     "",
-    `Produced by the read-only \`plan\` agent${meta.at ? ` at ${meta.at}` : ""}. Not yet approved.`,
+    PLAN_HEADING,
     "",
-    "A human approves this by reacting or replying. The `implement` agent reads",
-    "it from here rather than from a chat thread, so implementation can start in",
-    "a fresh session without carrying planning context into it.",
+    `Produced by the read-only \`plan\` agent${meta.at ? ` at ${meta.at}` : ""}. No code changes yet.`,
     "",
-    "---",
+    PLAN_START,
+    String(body).trim(),
+    PLAN_END,
     "",
-    body.trim(),
-  ].join("\n");
+    "## Evidence",
+    "",
+    "_No commits yet. The evidence gate fills this in when implementation runs._",
+    "",
+    "## Review checklist",
+    "",
+    "- [ ] Plan reviewed and approved",
+    "- [ ] Required reviews satisfied",
+    "- [ ] Required checks satisfied",
+    "",
+  ]
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n");
+}
+
+/** Pull the plan back out of a PR description, or null if there is none. */
+export function extractPlanSection(prBody) {
+  const text = String(prBody ?? "");
+
+  const start = text.indexOf(PLAN_START);
+  if (start !== -1) {
+    const end = text.indexOf(PLAN_END, start);
+    const section = text
+      .slice(start + PLAN_START.length, end === -1 ? undefined : end)
+      .trim();
+    return section.length > 0 ? section : null;
+  }
+
+  // A human-written PR that used the template has the heading but no markers.
+  const heading = text.indexOf(PLAN_HEADING);
+  if (heading === -1) return null;
+  const after = text.slice(heading + PLAN_HEADING.length);
+  const next = after.search(/\n## /);
+  const section = (next === -1 ? after : after.slice(0, next)).trim();
+  return section.length > 0 ? section : null;
 }
 
 /**
@@ -58,7 +116,9 @@ export function extractPlan(raw) {
   if (!text) return null;
 
   const looksLikeMessage = (value) =>
-    Boolean(value) && typeof value === "object" && ("role" in value || "type" in value);
+    Boolean(value) &&
+    typeof value === "object" &&
+    ("role" in value || "type" in value);
 
   // JSON Lines: one message object per line.
   let messages = [];
@@ -78,7 +138,9 @@ export function extractPlan(raw) {
   if (!messages.some(looksLikeMessage)) {
     try {
       const parsed = JSON.parse(text);
-      const list = Array.isArray(parsed) ? parsed : (parsed.messages ?? parsed.turns ?? []);
+      const list = Array.isArray(parsed)
+        ? parsed
+        : (parsed.messages ?? parsed.turns ?? []);
       messages = Array.isArray(list) ? list : [];
     } catch {
       return null;
@@ -86,12 +148,18 @@ export function extractPlan(raw) {
   }
 
   const assistant = messages
-    .filter((m) => ["assistant", "model", "agent"].includes(String(m?.role ?? m?.type ?? "")))
+    .filter((m) =>
+      ["assistant", "model", "agent"].includes(
+        String(m?.role ?? m?.type ?? ""),
+      ),
+    )
     .map((m) => {
       const content = m.content ?? m.text ?? m.message ?? "";
       if (typeof content === "string") return content;
       if (Array.isArray(content)) {
-        return content.map((part) => (typeof part === "string" ? part : (part?.text ?? ""))).join("");
+        return content
+          .map((part) => (typeof part === "string" ? part : (part?.text ?? "")))
+          .join("");
       }
       return "";
     })
@@ -101,41 +169,106 @@ export function extractPlan(raw) {
 }
 
 function gh(args) {
-  return execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  return execFileSync("gh", args, {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
 }
 
-function existingCommentId(issue) {
-  const raw = gh(["api", `repos/{owner}/{repo}/issues/${issue}/comments`, "--jq", ".[] | {id, body}"]);
-  for (const line of raw.split("\n").filter(Boolean)) {
-    const comment = JSON.parse(line);
-    if (comment.body?.includes(MARKER)) return comment.id;
-  }
-  return null;
+function git(args) {
+  return execFileSync("git", args, {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
 }
 
-export function publish(issue, body) {
-  const rendered = renderPlan(body, { at: new Date().toISOString() });
-  const existing = existingCommentId(issue);
+/** The open PR carrying this task's plan, or null. */
+export function findPlanPr(taskId, { run = gh } = {}) {
+  const raw = run([
+    "pr",
+    "list",
+    "--head",
+    planBranch(taskId),
+    "--state",
+    "open",
+    "--json",
+    "number,body,url",
+  ]);
+  const list = JSON.parse(raw);
+  return list.length > 0 ? list[0] : null;
+}
+
+/**
+ * Open the plan-first PR: a branch whose only content is the plan.
+ *
+ * The empty commit is deliberate. Option A wants a PR "that contains only the
+ * plan (no code changes yet)", and GitHub needs a commit to open one.
+ * Implementation then lands as follow-up commits on the same branch, so the
+ * approved plan and the diff claiming to implement it stay in one review.
+ */
+function openPlanPr(contract, body, { run = gh, vcs = git } = {}) {
+  const branch = planBranch(contract.id);
+  const base = vcs(["rev-parse", "--abbrev-ref", "origin/HEAD"])
+    .trim()
+    .replace(/^origin\//, "");
+
+  vcs(["fetch", "origin", base]);
+
+  // GitHub refuses a PR with no commits between the branches, so the branch
+  // needs one commit of its own. `commit-tree` builds it directly from the base
+  // tree: an empty commit that touches no file, and no checkout, no index and no
+  // stash - the human's working tree is not part of this.
+  const tree = vcs(["rev-parse", `origin/${base}^{tree}`]).trim();
+  const commit = vcs([
+    "commit-tree",
+    tree,
+    "-p",
+    `origin/${base}`,
+    "-m",
+    `${contract.id}: plan\n\nPlan-first pull request. No code changes yet.`,
+  ]).trim();
+  vcs(["push", "--force", "origin", `${commit}:refs/heads/${branch}`]);
+
+  const created = run([
+    "pr",
+    "create",
+    "--draft",
+    "--base",
+    base,
+    "--head",
+    branch,
+    "--title",
+    `${contract.id}: plan`,
+    "--body",
+    body,
+  ]);
+  return {
+    number: Number(/\/pull\/(\d+)/.exec(created)?.[1]),
+    url: created.trim(),
+  };
+}
+
+/** Put the plan in the PR description, opening the plan-first PR if needed. */
+export function publish(contract, body, deps = {}) {
+  const run = deps.run ?? gh;
+  const rendered = renderPlan(body, {
+    at: deps.at ?? new Date().toISOString(),
+    issue: contract.source?.issue,
+  });
+
+  const existing = findPlanPr(contract.id, { run });
   if (existing) {
-    gh(["api", "--method", "PATCH", `repos/{owner}/{repo}/issues/comments/${existing}`, "-f", `body=${rendered}`]);
-    return { updated: true, id: existing };
+    run(["pr", "edit", String(existing.number), "--body", rendered]);
+    return { updated: true, number: existing.number, url: existing.url };
   }
-  const created = gh(["api", "--method", "POST", `repos/{owner}/{repo}/issues/${issue}/comments`, "-f", `body=${rendered}`]);
-  return { updated: false, id: JSON.parse(created).id };
+  const created = openPlanPr(contract, rendered, deps);
+  return { updated: false, number: created.number, url: created.url };
 }
 
-/** Read the persisted plan back from the task issue, or null if none. */
-export function fetchPlan(issue) {
-  const raw = gh(["api", `repos/{owner}/{repo}/issues/${issue}/comments`, "--jq", ".[] | {body}"]);
-  for (const line of raw.split("\n").filter(Boolean)) {
-    const comment = JSON.parse(line);
-    if (comment.body?.includes(MARKER)) {
-      // Strip the marker and the preamble; return the plan itself.
-      const parts = comment.body.split("\n---\n");
-      return (parts.length > 1 ? parts.slice(1).join("\n---\n") : comment.body).trim();
-    }
-  }
-  return null;
+/** Read the plan back from the task's pull request. */
+export function fetchPlan(taskId, deps = {}) {
+  const pr = findPlanPr(taskId, deps);
+  return pr ? extractPlanSection(pr.body) : null;
 }
 
 async function readStdin() {
@@ -152,20 +285,23 @@ function valueOf(flag) {
 
 async function main() {
   const contract = loadTaskContract();
-  const issue = valueOf("--issue") ?? contract?.source?.issue;
-  const transcript = valueOf("--transcript");
-  const file = valueOf("--file");
+  if (!contract) {
+    process.stderr.write(
+      "No task contract is active. Run /plan <issue>, or npm run contract:fetch -- --issue <n>.\n",
+    );
+    process.exit(2);
+  }
 
   if (process.argv.includes("--show")) {
-    const target = issue ?? valueOf("--issue");
-    if (!target) {
-      process.stderr.write("No task issue. Resolve a contract first.\n");
-      process.exit(2);
-    }
-    const plan = fetchPlan(target);
-    process.stdout.write(plan ? `${plan}\n` : `No plan has been posted to issue #${target}.\n`);
+    const plan = fetchPlan(contract.id);
+    process.stdout.write(
+      plan ? `${plan}\n` : `No plan PR is open for ${contract.id}.\n`,
+    );
     process.exit(plan ? 0 : 1);
   }
+
+  const transcript = valueOf("--transcript");
+  const file = valueOf("--file");
 
   let body;
   if (file) {
@@ -180,24 +316,23 @@ async function main() {
     body = await readStdin();
   }
 
-  if (!issue) {
-    process.stderr.write("No task issue. Pass --issue <n> or resolve a contract first.\n");
-    process.exit(2);
-  }
   if (!body || !body.trim()) {
     process.stderr.write(
       "No plan content could be read. Publish it explicitly:\n" +
-        `  node scripts/publish-plan.mjs --issue ${issue} --file <plan.md>\n`,
+        "  node scripts/publish-plan.mjs --file <plan.md>\n",
     );
     process.exit(1);
   }
 
-  const result = publish(issue, body);
-  process.stdout.write(`${result.updated ? "updated" : "posted"} plan comment on issue #${issue}\n`);
+  const result = publish(contract, body);
+  process.stdout.write(
+    `${result.updated ? "updated" : "opened"} plan PR #${result.number} for ${contract.id}\n`,
+  );
 }
 
 const invokedDirectly =
-  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(process.argv[1]).href;
 
 if (invokedDirectly) {
   await main();

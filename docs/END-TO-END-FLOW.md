@@ -8,16 +8,16 @@ executed while writing this document.
 
 ## The files that move between steps
 
-| File                               | Written by                                                        | Read by                                            | Committed?             |
-| ---------------------------------- | ----------------------------------------------------------------- | -------------------------------------------------- | ---------------------- |
-| the GitHub issue                   | a human, via the **Agent task** template                          | everything, indirectly                             | n/a - it is not a file |
-| the plan comment on the task issue | `scripts/plan-stop.mjs` via `scripts/publish-plan.mjs`            |
-| `artifacts/task-contract.json`     | `scripts/session-start.mjs`, or `scripts/fetch-task-contract.mjs` | `authorize-tool.mjs`, `build-execution-report.mjs` | no, gitignored         |
-| `artifacts/unit-junit.xml`         | `vitest` via `npm run test:unit:ci`                               | `build-execution-report.mjs`                       | no                     |
-| `artifacts/acceptance-junit.xml`   | `vitest` via `npm run test:acceptance:ci`                         | `build-execution-report.mjs`                       | no                     |
-| `artifacts/codeql/**.sarif`        | `github/codeql-action/analyze`                                    | `check-sarif.mjs`                                  | no                     |
-| `artifacts/report.json`            | `scripts/build-execution-report.mjs`                              | reviewers, uploaded as `execution-report`          | no                     |
-| `.github/copilot-instructions.md`  | `scripts/sync-agent-instructions.mjs`                             | Copilot surfaces that do not read `AGENTS.md`      | yes, generated         |
+| File                              | Written by                                                        | Read by                                            | Committed?             |
+| --------------------------------- | ----------------------------------------------------------------- | -------------------------------------------------- | ---------------------- |
+| the GitHub issue                  | a human, via the **Agent task** template                          | everything, indirectly                             | n/a - it is not a file |
+| the plan-first pull request       | `scripts/plan-stop.mjs` via `scripts/publish-plan.mjs`            | reviewers, `scripts/resolve-task.mjs`              | n/a - it is not a file |
+| `artifacts/task-contract.json`    | `scripts/session-start.mjs`, or `scripts/fetch-task-contract.mjs` | `authorize-tool.mjs`, `build-execution-report.mjs` | no, gitignored         |
+| `artifacts/unit-junit.xml`        | `vitest` via `npm run test:unit:ci`                               | `build-execution-report.mjs`                       | no                     |
+| `artifacts/acceptance-junit.xml`  | `vitest` via `npm run test:acceptance:ci`                         | `build-execution-report.mjs`                       | no                     |
+| `artifacts/codeql/**.sarif`       | `github/codeql-action/analyze`                                    | `check-sarif.mjs`                                  | no                     |
+| `artifacts/report.json`           | `scripts/build-execution-report.mjs`                              | reviewers, uploaded as `execution-report`          | no                     |
+| `.github/copilot-instructions.md` | `scripts/sync-agent-instructions.mjs`                             | Copilot surfaces that do not read `AGENTS.md`      | yes, generated         |
 
 Everything under `artifacts/` is derived state. If it were committed, the
 repository would quietly become the source of truth again and the contract in
@@ -63,17 +63,41 @@ inspectable plan" and not something a second person can review or resume.
 
 The `Stop` hook resolves that tension. It runs outside the agent's tool
 boundary - the system persists the artifact, the agent still cannot write - and
-posts the plan as a comment on the task issue, where Learn says planning
-belongs. If the transcript cannot be read it says so and gives the exact
-command, rather than reporting success and persisting nothing.
+opens the **plan-first pull request** Learn's Option A describes: a PR
+containing only the plan, no code changes. If the transcript cannot be read it
+says so and gives the exact command, rather than reporting success and
+persisting nothing.
+
+> A plan is generated. The agent opens a pull request that contains only the
+> plan (no code changes yet). Reviewers discuss, refine, and approve the plan
+> directly in the PR. After approval, the agent proceeds to implement the plan
+> in follow-up commits or a new PR.
+>
+> - [Separate planning, reasoning, and execution](https://learn.microsoft.com/en-us/training/modules/design-agent-architecture-integration/4-plan-reason-execution)
+
+The issue is not the place for it. Learn lists issues under "context and
+intent" - that is the contract. The plan is a _proposal about_ that intent, and
+proposals are reviewed in pull requests. Putting it there also makes approval a
+real review event with a person attached, instead of a thumbs-up on a comment.
 
 The plan must map every success criterion in the issue to the check that will
 prove it. That mapping is what Step 7 later verifies mechanically.
 
 ## Step 3 - A human approves the plan
 
-The only step with no automation. Approving a plan is cheaper than reviewing a
-diff, which is the entire argument for keeping Steps 2 and 4 apart.
+Approving a plan is cheaper than reviewing a diff, which is the entire argument
+for keeping Steps 2 and 4 apart. The approval happens in the plan PR's review,
+so it is recorded the same way every other decision in the repository is.
+
+One check runs here: **Plan Gate** (`.github/workflows/plan-gate.yml`) reads the
+pull request description and fails unless it carries a plan that states scope,
+success criteria, and a rollback or escalation path. Learn's own snippet checks
+that `pull_request_template.md` exists in the repository; that passes on a PR
+whose description is empty, because it proves the template exists rather than
+that this PR used it. `scripts/check-plan.mjs` checks the description instead.
+
+Implementation then lands as follow-up commits on the same branch, so the
+approved plan and the diff that claims to implement it stay in one review.
 
 Approve it **on the issue**, not in the chat. The implementer reads the comment,
 so implementation can begin in a fresh session rather than inheriting the

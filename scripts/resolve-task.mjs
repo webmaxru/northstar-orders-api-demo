@@ -111,9 +111,11 @@ export function resolveTask(issue, { read = gh } = {}) {
   });
   cacheContract(contract);
 
+  // The plan lives in the plan-first pull request, not on the issue: the issue
+  // is the contract, the PR is the proposal about it.
   let plan;
   try {
-    plan = fetchPlan(issue);
+    plan = fetchPlan(contract.id);
   } catch {
     plan = null;
   }
@@ -129,8 +131,8 @@ export function renderResult({ contract, plan, issue }) {
   return (
     `Task contract for issue #${issue} (${contract.id}) cached at artifacts/task-contract.json. ` +
     (plan
-      ? "The approved plan is cached at artifacts/task-plan.md."
-      : "No approved plan is on that issue yet - plan before implementing.")
+      ? "The plan from its plan-first pull request is cached at artifacts/task-plan.md."
+      : "No plan pull request is open for this task yet - plan before implementing.")
   );
 }
 

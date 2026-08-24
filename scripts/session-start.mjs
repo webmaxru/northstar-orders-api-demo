@@ -49,7 +49,7 @@ function summarize(contract, how, plan) {
   const planSection = plan
     ? [
         "",
-        "APPROVED PLAN, cached at artifacts/task-plan.md from a comment on the same issue:",
+        "APPROVED PLAN, cached at artifacts/task-plan.md from the task's plan-first pull request:",
         "",
         plan,
         "",
@@ -58,9 +58,9 @@ function summarize(contract, how, plan) {
       ]
     : [
         "",
-        "No plan has been persisted to this issue yet. If you are implementing,",
-        "stop: run the plan agent first, or approve a plan on the issue. Do not",
-        "plan and implement in the same session.",
+        "No plan pull request is open for this task. If you are implementing,",
+        "stop: run the plan agent first, and get its plan-first PR approved. Do",
+        "not plan and implement in the same session.",
       ];
 
   return [
