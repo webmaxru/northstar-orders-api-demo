@@ -89,8 +89,17 @@ If PR #5 is closed, reopen it in one command:
 
 ```bash
 npm run contract:fetch -- --issue 4
-node scripts/publish-plan.mjs --file docs/demo-setup/sample-plan.md
+node scripts/publish-plan.mjs --file docs/demo-setup/sample-plan.md --base demo/implement-start
 ```
+
+`--base` matters. The plan branch is cut from the branch you are on, and PR #5
+targets `demo/implement-start` - the branch that carries the agent harness but
+not the implementation. Cutting it from `demo/engineering-system` would make the
+plan PR show zero difference from a branch where the work is already done.
+
+If you want to drive the agents live rather than present prepared state, work on
+`demo/implement-start`: `/plan 4` and `/implement 4` have real work to do there.
+See the branch table in `README.md`.
 
 Font size 16pt or larger. Dark editor theme matches the deck's dark slides.
 
