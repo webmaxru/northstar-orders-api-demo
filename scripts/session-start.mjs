@@ -1,0 +1,163 @@
+/**
+ * Resolve the active task contract when an agent session starts.
+ *
+ * Wired to the SessionStart hook. Nobody should have to run a command by hand
+ * before working: a contract you must remember to fetch is a contract that will
+ * be missing exactly when it matters.
+ *
+ * Resolution order, most explicit first:
+ *   1. AGENT_TASK_ISSUE - an issue number set for this session
+ *   2. the current branch name, if it contains a task id such as wi-1842
+ *   3. exactly one open issue labelled `agent-task`
+ *
+ * If none of those resolves, the session still starts. The hook reports that no
+ * contract is active and the boundary falls back to the repository-wide
+ * default. It deliberately does NOT fall back to a seed file in docs/demo-setup:
+ * those exist to recreate an issue, and silently treating one as the contract
+ * would hide the fact that the real one was never read.
+ */
+
+import { execFileSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
+import { cacheContract, parseIssueBody } from "./task-contract.mjs";
+
+function gh(args) {
+  return execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+}
+
+function currentBranch() {
+  try {
+    return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return "";
+  }
+}
+
+/** Find the agent-task issue whose title carries this id, for example WI-1842. */
+function issueForTaskId(taskId) {
+  const raw = gh(["issue", "list", "--label", "agent-task", "--state", "open", "--json", "number,title", "--limit", "50"]);
+  const match = JSON.parse(raw).find((issue) =>
+    issue.title.toUpperCase().includes(taskId.toUpperCase()),
+  );
+  return match?.number ?? null;
+}
+
+function soleAgentTaskIssue() {
+  const raw = gh(["issue", "list", "--label", "agent-task", "--state", "open", "--json", "number", "--limit", "50"]);
+  const issues = JSON.parse(raw);
+  return issues.length === 1 ? issues[0].number : null;
+}
+
+export function resolveIssueNumber({ env = process.env, branch = currentBranch() } = {}) {
+  if (env.AGENT_TASK_ISSUE) {
+    return { number: Number(env.AGENT_TASK_ISSUE), how: "AGENT_TASK_ISSUE" };
+  }
+
+  const fromBranch = /\b(wi[-_]?\d+)\b/i.exec(branch);
+  if (fromBranch) {
+    const taskId = fromBranch[1].replace(/[-_]/, "-").toUpperCase();
+    const number = issueForTaskId(taskId);
+    if (number) {
+      return { number, how: `branch ${branch}` };
+    }
+  }
+
+  const sole = soleAgentTaskIssue();
+  if (sole) {
+    return { number: sole, how: "the only open agent-task issue" };
+  }
+
+  return { number: null, how: "nothing" };
+}
+
+function summarize(contract, how) {
+  const criteria = contract.successCriteria
+    .map((c) => `  ${c.id}: ${c.statement} (proven by: ${c.provenBy})`)
+    .join("\n");
+
+  return [
+    `ACTIVE TASK CONTRACT: ${contract.id} - ${contract.title}`,
+    `Resolved from ${contract.source.kind} via ${how}. Cached at artifacts/task-contract.json.`,
+    "",
+    "This cached contract is the authority for this session. Do not read any file",
+    "under docs/demo-setup as the contract; those are seed texts for recreating the",
+    "issue, not the issue itself.",
+    "",
+    `Allowed scope: ${contract.inputs.scope.allowed.join(", ")}`,
+    `Prohibited: ${contract.inputs.scope.prohibited.join("; ") || "none stated"}`,
+    `Authoritative sources: ${contract.inputs.authoritativeSources.join(", ")}`,
+    `Constraints: ${contract.inputs.constraints.join("; ")}`,
+    "",
+    "Success criteria:",
+    criteria,
+    "",
+    `Stop conditions: ${contract.stopConditions.join("; ")}`,
+  ].join("\n");
+}
+
+function emit(additionalContext) {
+  process.stdout.write(
+    `${JSON.stringify(
+      {
+        hookSpecificOutput: {
+          hookEventName: "SessionStart",
+          additionalContext,
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  );
+}
+
+async function main() {
+  let resolution;
+  try {
+    resolution = resolveIssueNumber();
+  } catch (error) {
+    emit(
+      `No task contract is active: could not query issues (${/** @type {Error} */ (error).message.split("\n")[0]}). ` +
+        "The capability boundary falls back to the repository-wide default. " +
+        "Run `npm run contract:fetch -- --issue <n>` to set one.",
+    );
+    return;
+  }
+
+  if (!resolution.number) {
+    emit(
+      "No task contract is active: no agent-task issue could be identified from " +
+        "AGENT_TASK_ISSUE, the branch name, or the open agent-task issues. " +
+        "The capability boundary falls back to the repository-wide default. " +
+        "Do not substitute a seed file from docs/demo-setup.",
+    );
+    return;
+  }
+
+  try {
+    const raw = gh(["issue", "view", String(resolution.number), "--json", "number,title,body,url"]);
+    const issue = JSON.parse(raw);
+    const contract = parseIssueBody(issue.body, {
+      number: issue.number,
+      url: issue.url,
+      source: `issue #${issue.number}`,
+    });
+    cacheContract(contract);
+    emit(summarize(contract, resolution.how));
+  } catch (error) {
+    emit(
+      `Issue #${resolution.number} was found but could not be read as a task contract: ` +
+        `${/** @type {Error} */ (error).message.split("\n")[0]} ` +
+        "Fix the issue body to match .github/ISSUE_TEMPLATE/agent-task.yml.",
+    );
+  }
+}
+
+const invokedDirectly =
+  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (invokedDirectly) {
+  await main();
+}

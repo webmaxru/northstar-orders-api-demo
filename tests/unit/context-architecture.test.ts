@@ -31,7 +31,7 @@ describe("durable context is task-agnostic", () => {
 
     expect(
       offending,
-      `${file} names a work item. Move task-specific detail into docs/work-items/<ID>.contract.json.`,
+      `${file} names a work item. Move task-specific detail into the task issue.`,
     ).toEqual([]);
   });
 

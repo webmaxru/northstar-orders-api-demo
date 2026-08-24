@@ -18,7 +18,7 @@ curl -X POST http://localhost:3000/orders -H "content-type: application/json" -d
 
 ## Demo scenario
 
-[Issue #4](https://github.com/webmaxru/northstar-orders-api-demo/issues/4) is the task contract for **WI-1842**: prevent duplicate orders when clients retry after a timeout. The baseline deliberately has no idempotency. See [`docs/work-items/`](docs/work-items/README.md) for how to recreate the issue.
+[Issue #4](https://github.com/webmaxru/northstar-orders-api-demo/issues/4) is the task contract for **WI-1842**: prevent duplicate orders when clients retry after a timeout. The baseline deliberately has no idempotency. See [`docs/demo-setup/`](docs/demo-setup/README.md) for how to recreate the issue.
 
 Read [`docs/DEMO-RUNBOOK.md`](docs/DEMO-RUNBOOK.md) before presenting.
 

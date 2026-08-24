@@ -47,7 +47,7 @@ jobs:
           if [ -n "$ISSUE" ]; then
             node scripts/fetch-task-contract.mjs --issue "$ISSUE"
           else
-            node scripts/fetch-task-contract.mjs --file docs/work-items/WI-1842.issue.md
+            node scripts/fetch-task-contract.mjs --file docs/demo-setup/WI-1842.issue-seed.md
           fi
         env:
           PR: ${{ github.event.pull_request.number }}

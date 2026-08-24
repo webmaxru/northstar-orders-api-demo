@@ -47,7 +47,7 @@ not live in the repository.
 | --- | --- |
 | **The GitHub issue** | The contract itself: goal, authoritative sources, allowed and prohibited scope, constraints, outputs, success criteria, stop conditions |
 | `.github/ISSUE_TEMPLATE/agent-task.yml` | The shape the issue must take. Durable, and names no task. |
-| `docs/work-items/<ID>.issue.md` | Demo setup only: the text used to create that issue |
+| `docs/demo-setup/<ID>.issue-seed.md` | Demo setup only: the text used to create that issue |
 | `.github/prompts/plan-<id>.prompt.md` | The task's entry point, which invokes a task-agnostic agent |
 
 The repository holds the **template**, not the contract. A prompt file named
@@ -57,7 +57,7 @@ putting task identity into something loaded unconditionally.
 ### Why a seed file exists
 
 A live issue cannot be cloned, version-controlled, or rehearsed offline, which
-is exactly what a demo repository needs. `docs/work-items/<ID>.issue.md` is the
+is exactly what a demo repository needs. `docs/demo-setup/<ID>.issue-seed.md` is the
 text used to create the issue, and nothing reads it as authoritative: the
 resolved contract records whether it came from an issue or a seed file, and the
 execution report prints that provenance.
@@ -98,7 +98,7 @@ narrow repository-wide default; the report refuses to run and says why:
 npm run evidence
 # No task contract resolved. The contract lives in the issue; run one of:
 #   npm run contract:fetch -- --issue <number>
-#   npm run contract:fetch -- --file docs/work-items/<ID>.issue.md
+#   npm run contract:fetch -- --file docs/demo-setup/<ID>.issue-seed.md
 ```
 
 Failing loudly is the point. A report that silently graded a change against the
@@ -125,7 +125,7 @@ cannot attribute to a contract is a denial you cannot review.
 1. Open an issue using the **Agent task** template.
 2. Fill in goal, authoritative sources, allowed and prohibited scope,
    constraints, outputs, success criteria, and stop conditions.
-3. Optionally save the body to `docs/work-items/<ID>.issue.md` so the issue can
+3. Optionally save the body to `docs/demo-setup/<ID>.issue-seed.md` so the issue can
    be recreated for a demo, and add `.github/prompts/plan-<id>.prompt.md`.
 4. Change nothing in Layer 1.
 

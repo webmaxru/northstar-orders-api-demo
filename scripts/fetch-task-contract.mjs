@@ -3,7 +3,7 @@
  *
  * Usage:
  *   node scripts/fetch-task-contract.mjs --issue 12
- *   node scripts/fetch-task-contract.mjs --file docs/work-items/WI-1842.issue.md
+ *   node scripts/fetch-task-contract.mjs --file docs/demo-setup/WI-1842.issue-seed.md
  *
  * The issue is the contract. The seed file exists so a demo can be rehearsed
  * offline and so CI can resolve a contract without a live issue; the resolved

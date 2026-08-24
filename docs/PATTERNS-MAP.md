@@ -19,7 +19,7 @@ and why - see [`docs/END-TO-END-FLOW.md`](END-TO-END-FLOW.md).
 | --- | --- |
 | [Issue #4](https://github.com/webmaxru/northstar-orders-api-demo/issues/4) | The contract itself, where Learn says it belongs. Six success criteria, each naming the test that proves it. Criterion AC3 is the one a plausible implementation quietly fails. |
 | `.github/ISSUE_TEMPLATE/agent-task.yml` | The shape every task contract must take. Durable, and names no task. |
-| `docs/work-items/WI-1842.issue.md` | Demo setup only: the text used to create that issue. |
+| `docs/demo-setup/WI-1842.issue-seed.md` | Demo setup only: the text used to create that issue. |
 | `.github/agents/implement.agent.md` | Stop conditions as agent configuration, not as a hope expressed in a prompt. |
 
 The contract is executable because a machine reads it back:
@@ -62,6 +62,7 @@ the test rules to find the one line that applies to it.
 | `.github/agents/plan.agent.md` | `tools: ["read", "search"]`. A planner cannot write, so "plan first" is enforced rather than requested. |
 | `.github/agents/implement.agent.md` | Adds `edit` and `shell`, still cannot publish or approve. |
 | `.github/agents/risk-reviewer.agent.md` | Back to `["read", "search"]`. A reviewer that cannot repair cannot quietly launder its own fix. |
+| `scripts/session-start.mjs` | Resolves the contract from its issue when the session starts and injects it, so no human has to remember a bootstrap command. |
 | `scripts/task-contract.mjs` | Scope is an input. The authorizer reads it from the active task contract, so least privilege can be per task and per phase. |
 | `.github/hooks/authorize-tool.json` | `PreToolUse` hook wired to `node scripts/authorize-tool.mjs` on every platform. Honored by Copilot cloud agent, Copilot CLI and [VS Code](https://code.visualstudio.com/docs/agent-customization/hooks) (Preview). The file declares both event-name schemas so one hook serves every harness. |
 | `scripts/authorize-tool.mjs` | The policy, unit tested. Classifies tools by capability and returns allow, deny, or ask - never guessing about a tool it does not recognize. |
@@ -162,7 +163,7 @@ npm ci
 npm run db:up
 npm run validate            # lint, typecheck, 28 unit tests
 npm run test:acceptance     # 8 tests against PostgreSQL
-npm run contract:fetch -- --issue 4  # or --file docs/work-items/WI-1842.issue.md
+npm run contract:fetch -- --issue 4  # or --file docs/demo-setup/WI-1842.issue-seed.md
 npm run evidence                     # ready_for_review, criteriaProven=6/6
 ```
 

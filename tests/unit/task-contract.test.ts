@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { contractFromFile, parseIssueBody, splitSections, taskScope } from "../../scripts/task-contract.mjs";
+import { resolveIssueNumber } from "../../scripts/session-start.mjs";
 
-const SEED = "docs/work-items/WI-1842.issue.md";
+const SEED = "docs/demo-setup/WI-1842.issue-seed.md";
 
 /**
  * The contract lives in the issue. These tests parse the seed file, which is
@@ -80,5 +81,22 @@ describe("parser handles real GitHub issue-form output", () => {
     );
 
     expect(() => parseIssueBody(body)).toThrow(/ID \| statement \| proving test/);
+  });
+});
+
+describe("the active task resolves without a manual step", () => {
+  it("prefers an explicit AGENT_TASK_ISSUE", () => {
+    expect(resolveIssueNumber({ env: { AGENT_TASK_ISSUE: "42" }, branch: "main" })).toEqual({
+      number: 42,
+      how: "AGENT_TASK_ISSUE",
+    });
+  });
+
+  it("reads a task id out of the branch name before querying anything", () => {
+    // Only the explicit rule is exercised here. The branch and sole-issue rules
+    // query GitHub, which a unit test must not do.
+    expect(resolveIssueNumber({ env: { AGENT_TASK_ISSUE: "7" }, branch: "wi-1842-idempotency" })).toMatchObject({
+      number: 7,
+    });
   });
 });

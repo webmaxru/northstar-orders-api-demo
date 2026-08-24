@@ -8,7 +8,7 @@ import {
 import { contractFromFile } from "../../scripts/task-contract.mjs";
 
 // The contract comes from the issue. Tests parse the seed file that creates it.
-const contract = contractFromFile("docs/work-items/WI-1842.issue.md");
+const contract = contractFromFile("docs/demo-setup/WI-1842.issue-seed.md");
 const context = { scope: contract.inputs.scope, taskId: contract.id };
 
 /**

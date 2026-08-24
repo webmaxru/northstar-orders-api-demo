@@ -11,7 +11,7 @@ executed while writing this document.
 | File | Written by | Read by | Committed? |
 | --- | --- | --- | --- |
 | the GitHub issue | a human, via the **Agent task** template | everything, indirectly | n/a - it is not a file |
-| `artifacts/task-contract.json` | `scripts/fetch-task-contract.mjs` | `authorize-tool.mjs`, `build-execution-report.mjs` | no, gitignored |
+| `artifacts/task-contract.json` | `scripts/session-start.mjs`, or `scripts/fetch-task-contract.mjs` | `authorize-tool.mjs`, `build-execution-report.mjs` | no, gitignored |
 | `artifacts/unit-junit.xml` | `vitest` via `npm run test:unit:ci` | `build-execution-report.mjs` | no |
 | `artifacts/acceptance-junit.xml` | `vitest` via `npm run test:acceptance:ci` | `build-execution-report.mjs` | no |
 | `artifacts/codeql/**.sarif` | `github/codeql-action/analyze` | `check-sarif.mjs` | no |
@@ -38,7 +38,7 @@ For a demo, recreate the issue from its seed:
 
 ```bash
 gh issue create --title "[Agent task] WI-1842 ..." --label agent-task \
-  --body-file docs/work-items/WI-1842.issue.md
+  --body-file docs/demo-setup/WI-1842.issue-seed.md
 ```
 
 ## Step 1 - The environment is prepared
@@ -67,25 +67,25 @@ prove it. That mapping is what Step 7 later verifies mechanically.
 The only step with no automation. Approving a plan is cheaper than reviewing a
 diff, which is the entire argument for keeping Steps 2 and 4 apart.
 
-## Step 4 - The agent resolves its own boundary
+## Step 4 - The contract resolves itself at session start
 
-```bash
-npm run contract:fetch -- --issue 4
-```
+The `SessionStart` hook runs `node scripts/session-start.mjs`. It identifies the
+issue that defines the current task - from `AGENT_TASK_ISSUE`, else the branch
+name, else the only open `agent-task` issue - reads it with `gh issue view`,
+caches the parsed contract at `artifacts/task-contract.json`, and injects it
+into the conversation.
 
-`scripts/fetch-task-contract.mjs` calls `gh issue view`, parses the body with
-`parseIssueBody()` in `scripts/task-contract.mjs`, and writes
-`artifacts/task-contract.json` via `cacheContract()`.
+**Why automatic:** a contract you must remember to fetch is a contract that will
+be missing exactly when it matters, and the boundary would quietly fall back to
+the repository-wide default. Making it a step in a runbook is not engineering.
 
-**Why this ordering is forced:** `scripts/authorize-tool.mjs` reads that cache
-to learn the allowed scope. Until it exists the hook falls back to a narrow
-repository-wide default and its denials say "outside the approved scope"
-instead of naming the task.
+**Why it never falls back to a seed file:** `docs/demo-setup/*.issue-seed.md`
+exists to recreate an issue for a demo. Treating one as the contract would hide
+the fact that the real issue was never read - which is precisely the failure
+this design exists to prevent.
 
-This command is deliberately on the hook's allowlist. Without that exception the
-boundary could not bootstrap: the command that fetches the contract would be
-denied by the boundary the contract defines.
-
+`npm run contract:fetch -- --issue <n>` remains available for pinning a specific
+issue, and is on the tool allowlist so the boundary can bootstrap itself.
 ## Step 5 - The agent implements, one gated tool call at a time
 
 The `implement` agent has `tools: ["read", "search", "edit", "shell"]`.

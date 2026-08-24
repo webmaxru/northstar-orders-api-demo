@@ -104,7 +104,7 @@ back to it, and it is not a file you can open in the editor.
 To create it fresh:
 
 ```powershell
-gh issue create --title "[Agent task] WI-1842 Stop duplicate orders after client retries" --label agent-task --body-file docs/work-items/WI-1842.issue.md
+gh issue create --title "[Agent task] WI-1842 Stop duplicate orders after client retries" --label agent-task --body-file docs/demo-setup/WI-1842.issue-seed.md
 ```
 
 ## Step 1 - Run the plan prompt
@@ -130,23 +130,44 @@ When the response finishes, a **Start implementation** button appears - that is
 the handoff declared in `plan.agent.md`. It switches to the `implement` agent
 with a pre-filled prompt and does not send it, so you stay in control.
 
-## Step 3 - Resolve the contract
+## Step 3 - The contract resolves itself
 
-Before any edit, in the terminal:
+Nothing to run. When the agent session starts, the `SessionStart` hook runs
+`node scripts/session-start.mjs`, which:
+
+1. works out which issue defines the current task,
+2. reads it with `gh issue view`,
+3. caches the parsed contract at `artifacts/task-contract.json`,
+4. injects it into the conversation as `additionalContext`.
+
+The agent therefore begins with the goal, allowed and prohibited scope,
+constraints, success criteria and stop conditions already in context, and the
+`PreToolUse` hook already knows the scope it must enforce.
+
+Which issue? Most explicit first:
+
+| Order | Source |
+| --- | --- |
+| 1 | `AGENT_TASK_ISSUE` environment variable |
+| 2 | the current branch name, if it contains a task id such as `wi-1842` |
+| 3 | the only open issue labelled `agent-task` |
+
+If none resolves, the session still starts and the injected note says no
+contract is active. It does **not** fall back to a seed file: silently treating
+`docs/demo-setup/WI-1842.issue-seed.md` as the contract would hide the fact that
+the real issue was never read.
+
+To see what the agent receives:
+
+```powershell
+node scripts/session-start.mjs
+```
+
+You can still resolve one by hand when you want a specific issue:
 
 ```powershell
 npm run contract:fetch -- --issue 4
 ```
-
-```
-task=WI-1842  source=issue #4  scope=src/** tests/** migrations/**  criteria=6
-```
-
-**Written:** `artifacts/task-contract.json`.
-
-**Why now:** both gates read it. Skip this and `npm run evidence` exits 2 rather
-than grading against a guess.
-
 ## Step 4 - Implement
 
 The `implement` agent has `["read", "search", "edit", "shell"]`. Work the plan.
@@ -312,8 +333,9 @@ the next run to resolve the contract again.
 | Symptom | Cause |
 | --- | --- |
 | Agents missing from the picker | Files must be in `.github/agents` and end in `.agent.md` |
-| `npm run evidence` exits 2 | No contract resolved - run Step 3 |
-| Denials say "outside the approved scope" instead of naming WI-1842 | Same: the contract cache is missing |
+| `npm run evidence` exits 2 | No contract resolved. Check `node scripts/session-start.mjs` output, or set `AGENT_TASK_ISSUE`. |
+| Denials say "outside the approved scope" instead of naming WI-1842 | Same: the contract cache is missing. |
+| The agent reads `docs/demo-setup/...` instead of the issue | Pull the latest: the contract is injected at session start and all three agent profiles forbid treating a seed as the contract. |
 | Acceptance tests refuse to connect | `npm run db:up`; compose maps host port **55432** |
 | `npm run validate` fails on `instructions:check` | `.github/copilot-instructions.md` was hand-edited - run `npm run instructions:sync` |
 | The hook never fires in VS Code | Agent hooks are Preview and can be disabled by policy. Check **Developer: Show Agent Debug Logs**, and confirm the event key is `PreToolUse`. |

@@ -45,7 +45,7 @@ npm run validate            # 28 unit tests
 npm run test:acceptance     # 8 tests against PostgreSQL
 npm run test:unit:ci
 npm run test:acceptance:ci
-npm run contract:fetch -- --file docs/work-items/WI-1842.issue.md
+npm run contract:fetch -- --file docs/demo-setup/WI-1842.issue-seed.md
 npm run evidence
 ```
 
