@@ -123,8 +123,7 @@ if (!contract) {
   process.stderr.write(
     "No task contract resolved. The contract lives in the issue; run one of:\n" +
       "  npm run contract:fetch -- --issue <number>\n" +
-      "  npm run contract:fetch -- --file docs/demo-setup/<ID>.issue-seed.md\n" +
-      "See docs/CONTEXT-ARCHITECTURE.md.\n",
+      "  npm run contract:fetch -- --file docs/demo-setup/<ID>.issue-seed.md\n",
   );
   process.exit(2);
 }

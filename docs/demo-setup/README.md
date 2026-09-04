@@ -24,14 +24,14 @@ gh issue create --template agent-task.yml
 Then paste the matching section values, or create it directly from the seed:
 
 ```bash
-gh issue create --title "[Agent task] WI-1842 Stop duplicate orders after client retries" --label agent-task --body-file docs/work-items/WI-1842.issue.md
+gh issue create --title "[Agent task] WI-1842 Stop duplicate orders after client retries" --label agent-task --body-file docs/demo-setup/WI-1842.issue-seed.md
 ```
 
 ## Using it
 
 ```bash
 npm run contract:fetch -- --issue <number>    # reads the live issue
-npm run contract:fetch -- --file docs/work-items/WI-1842.issue.md   # offline
+npm run contract:fetch -- --file docs/demo-setup/WI-1842.issue-seed.md   # offline
 ```
 
 Either way the parsed contract is cached to `artifacts/task-contract.json`,

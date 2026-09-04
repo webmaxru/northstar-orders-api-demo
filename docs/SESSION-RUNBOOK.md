@@ -2,11 +2,7 @@
 
 Slide-by-slide guide for the 50-minute session (45:00 content + 5:00 Q&A).
 
-`docs/PATTERNS-MAP.md` answers "which file demonstrates this pattern".
 This file answers "what do I put on screen at slide N, and for how long".
-
-`docs/DEMO-RUNBOOK.md` is a different talk (_From Prompt to Production_) and
-its three-demo structure does not apply here.
 
 ## Before you start
 
@@ -72,11 +68,10 @@ Also have open, in order, as editor tabs:
 2. `AGENTS.md`
 3. `.github/instructions/services.instructions.md`
 4. `.github/agents/plan.agent.md`, `implement.agent.md`, `risk-reviewer.agent.md`
-5. `docs/fixtures/untrusted-issue-comment.md`
-   5b. `.github/prompts/plan.prompt.md` and `implement.prompt.md`
-6. `artifacts/report.json`
-7. `docs/RECOVERY-POLICY.md`
-8. `docs/CONTEXT-ARCHITECTURE.md` (for questions about why nothing durable names a task)
+5. `.github/prompts/plan.prompt.md` and `implement.prompt.md`
+6. `docs/fixtures/untrusted-issue-comment.md`
+7. `artifacts/report.json`
+8. `docs/RECOVERY-POLICY.md`
 
 Plus a terminal in the repo root, and two browser tabs:
 
@@ -281,7 +276,7 @@ The sample is committed, so there is nothing to prepare for this one.
 
 | Slide | Timing | Show                                                                                                          |
 | ----- | ------ | --------------------------------------------------------------------------------------------------------------- |
-| 30    | 1:30   | `docs/PATTERNS-MAP.md` for 20s, then back. Tell the room the repo link goes out with the slides after the session. |
+| 30    | 1:30   | `README.md` for 20s, then back. Tell the room the repo link goes out with the slides after the session. |
 | 31    | 1:30   | Slide only. The closing question.                                                                              |
 
 Slides 32-33 close the session in the Q&A window: the platform-selection

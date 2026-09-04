@@ -5,10 +5,10 @@ import { describe, expect, it } from "vitest";
 /**
  * Durable context is loaded for every task. If any of it names a work item,
  * every future task starts by reading something irrelevant to it - and does so
- * silently. See docs/CONTEXT-ARCHITECTURE.md.
+ * silently.
  *
- * Task identity belongs in the issue, and in the seed file plus prompt that
- * recreate it, all of which are deliberately excluded here.
+ * Task identity belongs in the issue. The demo seed recreates it, and the
+ * generic prompts accept its issue number; none are durable context.
  */
 const DURABLE_CONTEXT = [
   "AGENTS.md",

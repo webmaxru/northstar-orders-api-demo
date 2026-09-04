@@ -20,15 +20,9 @@ curl -X POST http://localhost:3000/orders -H "content-type: application/json" -d
 
 [Issue #4](https://github.com/webmaxru/northstar-orders-api-demo/issues/4) is the task contract for **WI-1842**: prevent duplicate orders when clients retry after a timeout. The baseline deliberately has no idempotency. See [`docs/demo-setup/`](docs/demo-setup/README.md) for how to recreate the issue.
 
-Read [`docs/DEMO-RUNBOOK.md`](docs/DEMO-RUNBOOK.md) before presenting.
-
 ## Session artifacts
 
-[`docs/PATTERNS-MAP.md`](docs/PATTERNS-MAP.md) maps each pattern from **From agents to engineering systems** to the file and command in this repository that demonstrates it: the task contract, path-scoped context, capability boundaries enforced before tool use, the execution report used as an evidence gate, and a bounded repair policy.
-
 [`docs/SESSION-RUNBOOK.md`](docs/SESSION-RUNBOOK.md) is the slide-by-slide delivery guide: what to put on screen at each slide, for how long, the exact commands with their expected output, and the fallbacks.
-
-[`docs/END-TO-END-FLOW.md`](docs/END-TO-END-FLOW.md) traces the whole workflow from running the plan prompt to a mergeable pull request: which script creates or checks which file, when, and why that ordering is forced.
 
 [`docs/LOCAL-VSCODE-FLOW.md`](docs/LOCAL-VSCODE-FLOW.md) is the same flow performed by hand in VS Code, including which parts of the boundary VS Code does and does not enforce.
 
@@ -62,4 +56,3 @@ yourself: on `demo/engineering-system` the work is already done, so
 - `main` is a stable baseline tagged `demo-baseline`.
 - Rehearse in disposable Git worktrees.
 - Reference branches are never merged into `main`.
-

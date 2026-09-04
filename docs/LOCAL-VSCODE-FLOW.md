@@ -1,8 +1,7 @@
 # Running the flow locally in VS Code
 
-`docs/END-TO-END-FLOW.md` describes the canonical flow, where the cloud agent
-runs on GitHub. This document is the local version: the same twelve steps,
-performed by you in VS Code, with the differences called out honestly.
+This document walks through the agent workflow locally in VS Code, with the
+differences from the cloud agent called out honestly.
 
 Read the support table first: one artifact behaves differently here, and the
 hook schema differs between harnesses.
@@ -34,7 +33,7 @@ call, so the capability boundary **is** enforced locally. Two caveats:
 - Agent hooks in VS Code are **Preview**, and an organization policy can
   disable them. If nothing fires, check with your admin and read the agent
   debug log: **Developer: Show Agent Debug Logs**.
-- The two hosts use different schemas. `.github/hooks/authorize-tool.json`
+- The two hosts use different schemas. `.github/hooks/agent-boundary.json`
   declares both, so one file serves both:
 
 |                  | VS Code                                           | Cloud agent and CLI       |

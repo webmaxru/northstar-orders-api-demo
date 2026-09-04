@@ -4,7 +4,7 @@ export interface TaskScope {
 }
 
 export interface ContractSource {
-  /** For example `issue #12` or `seed file docs/work-items/WI-1842.issue.md`. */
+  /** For example `issue #12` or `seed file docs/demo-setup/WI-1842.issue-seed.md`. */
   kind: string;
   issue: number | null;
   url: string | null;

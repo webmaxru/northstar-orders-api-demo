@@ -13,7 +13,7 @@
 
 This is the single authored source of durable, repository-wide agent guidance.
 It holds for every task and therefore names none. Anything true of only one work
-item belongs in that task's issue, not here. See `docs/CONTEXT-ARCHITECTURE.md`.
+item belongs in that task's issue, not here.
 
 `.github/copilot-instructions.md` is generated from this file and must not be
 edited. See "Why a second file exists" at the end.
