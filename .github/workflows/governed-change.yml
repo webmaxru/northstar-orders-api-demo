@@ -122,6 +122,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v7
         with:
@@ -138,7 +139,10 @@ jobs:
           path: artifacts
       - id: scope
         continue-on-error: true
-        run: npm run scope:check -- --base "${{ github.event.pull_request.base.sha }}"
+        run: >-
+          npm run scope:check --
+          --pr "$PR_NUMBER"
+          --expected-head "$NORTHSTAR_HEAD_SHA"
       - if: always()
         run: >-
           node scripts/evidence-record.mjs

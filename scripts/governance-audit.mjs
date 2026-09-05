@@ -221,6 +221,27 @@ export function governedEvidenceTaskLookupPermissionsAreSafe(workflow) {
   ]);
 }
 
+export function governedScopeUsesPullRequestContext(workflow) {
+  const scopeJob = /^ {2}scope-policy:\r?\n([\s\S]*?)(?=^ {2}quality:\r?$)/m.exec(
+    String(workflow),
+  )?.[1];
+  const permissionBlock = scopeJob
+    ? /^ {4}permissions:\r?\n((?: {6}[^\r\n]+\r?\n)+)/m.exec(scopeJob)?.[1]
+    : null;
+  if (!scopeJob || !permissionBlock) return false;
+
+  const permissions = permissionBlock
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return (
+    exactStringSet(permissions, ["contents: read", "pull-requests: read"]) &&
+    /npm run scope:check --\s+--pr "\$PR_NUMBER"\s+--expected-head "\$NORTHSTAR_HEAD_SHA"/m.test(
+      scopeJob,
+    )
+  );
+}
+
 export function auditSourceTree() {
   const checks = [];
   const tracked = execFileSync("git", ["ls-files"], {
@@ -319,6 +340,11 @@ export function auditSourceTree() {
         governedEvidenceTaskLookupPermissionsAreSafe(workflow),
         "workflow:evidence-task-lookup",
         "The evidence job has only the read permissions needed to resolve the pull request and linked issue.",
+      ),
+      check(
+        governedScopeUsesPullRequestContext(workflow),
+        "workflow:scope-pull-request-context",
+        "Hosted scope validation uses immutable pull-request metadata instead of a detached checkout branch.",
       ),
     );
     for (const job of [

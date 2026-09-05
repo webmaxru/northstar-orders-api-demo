@@ -45,6 +45,9 @@ export declare function governedSingleCheckArtifactsPreserveDirectory(
 export declare function governedEvidenceTaskLookupPermissionsAreSafe(
   workflow: string,
 ): boolean;
+export declare function governedScopeUsesPullRequestContext(
+  workflow: string,
+): boolean;
 export declare function environmentAllowsOnlyDefaultBranch(
   environment: Record<string, unknown>,
   branchPolicies: Array<Record<string, unknown>>,

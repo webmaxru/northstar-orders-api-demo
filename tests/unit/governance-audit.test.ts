@@ -8,6 +8,7 @@ import {
   governedAcceptanceDatabaseUrlIsSafe,
   governedArtifactsTargetExpectedDirectory,
   governedEvidenceTaskLookupPermissionsAreSafe,
+  governedScopeUsesPullRequestContext,
   governedSingleCheckArtifactsPreserveDirectory,
   hasRulesetBypass,
   rulesetAppliesToDefaultBranch,
@@ -99,11 +100,20 @@ describe("source-controlled governance", () => {
     expect(governedArtifactsTargetExpectedDirectory(workflow)).toBe(true);
     expect(governedSingleCheckArtifactsPreserveDirectory(workflow)).toBe(true);
     expect(governedEvidenceTaskLookupPermissionsAreSafe(workflow)).toBe(true);
+    expect(governedScopeUsesPullRequestContext(workflow)).toBe(true);
     expect(
       governedSingleCheckArtifactsPreserveDirectory(
         workflow.replace(
           "path: artifacts/**/secret-scan.json",
           "path: artifacts/checks/secret-scan.json",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      governedScopeUsesPullRequestContext(
+        workflow.replace(
+          /npm run scope:check --\r?\n\s+--pr "\$PR_NUMBER"\r?\n\s+--expected-head "\$NORTHSTAR_HEAD_SHA"/,
+          'npm run scope:check -- --base "$BASE_SHA"',
         ),
       ),
     ).toBe(false);
