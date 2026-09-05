@@ -8,6 +8,11 @@ This repository is the executable reference implementation of
 The workload is a TypeScript/Fastify order API whose idempotency behavior must
 remain correct across multiple stateless service instances.
 
+It demonstrates the **plan → act → evaluate** loop with GitHub as the
+**system of record and control plane**. Agent-authored pull requests follow the
+**contributor model**: they are evaluated by intent, scope, evidence,
+ownership, policy, and fallback rather than by the identity of the author.
+
 ## Application behavior
 
 `POST /orders` accepts:
