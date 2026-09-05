@@ -6,6 +6,8 @@ import {
   environmentReviewersMatch,
   exactStringSet,
   governedAcceptanceDatabaseUrlIsSafe,
+  governedArtifactsTargetExpectedDirectory,
+  governedEvidenceTaskLookupPermissionsAreSafe,
   hasRulesetBypass,
   rulesetAppliesToDefaultBranch,
   strictRequiredContexts,
@@ -54,6 +56,47 @@ describe("source-controlled governance", () => {
     );
     expect(invalid).not.toBe(workflow);
     expect(governedAcceptanceDatabaseUrlIsSafe(invalid)).toBe(false);
+  });
+
+  it("routes governed artifacts to their expected directory", () => {
+    const workflow = readFileSync(
+      ".github/workflows/governed-change.yml",
+      "utf8",
+    );
+    expect(governedArtifactsTargetExpectedDirectory(workflow)).toBe(true);
+    expect(
+      governedArtifactsTargetExpectedDirectory(
+        workflow.replace(
+          /(\s+name: northstar-plan-context\r?\n\s+)path: artifacts/,
+          "$1path: .",
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it("grants evidence the task lookup permissions", () => {
+    const workflow = readFileSync(
+      ".github/workflows/governed-change.yml",
+      "utf8",
+    );
+    expect(governedEvidenceTaskLookupPermissionsAreSafe(workflow)).toBe(true);
+    expect(
+      governedEvidenceTaskLookupPermissionsAreSafe(
+        workflow.replace(
+          /(  evidence:[\s\S]*?    permissions:\r?\n(?:      [^\r\n]+\r?\n)*?)      pull-requests: read\r?\n/,
+          "$1",
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it("completes the governed evidence handoff", () => {
+    const workflow = readFileSync(
+      ".github/workflows/governed-change.yml",
+      "utf8",
+    );
+    expect(governedArtifactsTargetExpectedDirectory(workflow)).toBe(true);
+    expect(governedEvidenceTaskLookupPermissionsAreSafe(workflow)).toBe(true);
   });
 
   it("ignores a ruleset that excludes the default branch", () => {

@@ -176,6 +176,39 @@ export function governedAcceptanceDatabaseUrlIsSafe(workflow) {
   );
 }
 
+export function governedArtifactsTargetExpectedDirectory(workflow) {
+  const downloadSteps =
+    String(workflow).match(
+      /^      - uses: actions\/download-artifact@[^\r\n]+\r?\n(?: {8,}[^\r\n]*(?:\r?\n|$))*/gm,
+    ) ?? [];
+  return (
+    downloadSteps.length === 4 &&
+    downloadSteps.every((step) =>
+      /^\s{10}path:\s*artifacts\s*$/m.test(step),
+    )
+  );
+}
+
+export function governedEvidenceTaskLookupPermissionsAreSafe(workflow) {
+  const evidenceJob = /^  evidence:\r?\n([\s\S]*)$/m.exec(
+    String(workflow),
+  )?.[1];
+  const permissionBlock = evidenceJob
+    ? /^    permissions:\r?\n((?:      [^\r\n]+\r?\n)+)/m.exec(evidenceJob)?.[1]
+    : null;
+  if (!permissionBlock) return false;
+
+  const permissions = permissionBlock
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return exactStringSet(permissions, [
+    "contents: read",
+    "issues: read",
+    "pull-requests: read",
+  ]);
+}
+
 export function auditSourceTree() {
   const checks = [];
   const tracked = execFileSync("git", ["ls-files"], {
@@ -259,6 +292,16 @@ export function auditSourceTree() {
         governedAcceptanceDatabaseUrlIsSafe(workflow),
         "workflow:acceptance-database-url",
         "Acceptance uses the declared ephemeral PostgreSQL service without a YAML alias scalar.",
+      ),
+      check(
+        governedArtifactsTargetExpectedDirectory(workflow),
+        "workflow:artifact-handoff",
+        "Downloaded evidence is restored under the artifacts directory consumed by policy scripts.",
+      ),
+      check(
+        governedEvidenceTaskLookupPermissionsAreSafe(workflow),
+        "workflow:evidence-task-lookup",
+        "The evidence job has only the read permissions needed to resolve the pull request and linked issue.",
       ),
     );
     for (const job of [
