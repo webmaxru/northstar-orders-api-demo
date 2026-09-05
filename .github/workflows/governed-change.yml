@@ -215,7 +215,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      DATABASE_URL: ******localhost:5432/northstar
+      DATABASE_URL: "${{ format('postgresql://{0}:{1}@localhost:5432/{2}', 'postgres', 'postgres', 'northstar') }}"
     steps:
       - uses: actions/checkout@v7
         with:
