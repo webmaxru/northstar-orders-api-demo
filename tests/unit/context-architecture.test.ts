@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { globSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -98,6 +99,21 @@ describe("canonical guide terminology", () => {
     expect(readme).toContain("plan → act → evaluate");
     expect(readme).toMatch(/system of record and control plane/i);
     expect(readme).toMatch(/contributor model/i);
-    expect(readme.match(/https:\/\/github\.com\/[^)\s]+/g)).toHaveLength(1);
+
+    const repositoryLinks =
+      readme.match(/https:\/\/github\.com\/[^)\s]+/gi) ?? [];
+    expect(repositoryLinks).toHaveLength(1);
+
+    const repositoryIdentity = new URL(repositoryLinks[0]).pathname.replace(
+      /^\/|\/$/g,
+      "",
+    );
+    const outsideReadme = spawnSync(
+      "git",
+      ["grep", "-i", "-l", "-F", repositoryIdentity, "--", ":!README.md"],
+      { encoding: "utf8" },
+    );
+    expect([0, 1]).toContain(outsideReadme.status);
+    expect(outsideReadme.stdout.trim()).toBe("");
   });
 });
