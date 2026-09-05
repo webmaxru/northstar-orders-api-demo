@@ -34,6 +34,15 @@ describe("source-controlled governance", () => {
     expect(governedAcceptanceDatabaseUrlIsSafe(workflow)).toBe(true);
   });
 
+  it("starts the governed change workflow", () => {
+    const workflow = readFileSync(
+      ".github/workflows/governed-change.yml",
+      "utf8",
+    );
+    expect(workflow).toMatch(/^\s{2}plan-contract:\s*$/m);
+    expect(governedAcceptanceDatabaseUrlIsSafe(workflow)).toBe(true);
+  });
+
   it("rejects an invalid governed workflow database URL", () => {
     const workflow = readFileSync(
       ".github/workflows/governed-change.yml",
