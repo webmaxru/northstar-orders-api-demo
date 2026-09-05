@@ -104,7 +104,11 @@ describe("canonical guide terminology", () => {
       readme.match(/https:\/\/github\.com\/[^)\s]+/gi) ?? [];
     expect(repositoryLinks).toHaveLength(1);
 
-    const repositoryIdentity = new URL(repositoryLinks[0]).pathname.replace(
+    const [repositoryLink] = repositoryLinks;
+    if (!repositoryLink) {
+      throw new Error("README.md has no external GitHub repository link");
+    }
+    const repositoryIdentity = new URL(repositoryLink).pathname.replace(
       /^\/|\/$/g,
       "",
     );
