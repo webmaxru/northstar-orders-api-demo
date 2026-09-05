@@ -98,8 +98,6 @@ describe("canonical guide terminology", () => {
     expect(readme).toContain("plan → act → evaluate");
     expect(readme).toMatch(/system of record and control plane/i);
     expect(readme).toMatch(/contributor model/i);
-    expect(
-      readme.match(/github\.com\/webmaxru\/ai-engineering-system/g),
-    ).toHaveLength(1);
+    expect(readme.match(/https:\/\/github\.com\/[^)\s]+/g)).toHaveLength(1);
   });
 });
