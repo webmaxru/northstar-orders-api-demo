@@ -36,6 +36,21 @@ export declare function strictRequiredContexts(
 export declare function governedAcceptanceDatabaseUrlIsSafe(
   workflow: string,
 ): boolean;
+export declare function governedArtifactsTargetExpectedDirectory(
+  workflow: string,
+): boolean;
+export declare function governedSingleCheckArtifactsPreserveDirectory(
+  workflow: string,
+): boolean;
+export declare function governedEvidenceTaskLookupPermissionsAreSafe(
+  workflow: string,
+): boolean;
+export declare function governedScopeUsesPullRequestContext(
+  workflow: string,
+): boolean;
+export declare function governedMergedArtifactsHaveUniquePaths(
+  workflow: string,
+): boolean;
 export declare function environmentAllowsOnlyDefaultBranch(
   environment: Record<string, unknown>,
   branchPolicies: Array<Record<string, unknown>>,
