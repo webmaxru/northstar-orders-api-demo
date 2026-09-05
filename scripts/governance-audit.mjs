@@ -85,6 +85,7 @@ export function hasRulesetBypass(ruleset) {
 
 export function auditSourceTree() {
   const checks = [];
+  const packageJson = JSON.parse(text("package.json"));
   const tracked = execFileSync("git", ["ls-files"], {
     cwd: REPO_ROOT,
     encoding: "utf8",
@@ -142,6 +143,34 @@ export function auditSourceTree() {
     ]) {
       checks.push(
         check(events.includes(event), `hook:${event}`, "Required lifecycle event."),
+      );
+    }
+
+    if (packageJson.dependencies?.["@responsibleai/agent-hooks"]) {
+      checks.push(
+        check(
+          packageJson.dependencies["@responsibleai/agent-hooks"] ===
+            "0.1.0-alpha.5",
+          "agent-hooks:pinned-alpha",
+          "The experimental native SDK is pinned exactly.",
+        ),
+        check(
+          existsSync(resolve(REPO_ROOT, "scripts/agent-hooks-bridge.mjs")),
+          "agent-hooks:bridge",
+          "The Copilot pre-tool adapter is present.",
+        ),
+        check(
+          existsSync(resolve(REPO_ROOT, "docs/AGENT-HOOKS-VARIANT.md")),
+          "agent-hooks:limitations",
+          "The partial, nonconformant event mapping is documented.",
+        ),
+        check(
+          text(".github/hooks/agent-boundary.json").includes(
+            "scripts/agent-hooks-bridge.mjs",
+          ),
+          "agent-hooks:wired",
+          "PreToolUse invokes the Agent Hooks bridge.",
+        ),
       );
     }
     const lower = events.map((event) => event.toLowerCase());

@@ -190,3 +190,11 @@ deployment, monitoring, updating, and retirement.
 GitHub Agentic Workflows provide bounded **Continuous AI** through read-only
 agent execution and staged safe outputs. They extend deterministic CI; they do
 not replace required checks or human acceptance.
+
+## Responsible AI Agent Hooks variant
+
+This branch translates Copilot `PreToolUse` into Agent Hooks
+`pre_tool_call`. The adapter is intentionally labeled nonconformant because
+Copilot does not expose every Agent Hooks lifecycle point. Keep the native
+policy as the compatibility interceptor, keep the outer GitHub controls as the
+acceptance authority, and never claim CTK conformance for this partial bridge.

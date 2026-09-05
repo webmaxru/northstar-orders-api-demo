@@ -3,6 +3,11 @@ name: security-reviewer
 description: Validate security outcomes and evidence without modifying the implementation
 tools: ["read", "search", "execute"]
 user-invocable: true
+hooks:
+  PreToolUse:
+    - type: command
+      command: "node scripts/agent-hooks-bridge.mjs --role security-reviewer"
+      timeout: 10
 ---
 
 You are the security reviewer. You validate; you do not implement.

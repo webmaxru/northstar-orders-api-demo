@@ -36,12 +36,14 @@
     "security:secrets": "node scripts/secret-scan.mjs",
     "evidence": "node scripts/build-execution-report.mjs",
     "repair:check": "node scripts/repair-budget.mjs",
-    "hook:check": "node scripts/authorize-tool.mjs",
+    "hook:native": "node scripts/authorize-tool.mjs",
+    "hook:check": "node scripts/agent-hooks-bridge.mjs",
+    "agent-hooks:smoke": "node scripts/agent-hooks-smoke.mjs",
     "agentic:compile": "gh aw compile daily-repository-status --validate --strict --action-mode release --action-tag eed4304d8740f0593f2797276cb8299d228ffd9b --poutine",
     "agentic:zizmor": "node scripts/run-zizmor.mjs",
     "agentic:validate": "npm run agentic:compile && npm run agentic:zizmor",
     "demo:system": "node scripts/system-demo.mjs",
-    "validate:all": "npm run validate && npm run test:acceptance && npm audit --audit-level=high && npm run security:secrets && npm run agentic:validate",
+    "validate:all": "npm run validate && npm run test:acceptance && npm audit --audit-level=high && npm run security:secrets && npm run agentic:validate && npm run agent-hooks:smoke",
     "db:up": "docker compose up -d --wait postgres",
     "db:down": "docker compose down -v"
   },
@@ -54,6 +56,7 @@
   "author": "Maxim Salnikov",
   "license": "MIT",
   "dependencies": {
+    "@responsibleai/agent-hooks": "0.1.0-alpha.5",
     "fastify": "5.12.1",
     "pg": "^8.23.0"
   },

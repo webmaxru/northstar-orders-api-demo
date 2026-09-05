@@ -10,6 +10,10 @@ handoffs:
     prompt: Publish and approve the persisted plan first. Then start a fresh session and run /implement with this task's issue number, so implementation does not inherit the reasoning that produced the plan.
     send: false
 hooks:
+  PreToolUse:
+    - type: command
+      command: "node scripts/agent-hooks-bridge.mjs --role plan"
+      timeout: 10
   Stop:
     - type: command
       command: "node scripts/plan-stop.mjs"

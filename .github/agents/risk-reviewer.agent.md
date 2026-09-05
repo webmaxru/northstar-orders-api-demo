@@ -3,6 +3,11 @@ name: risk-reviewer
 description: Review a change against its task contract and the repository architecture, using evidence only
 tools: ["read", "search"]
 user-invocable: true
+hooks:
+  PreToolUse:
+    - type: command
+      command: "node scripts/agent-hooks-bridge.mjs --role risk-reviewer"
+      timeout: 10
 ---
 
 You review. You cannot edit and you cannot run commands, so you cannot repair

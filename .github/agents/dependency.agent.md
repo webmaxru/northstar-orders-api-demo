@@ -4,6 +4,11 @@ description: Update dependency manifests and lockfiles without broadening into a
 tools: ["read", "search", "edit", "execute"]
 disable-model-invocation: true
 user-invocable: true
+hooks:
+  PreToolUse:
+    - type: command
+      command: "node scripts/agent-hooks-bridge.mjs --role dependency"
+      timeout: 10
 ---
 
 You are the dependency agent in a governed AI engineering system.

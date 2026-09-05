@@ -1,5 +1,5 @@
 {
-  "$comment": "Use the PascalCase compatibility event names once. Copilot CLI and cloud agent accept these names and emit the VS Code-compatible payload shape; registering both cases would execute the same control twice. Commands invoke node directly so stdin reaches the policy unchanged. Post-tool and session-end records are payload-free and session-local; GitHub Actions remains the durable acceptance authority.",
+  "$comment": "Agent Hooks variant: PreToolUse is translated into Responsible AI Agent Hooks pre_tool_call, composed in-process, then translated back to Copilot. This is an explicitly non-conformant partial adapter because Copilot exposes no pre/post-model or main-output interception points and outer hook timeouts remain fail-open. Other lifecycle records remain native Copilot hook records.",
   "version": 1,
   "hooks": {
     "SessionStart": [
@@ -19,7 +19,7 @@
     "PreToolUse": [
       {
         "type": "command",
-        "command": "node scripts/authorize-tool.mjs",
+        "command": "node scripts/agent-hooks-bridge.mjs",
         "timeout": 10
       }
     ],

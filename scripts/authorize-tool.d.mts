@@ -58,6 +58,11 @@ export declare function normalizeToolCall(call: ToolCall): {
 };
 
 export declare function renderDecision(decision: AuthorizationDecision): RenderedDecision;
+export declare function loadAuthorizationContext(): AuthorizationContext & {
+  contractDigest: string | null;
+  planDigest: string | null;
+  repositorySha: string | null;
+};
 export declare function tokenize(name: string): string[];
 
 export declare function classifyTool(rawName: string): "read" | "edit" | "shell" | "unknown";

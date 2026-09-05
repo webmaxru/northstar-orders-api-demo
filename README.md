@@ -11,6 +11,11 @@ must remain correct across multiple stateless service instances.
 The system follows **plan -> act -> evaluate** and the responsibility boundary
 **agents propose; humans and policy accept**.
 
+This branch is the Responsible AI Agent Hooks comparison variant. See
+[`docs/AGENT-HOOKS-VARIANT.md`](docs/AGENT-HOOKS-VARIANT.md). It preserves the
+same GitHub task, plan, evidence, and acceptance system while translating
+Copilot `PreToolUse` through Agent Hooks `pre_tool_call`.
+
 ## What is implemented
 
 - GitHub issues as task contracts with inputs, outputs, success criteria,
@@ -41,6 +46,7 @@ npm run test:acceptance
 npm audit --audit-level=high
 npm run security:secrets
 npm run agentic:validate
+npm run agent-hooks:smoke
 ```
 
 Run the complete local reference scenario:
@@ -68,6 +74,7 @@ current human reviews, repository rules, and environment approvals can produce
 | Recovery | `scripts/repair-budget.mjs`, `docs/RECOVERY-POLICY.md` |
 | Governance drift | `.github/governance/policy.json`, `scripts/governance-audit.mjs` |
 | Continuous AI | `.github/workflows/daily-repository-status.md` and generated lock file |
+| Agent Hooks bridge | `scripts/agent-hooks-bridge.mjs`, `docs/AGENT-HOOKS-VARIANT.md` |
 | End-to-end walkthrough | `docs/END-TO-END-DEMO.md` |
 
 ## Important boundary

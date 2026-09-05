@@ -10,6 +10,10 @@ handoffs:
     prompt: Review the change above against the task contract. Use the diff, the tests and the artifacts as evidence, not my summary.
     send: false
 hooks:
+  PreToolUse:
+    - type: command
+      command: "node scripts/agent-hooks-bridge.mjs --role implement"
+      timeout: 10
   Stop:
     - type: command
       command: "node scripts/agent-stop.mjs"

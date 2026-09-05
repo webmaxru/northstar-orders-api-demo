@@ -522,6 +522,74 @@ export function renderDecision(decision) {
   };
 }
 
+export function loadAuthorizationContext() {
+  const contract = loadTaskContract();
+  let plan;
+  try {
+    plan = JSON.parse(
+      readFileSync(resolve(REPO_ROOT, "artifacts/plan.json"), "utf8"),
+    );
+  } catch {
+    plan = null;
+  }
+  const approvedPlan =
+    Boolean(contract?.source?.trusted) &&
+    plan?.schema === "northstar/plan/1" &&
+    plan?.taskId === contract?.id &&
+    plan?.contractDigest === contract?.source?.bodyDigest &&
+    plan?.approval?.schema === "northstar/plan-approval/1" &&
+    plan?.approval?.taskId === contract?.id &&
+    plan?.approval?.contractDigest === contract?.source?.bodyDigest &&
+    plan?.approval?.planDigest === plan?.planDigest &&
+    plan?.planDigest === planDigest(plan);
+  let branch = null;
+  let descendsFromApprovedBase = false;
+  try {
+    branch = execFileSync("git", ["branch", "--show-current"], {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    if (plan?.baseSha) {
+      execFileSync(
+        "git",
+        ["merge-base", "--is-ancestor", plan.baseSha, "HEAD"],
+        {
+          cwd: REPO_ROOT,
+          stdio: ["ignore", "ignore", "ignore"],
+        },
+      );
+      descendsFromApprovedBase = true;
+    }
+  } catch {
+    descendsFromApprovedBase = false;
+  }
+  const branchAuthorized =
+    branch === `agent/implement/${String(contract?.id ?? "").toLowerCase()}` &&
+    descendsFromApprovedBase;
+  return {
+    scope: taskScope(contract),
+    taskId: contract?.id,
+    trustedContract: contract?.source?.trusted === true,
+    approvedPlan,
+    branchAuthorized,
+    planScope: plan?.scope,
+    contractDigest: contract?.source?.bodyDigest ?? null,
+    planDigest: plan?.planDigest ?? null,
+    repositorySha: (() => {
+      try {
+        return execFileSync("git", ["rev-parse", "HEAD"], {
+          cwd: REPO_ROOT,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        }).trim();
+      } catch {
+        return null;
+      }
+    })(),
+  };
+}
+
 async function main() {
   const parsed = parsePayload(await readStdin());
   let decision;
@@ -529,58 +597,7 @@ async function main() {
     decision = parsed.decision;
   } else {
     try {
-      const contract = loadTaskContract();
-      let plan = null;
-      try {
-        plan = JSON.parse(
-          readFileSync(resolve(REPO_ROOT, "artifacts/plan.json"), "utf8"),
-        );
-      } catch {
-        plan = null;
-      }
-      const approvedPlan =
-        Boolean(contract?.source?.trusted) &&
-        plan?.schema === "northstar/plan/1" &&
-        plan?.taskId === contract?.id &&
-        plan?.contractDigest === contract?.source?.bodyDigest &&
-        plan?.approval?.schema === "northstar/plan-approval/1" &&
-        plan?.approval?.taskId === contract?.id &&
-        plan?.approval?.contractDigest === contract?.source?.bodyDigest &&
-        plan?.approval?.planDigest === plan?.planDigest &&
-        plan?.planDigest === planDigest(plan);
-      let branch = null;
-      let descendsFromApprovedBase = false;
-      try {
-        branch = execFileSync("git", ["branch", "--show-current"], {
-          cwd: REPO_ROOT,
-          encoding: "utf8",
-          stdio: ["ignore", "pipe", "ignore"],
-        }).trim();
-        if (plan?.baseSha) {
-          execFileSync(
-            "git",
-            ["merge-base", "--is-ancestor", plan.baseSha, "HEAD"],
-            {
-              cwd: REPO_ROOT,
-              stdio: ["ignore", "ignore", "ignore"],
-            },
-          );
-          descendsFromApprovedBase = true;
-        }
-      } catch {
-        descendsFromApprovedBase = false;
-      }
-      const branchAuthorized =
-        branch === `agent/implement/${String(contract?.id ?? "").toLowerCase()}` &&
-        descendsFromApprovedBase;
-      decision = evaluateToolCall(parsed.value, {
-        scope: taskScope(contract),
-        taskId: contract?.id,
-        trustedContract: contract?.source?.trusted === true,
-        approvedPlan,
-        branchAuthorized,
-        planScope: plan?.scope,
-      });
+      decision = evaluateToolCall(parsed.value, loadAuthorizationContext());
     } catch (error) {
       decision = deny(/** @type {Error} */ (error).message);
     }
