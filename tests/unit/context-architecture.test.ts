@@ -82,3 +82,24 @@ describe("the harness-specific instructions file is generated, not authored", ()
     expect(generated).toMatch(/custom-instructions-support/);
   });
 });
+
+describe("canonical guide terminology", () => {
+  const instructions = readFileSync("AGENTS.md", "utf8");
+  const readme = readFileSync("README.md", "utf8");
+
+  it("uses the guide's canonical terms in durable context", () => {
+    expect(instructions).toContain("plan → act → evaluate");
+    expect(instructions).toMatch(/system of record and control plane/i);
+    expect(instructions).toMatch(/contributor model/i);
+    expect(instructions).toMatch(/MCP allow list/i);
+  });
+
+  it("uses the guide's canonical terms in the reference README", () => {
+    expect(readme).toContain("plan → act → evaluate");
+    expect(readme).toMatch(/system of record and control plane/i);
+    expect(readme).toMatch(/contributor model/i);
+    expect(
+      readme.match(/github\.com\/webmaxru\/ai-engineering-system/g),
+    ).toHaveLength(1);
+  });
+});
