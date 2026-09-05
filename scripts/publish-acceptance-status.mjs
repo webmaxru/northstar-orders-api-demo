@@ -35,4 +35,4 @@ if (targetUrl) {
   args.push("-f", `target_url=${targetUrl}`);
 }
 execFileSync("gh", args, { stdio: "inherit" });
-process.exit(ready ? 0 : 1);
+process.exit(0);

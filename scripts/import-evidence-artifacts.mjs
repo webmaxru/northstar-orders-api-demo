@@ -26,6 +26,23 @@ const IGNORED = [
   "repository-controls-report.json",
   "validation-authority-report.json",
 ];
+const MAINTENANCE_ALLOWED = [
+  "task-contract.json",
+  "candidate-plan.json",
+  "approved-plan.json",
+  "unit-junit.xml",
+  "acceptance-junit.xml",
+  "dependency-audit.json",
+  "governance-report.json",
+  "repository-controls-report.json",
+  "merge-report.json",
+  "scope-report.json",
+  "validation-authority-report.json",
+  "report.json",
+  "maintenance-manifest.json",
+  "checks/**",
+  "codeql/**",
+];
 
 function normalized(path) {
   return path.replace(/\\/g, "/");
@@ -47,6 +64,16 @@ function ignored(path) {
   });
 }
 
+function matchesList(path, patterns) {
+  return patterns.some((pattern) => {
+    if (pattern.endsWith("/**")) {
+      const prefix = pattern.slice(0, -3);
+      return path === prefix || path.startsWith(`${prefix}/`);
+    }
+    return path === pattern;
+  });
+}
+
 function filesUnder(root) {
   return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
     const path = resolve(root, entry.name);
@@ -57,7 +84,11 @@ function filesUnder(root) {
   });
 }
 
-export function importEvidenceArtifacts(source, destination = REPO_ROOT) {
+export function importEvidenceArtifacts(
+  source,
+  destination = REPO_ROOT,
+  options = {},
+) {
   const sourceRoot = resolve(source);
   const imported = [];
   const unexpected = [];
@@ -67,6 +98,13 @@ export function importEvidenceArtifacts(source, destination = REPO_ROOT) {
     const logicalPath = path.startsWith("artifacts/")
       ? path.slice("artifacts/".length)
       : path;
+    if (options.maintenance && matchesList(logicalPath, MAINTENANCE_ALLOWED)) {
+      const target = resolve(destination, "artifacts", logicalPath);
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, readFileSync(file));
+      imported.push(`artifacts/${logicalPath}`);
+      continue;
+    }
     if (ignored(logicalPath)) {
       continue;
     }
@@ -103,7 +141,9 @@ if (invokedDirectly) {
     process.exit(2);
   }
   try {
-    const imported = importEvidenceArtifacts(source);
+    const imported = importEvidenceArtifacts(source, REPO_ROOT, {
+      maintenance: process.argv.includes("--maintenance"),
+    });
     process.stdout.write(
       `imported ${imported.length} allowlisted evidence file(s)\n`,
     );

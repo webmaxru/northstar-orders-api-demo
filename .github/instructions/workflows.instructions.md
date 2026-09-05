@@ -25,3 +25,8 @@ applyTo: ".github/workflows/**"
 - Production jobs use the protected `production` environment and non-overlap
   concurrency. Repository files cannot prove that environment reviewers are
   configured; hosted governance evidence must.
+- A workflow, hook, agent, governance, script, dependency-manifest, or
+  validation-config change must not self-certify. The trusted publisher first
+  records `validation-authority: fail`; only a required reviewer on the
+  protected `system-maintenance` environment may authorize the immutable SHA
+  and replace that record.

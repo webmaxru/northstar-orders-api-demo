@@ -159,9 +159,13 @@ For a live task, create an issue from
 
 If the implementation pull request changes `.github/workflows/`,
 `.github/governance/`, `scripts/`, or validation configuration, the trusted
-`validation-authority` check intentionally prevents self-certification. That
-control-plane change needs an external bootstrap review and becomes trusted
-only after merge.
+`validation-authority` check intentionally prevents self-certification. The
+trusted publisher dispatches a separate workflow using the configured
+maintenance-dispatch GitHub App identity. That workflow waits for a required
+reviewer on the protected `system-maintenance` environment, revalidates the
+same immutable SHA with a separate environment-scoped trusted-publisher App
+token, and only
+then can replace the failed `trusted-acceptance` status.
 
 ## 5. Demonstrate Continuous AI
 
@@ -189,8 +193,11 @@ must enable and verify:
 5. direct-push, force-push, and branch-deletion restrictions;
 6. secret scanning and push protection;
 7. a protected `production` environment with accountable reviewers;
-8. at least 90 days of evidence retention;
-9. approved MCP Registry and named-tool allow lists.
+8. a protected `system-maintenance` environment with platform reviewers;
+9. the trusted-publisher and maintenance-dispatch App ID/login variables,
+   least-privilege App permissions, and environment-scoped private keys;
+10. at least 90 days of evidence retention;
+11. approved MCP Registry and named-tool allow lists.
 
 The current private repository plan returns HTTP 403 for ruleset and branch
 protection APIs. Until that external limitation changes, keep hosted integration

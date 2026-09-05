@@ -68,6 +68,13 @@ function main() {
         "utf8",
       );
     }
+    if (process.env.GITHUB_OUTPUT) {
+      appendFileSync(
+        process.env.GITHUB_OUTPUT,
+        `pull_request=${pull.number}\nbase_branch=${pull.base.ref}\n`,
+        "utf8",
+      );
+    }
     process.stdout.write(
       `pull_request=${pull.number} head=${pull.head.sha} base=${pull.base.ref}\n`,
     );

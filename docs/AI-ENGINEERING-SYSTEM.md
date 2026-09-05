@@ -156,6 +156,10 @@ prevent uncontracted or unapproved maintenance. Control-plane changes use the
 same high-risk issue, plan, approval, branch, and evidence path as other work.
 
 Because changed validation code cannot safely approve itself, those pull
-requests intentionally stop at local `ready_for_review` until an external
-bootstrap authority accepts them. See
+requests initially stop at `ready_for_review`. A dispatch-only GitHub App then
+starts a separate workflow. That workflow waits on the protected
+`system-maintenance` environment; after a platform reviewer approves, a
+separate environment-scoped trusted-publisher App revalidates the immutable SHA
+and can emit `trusted-acceptance`.
+See
 [`SYSTEM-MAINTENANCE.md`](SYSTEM-MAINTENANCE.md).

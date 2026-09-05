@@ -200,6 +200,30 @@
     "security": "@webmaxru",
     "retirementReview": "@webmaxru"
   },
+  "environmentReviewers": {
+    "production": [
+      {
+        "type": "User",
+        "name": "webmaxru"
+      }
+    ],
+    "systemMaintenance": [
+      {
+        "type": "User",
+        "name": "webmaxru"
+      }
+    ]
+  },
+  "trustedPublisherApp": {
+    "loginVariable": "TRUSTED_PUBLISHER_APP_LOGIN",
+    "appIdVariable": "TRUSTED_PUBLISHER_APP_ID",
+    "privateKeySecret": "TRUSTED_PUBLISHER_APP_PRIVATE_KEY"
+  },
+  "systemMaintenanceDispatcherApp": {
+    "loginVariable": "SYSTEM_MAINTENANCE_DISPATCH_APP_LOGIN",
+    "appIdVariable": "SYSTEM_MAINTENANCE_DISPATCH_APP_ID",
+    "privateKeySecret": "SYSTEM_MAINTENANCE_DISPATCH_APP_PRIVATE_KEY"
+  },
   "externalControls": {
     "requiredPullRequest": true,
     "requiredStatusChecks": true,
@@ -209,6 +233,7 @@
     "blockBranchDeletion": true,
     "secretScanning": true,
     "pushProtection": true,
-    "productionEnvironmentReviewers": true
+    "productionEnvironmentReviewers": true,
+    "systemMaintenanceEnvironmentReviewers": true
   }
 }

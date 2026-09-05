@@ -97,6 +97,7 @@ function main() {
   const report = {
     schema: "northstar/validation-authority-report/1",
     pullRequest: Number(pr),
+    headSha: before.headRefOid,
     ...result,
     generatedAt: new Date().toISOString(),
     note:
@@ -113,7 +114,9 @@ function main() {
   process.stdout.write(
     `${report.ok ? "pass" : "fail"}: ${report.note}\n${target}\n`,
   );
-  process.exit(report.ok ? 0 : 1);
+  // Exit 3 means the check ran successfully and found a control-plane change.
+  // Exit 1 remains reserved for operational or input failures.
+  process.exit(report.ok ? 0 : 3);
   } catch (error) {
     process.stderr.write(`${/** @type {Error} */ (error).message}\n`);
     process.exit(1);

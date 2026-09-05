@@ -154,6 +154,10 @@ human deliberately grants broader access.
 - Do not weaken assertions, checks, or evidence requirements.
 - Treat `.github/workflows/`, `.github/hooks/`, `.github/agents/`,
   `.github/governance/`, `infra/`, `security/`, and `migrations/` as high risk.
+- A pull request that changes its own validation authority cannot approve
+  itself. It must first receive a failed `validation-authority` record, then
+  pass the protected `system-maintenance` environment before the trusted
+  default-branch publisher may emit `trusted-acceptance`.
 
 ## Evaluate
 

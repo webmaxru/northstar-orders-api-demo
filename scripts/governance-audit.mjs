@@ -29,7 +29,7 @@ const REQUIRED_FILES = [
   ".github/workflows/governed-change.yml",
   ".github/workflows/plan-gate.yml",
   ".github/workflows/publish-evidence.yml",
-  ".github/workflows/publish-evidence.yml",
+  ".github/workflows/system-maintenance-approval.yml",
   ".github/workflows/governance-review.yml",
   ".github/workflows/production-gate.yml",
   ".github/workflows/daily-repository-status.md",
@@ -82,6 +82,89 @@ export function rulesetAppliesToDefaultBranch(ruleset, defaultBranch) {
 
 export function hasRulesetBypass(ruleset) {
   return (ruleset.bypass_actors ?? []).length > 0;
+}
+
+export function environmentReviewersMatch(rule, expected) {
+  if (!rule || rule.prevent_self_review !== true) return false;
+  const configured = (rule.reviewers ?? [])
+    .map(({ type, reviewer }) => ({
+      type,
+      name: reviewer?.login ?? reviewer?.slug ?? reviewer?.name ?? "",
+    }))
+    .sort((left, right) =>
+      `${left.type}:${left.name}`.localeCompare(`${right.type}:${right.name}`),
+    );
+  const required = [...expected].sort((left, right) =>
+    `${left.type}:${left.name}`.localeCompare(`${right.type}:${right.name}`),
+  );
+  return (
+    configured.length === required.length &&
+    configured.every(
+      (reviewer, index) =>
+        reviewer.type === required[index]?.type &&
+        reviewer.name === required[index]?.name,
+    )
+  );
+}
+
+export function strictStatusChecksEnabled(protection, rulesets) {
+  return (
+    protection.required_status_checks?.strict === true ||
+    rulesets.some((ruleset) =>
+      (ruleset.rules ?? []).some(
+        ({ type, parameters }) =>
+          type === "required_status_checks" &&
+          parameters?.strict_required_status_checks_policy === true,
+      ),
+    )
+  );
+}
+
+export function environmentAllowsOnlyDefaultBranch(
+  environment,
+  branchPolicies,
+  defaultBranch,
+) {
+  return (
+    environment.deployment_branch_policy?.protected_branches === false &&
+    environment.deployment_branch_policy?.custom_branch_policies === true &&
+    branchPolicies.length === 1 &&
+    branchPolicies[0]?.type === "branch" &&
+    branchPolicies[0]?.name === defaultBranch
+  );
+}
+
+export function exactStringSet(actual, expected) {
+  return (
+    JSON.stringify([...actual].sort()) ===
+    JSON.stringify([...expected].sort())
+  );
+}
+
+export function strictRequiredContexts(protection, rulesets) {
+  const contexts = new Set();
+  if (protection.required_status_checks?.strict === true) {
+    for (const context of protection.required_status_checks?.contexts ?? []) {
+      contexts.add(context);
+    }
+    for (const { context } of protection.required_status_checks?.checks ?? []) {
+      contexts.add(context);
+    }
+  }
+  for (const ruleset of rulesets) {
+    for (const { type, parameters } of ruleset.rules ?? []) {
+      if (
+        type !== "required_status_checks" ||
+        parameters?.strict_required_status_checks_policy !== true
+      ) {
+        continue;
+      }
+      for (const { context } of parameters.required_status_checks ?? []) {
+        contexts.add(context);
+      }
+    }
+  }
+  return contexts;
 }
 
 export function auditSourceTree() {
@@ -204,6 +287,9 @@ export function auditSourceTree() {
 
     if (existsSync(resolve(REPO_ROOT, ".github/workflows/publish-evidence.yml"))) {
       const publisher = text(".github/workflows/publish-evidence.yml");
+      const maintenance = text(
+        ".github/workflows/system-maintenance-approval.yml",
+      );
       checks.push(
         check(
           /workflow_run:/.test(publisher) &&
@@ -211,6 +297,38 @@ export function auditSourceTree() {
             !/ref:\s*\$\{\{\s*github\.event\.workflow_run\.head_sha/.test(publisher),
           "workflow:trusted-publisher",
           "Write-capable evidence publication executes default-branch code.",
+        ),
+        check(
+          /environment:\s*trusted-publisher/.test(publisher) &&
+            /TRUSTED_PUBLISHER_APP_ID/.test(publisher) &&
+            /TRUSTED_PUBLISHER_APP_PRIVATE_KEY/.test(publisher) &&
+            /SYSTEM_MAINTENANCE_DISPATCH_APP_ID/.test(publisher) &&
+            /SYSTEM_MAINTENANCE_DISPATCH_APP_PRIVATE_KEY/.test(publisher) &&
+            /gh workflow run system-maintenance-approval\.yml/.test(publisher) &&
+            /environment:\s*system-maintenance/.test(maintenance) &&
+            /SYSTEM_MAINTENANCE_DISPATCH_APP_LOGIN/.test(maintenance) &&
+            /TRUSTED_PUBLISHER_APP_PRIVATE_KEY/.test(maintenance) &&
+            /northstar-system-maintenance-evidence/.test(maintenance) &&
+            /--maintenance/.test(maintenance),
+          "workflow:system-maintenance-gate",
+          "Self-modifying changes are dispatched by a separate automation identity and use protected maintenance approval plus isolated evidence.",
+        ),
+        check(
+          /context=trusted-acceptance/.test(
+            text("scripts/publish-acceptance-status.mjs"),
+          ) &&
+            /actions\/create-github-app-token@/.test(publisher) &&
+            /steps\.publisher-token\.outputs\.token/.test(publisher) &&
+            /id:\s*publisher-token[\s\S]*?permission-actions:\s*read/.test(
+              publisher,
+            ) &&
+            /id:\s*dispatcher-token[\s\S]*?permission-actions:\s*write/.test(
+              publisher,
+            ) &&
+            /permission-administration:\s*read/.test(publisher) &&
+            /permission-statuses:\s*write/.test(publisher),
+          "workflow:trusted-acceptance-status",
+          "Hosted acceptance is exposed as a dedicated GitHub App commit status.",
         ),
       );
     }
@@ -280,7 +398,21 @@ function onlineControls() {
           encoding: "utf8",
         }),
       );
-    const rulesetSummaries = api("repos/{owner}/{repo}/rulesets");
+    const apiPaginated = (path, key) => {
+      const pages = JSON.parse(
+        execFileSync(
+          "gh",
+          ["api", "--paginate", "--slurp", path],
+          { cwd: REPO_ROOT, encoding: "utf8" },
+        ),
+      );
+      return pages.flatMap((page) =>
+        Array.isArray(page) ? page : (page?.[key] ?? []),
+      );
+    };
+    const rulesetSummaries = apiPaginated(
+      "repos/{owner}/{repo}/rulesets?per_page=100",
+    );
     const rulesets = rulesetSummaries.map(({ id }) =>
       api(`repos/{owner}/{repo}/rulesets/${id}`),
     );
@@ -290,6 +422,84 @@ function onlineControls() {
       `repos/{owner}/{repo}/branches/${encodeURIComponent(defaultBranch)}/protection`,
     );
     const production = api("repos/{owner}/{repo}/environments/production");
+    const maintenance = api(
+      "repos/{owner}/{repo}/environments/system-maintenance",
+    );
+    const trustedPublisher = api(
+      "repos/{owner}/{repo}/environments/trusted-publisher",
+    );
+    const environments = apiPaginated(
+      "repos/{owner}/{repo}/environments?per_page=100",
+      "environments",
+    );
+    const trustedPublisherBranches = apiPaginated(
+      "repos/{owner}/{repo}/environments/trusted-publisher/deployment-branch-policies?per_page=100",
+      "branch_policies",
+    );
+    const maintenanceBranches = apiPaginated(
+      "repos/{owner}/{repo}/environments/system-maintenance/deployment-branch-policies?per_page=100",
+      "branch_policies",
+    );
+    const publisherLogin = process.env.NORTHSTAR_TRUSTED_PUBLISHER_APP_LOGIN;
+    const publisherId = process.env.NORTHSTAR_TRUSTED_PUBLISHER_APP_ID;
+    const dispatcherLogin = process.env.NORTHSTAR_DISPATCH_APP_LOGIN;
+    const dispatcherId = process.env.NORTHSTAR_DISPATCH_APP_ID;
+    const appSlug = (login) => String(login ?? "").replace(/\[bot\]$/, "");
+    const publisherApp = api(
+      `apps/${encodeURIComponent(appSlug(publisherLogin))}`,
+    );
+    const dispatcherApp = api(
+      `apps/${encodeURIComponent(appSlug(dispatcherLogin))}`,
+    );
+    const repositorySecrets = apiPaginated(
+      "repos/{owner}/{repo}/actions/secrets?per_page=100",
+      "secrets",
+    );
+    const organizationSecrets =
+      repository.owner?.type === "Organization"
+        ? apiPaginated(
+            `orgs/${repository.owner.login}/actions/secrets?per_page=100`,
+            "secrets",
+          )
+        : [];
+    const environmentSecretNames = new Map(
+      environments.map(({ name }) => [
+        name,
+        new Set(
+          apiPaginated(
+            `repos/{owner}/{repo}/environments/${encodeURIComponent(name)}/secrets?per_page=100`,
+            "secrets",
+          ).map(({ name: secretName }) => secretName),
+        ),
+      ]),
+    );
+    const reviewerRule = (environment) =>
+      (environment.protection_rules ?? []).find(
+        ({ type }) => type === "required_reviewers",
+      );
+    const productionRule = reviewerRule(production);
+    const maintenanceRule = reviewerRule(maintenance);
+    const maintenanceReviewerNames = (maintenanceRule?.reviewers ?? []).map(
+      ({ reviewer }) =>
+        reviewer?.login ?? reviewer?.slug ?? reviewer?.name ?? "",
+    );
+    const repositorySecretNames = new Set(
+      repositorySecrets.map(({ name }) => name),
+    );
+    const organizationSecretNames = new Set(
+      organizationSecrets.map(({ name }) => name),
+    );
+    const trustedPublisherSecretNames = new Set(
+      environmentSecretNames.get("trusted-publisher") ?? [],
+    );
+    const maintenanceSecretNames = new Set(
+      environmentSecretNames.get("system-maintenance") ?? [],
+    );
+    const secretLocations = (secretName) =>
+      [...environmentSecretNames.entries()]
+        .filter(([, secrets]) => secrets.has(secretName))
+        .map(([name]) => name)
+        .sort();
     const applicableRulesets = rulesets.filter((ruleset) =>
       rulesetAppliesToDefaultBranch(ruleset, defaultBranch),
     );
@@ -314,7 +524,29 @@ function onlineControls() {
           ),
       ),
     ]);
+    const requiredCheckSources = [
+      ...(protection.required_status_checks?.checks ?? []).map(
+        ({ context, app_id }) => ({ context, integrationId: app_id }),
+      ),
+      ...applicableRulesets.flatMap((ruleset) =>
+        (ruleset.rules ?? [])
+          .filter(({ type }) => type === "required_status_checks")
+          .flatMap(
+            ({ parameters }) =>
+              parameters?.required_status_checks?.map(
+                ({ context, integration_id }) => ({
+                  context,
+                  integrationId: integration_id,
+                }),
+              ) ?? [],
+          ),
+      ),
+    ];
     const expectedContexts = GOVERNANCE_POLICY.requiredStatusChecks;
+    const strictContexts = strictRequiredContexts(
+      protection,
+      applicableRulesets,
+    );
     const checks = [
       check(
         applicableRulesets.length > 0,
@@ -333,9 +565,23 @@ function onlineControls() {
         "The default branch requires status checks.",
       ),
       check(
+        expectedContexts.every((context) => strictContexts.has(context)),
+        "hosted:strict-status-checks",
+        "Every required check must be covered by an up-to-date-with-base policy.",
+      ),
+      check(
         expectedContexts.every((context) => requiredContexts.has(context)),
         "hosted:required-check-names",
         "Every high-risk required check name is protected.",
+      ),
+      check(
+        requiredCheckSources.some(
+          ({ context, integrationId }) =>
+            context === "trusted-acceptance" &&
+            Number(integrationId) === Number(publisherId),
+        ),
+        "hosted:trusted-acceptance-source",
+        "The trusted-acceptance context is bound to the dedicated GitHub App integration.",
       ),
       check(
         protection.required_pull_request_reviews?.require_code_owner_reviews === true,
@@ -396,11 +642,91 @@ function onlineControls() {
         "GitHub push protection is enabled.",
       ),
       check(
-        (production.protection_rules ?? []).some(
-          ({ type }) => type === "required_reviewers",
-        ),
+        Boolean(productionRule) &&
+          environmentReviewersMatch(
+            productionRule,
+            GOVERNANCE_POLICY.environmentReviewers.production,
+          ) &&
+          production.can_admins_bypass === false,
         "hosted:production-reviewers",
-        "The production environment has required reviewers.",
+        "The production environment has named reviewers, prevents self-review, and blocks administrator bypass.",
+      ),
+      check(
+        Boolean(maintenanceRule) &&
+          environmentReviewersMatch(
+            maintenanceRule,
+            GOVERNANCE_POLICY.environmentReviewers.systemMaintenance,
+          ) &&
+          environmentAllowsOnlyDefaultBranch(
+            maintenance,
+            maintenanceBranches,
+            defaultBranch,
+          ) &&
+          maintenance.can_admins_bypass === false,
+        "hosted:system-maintenance-reviewers",
+        "The system-maintenance environment has named platform reviewers, prevents self-review, and blocks administrator bypass.",
+      ),
+      check(
+        Number(publisherApp.id) === Number(publisherId) &&
+          publisherLogin === `${publisherApp.slug}[bot]` &&
+          !maintenanceReviewerNames.includes(publisherLogin),
+        "hosted:trusted-publisher-identity",
+        "The trusted status source is the configured GitHub App and is distinct from every maintenance reviewer.",
+      ),
+      check(
+        Number(dispatcherApp.id) === Number(dispatcherId) &&
+          dispatcherLogin === `${dispatcherApp.slug}[bot]` &&
+          Number(dispatcherApp.id) !== Number(publisherApp.id) &&
+          !maintenanceReviewerNames.includes(dispatcherLogin),
+        "hosted:maintenance-dispatcher-identity",
+        "A distinct GitHub App identity dispatches maintenance and is not an environment reviewer.",
+      ),
+      check(
+        environmentAllowsOnlyDefaultBranch(
+          trustedPublisher,
+          trustedPublisherBranches,
+          defaultBranch,
+        ) &&
+          trustedPublisher.can_admins_bypass === false,
+        "hosted:trusted-publisher-environment",
+        "The trusted-publisher environment allows only the exact default branch and blocks administrator bypass.",
+      ),
+      check(
+        trustedPublisherSecretNames.has(
+          GOVERNANCE_POLICY.trustedPublisherApp.privateKeySecret,
+        ) &&
+          maintenanceSecretNames.has(
+            GOVERNANCE_POLICY.trustedPublisherApp.privateKeySecret,
+          ) &&
+          trustedPublisherSecretNames.has(
+            GOVERNANCE_POLICY.systemMaintenanceDispatcherApp.privateKeySecret,
+          ) &&
+          !repositorySecretNames.has(
+            GOVERNANCE_POLICY.trustedPublisherApp.privateKeySecret,
+          ) &&
+          !repositorySecretNames.has(
+            GOVERNANCE_POLICY.systemMaintenanceDispatcherApp.privateKeySecret,
+          ) &&
+          !organizationSecretNames.has(
+            GOVERNANCE_POLICY.trustedPublisherApp.privateKeySecret,
+          ) &&
+          !organizationSecretNames.has(
+            GOVERNANCE_POLICY.systemMaintenanceDispatcherApp.privateKeySecret,
+          ) &&
+          exactStringSet(
+            secretLocations(
+              GOVERNANCE_POLICY.trustedPublisherApp.privateKeySecret,
+            ),
+            ["system-maintenance", "trusted-publisher"],
+          ) &&
+          exactStringSet(
+            secretLocations(
+              GOVERNANCE_POLICY.systemMaintenanceDispatcherApp.privateKeySecret,
+            ),
+            ["trusted-publisher"],
+          ),
+        "hosted:environment-scoped-app-keys",
+        "Publisher and dispatcher App keys exist only in their exact protected-environment allowlists, not repository, organization, or other environment scopes.",
       ),
     ];
     return {

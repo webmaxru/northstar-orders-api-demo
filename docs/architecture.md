@@ -132,6 +132,17 @@ The trusted default-branch publisher writes the commit status
 `trusted-acceptance`. Branch protection requires that stable context, so a PR
 comment or a PR-controlled workflow cannot substitute for the final verdict.
 
+When `validation-authority` detects that a PR changes its own control plane,
+the first trusted verdict remains failed. A second trusted job is gated by the
+protected `system-maintenance` environment. A dispatch-only GitHub App starts
+that workflow, while a separate trusted-publisher App publishes
+`trusted-acceptance`. Their keys are available only in protected,
+default-branch environments; neither App is a human environment reviewer.
+After approval, the publisher App's Administration-read permission verifies
+current repository controls; the job rebinds the same PR and SHA, imports only
+allowlisted evidence, replaces the validation-authority record, and may emit a
+successful `trusted-acceptance`.
+
 ## Continuous AI
 
 `.github/workflows/daily-repository-status.md` is a GitHub Agentic Workflow.

@@ -165,7 +165,11 @@ function validateCheck(record, expected) {
   }
   if (
     expected.runId &&
-    !["Governed Change", "Publish Evidence"].includes(
+    ![
+      "Governed Change",
+      "Publish Evidence",
+      "System Maintenance Approval",
+    ].includes(
       record?.provenance?.workflow,
     )
   ) {

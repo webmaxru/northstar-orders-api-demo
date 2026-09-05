@@ -50,4 +50,25 @@ describe("isolated evidence import", () => {
       /unexpected paths.*scripts\/publish-evidence\.mjs/,
     );
   });
+
+  it("restores trusted maintenance evidence without allowing source files", () => {
+    const source = temp();
+    const destination = temp();
+    mkdirSync(join(source, "artifacts", "checks"), { recursive: true });
+    writeFileSync(
+      join(source, "artifacts", "checks", "quality.json"),
+      "{}",
+    );
+    writeFileSync(
+      join(source, "artifacts", "approved-plan.json"),
+      "{}",
+    );
+
+    expect(
+      importEvidenceArtifacts(source, destination, { maintenance: true }),
+    ).toEqual([
+      "artifacts/approved-plan.json",
+      "artifacts/checks/quality.json",
+    ]);
+  });
 });
