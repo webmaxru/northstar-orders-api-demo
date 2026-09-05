@@ -19,14 +19,21 @@ const DURABLE_CONTEXT = [
 
 const WORK_ITEM_PATTERN = /\bWI-\d+\b/;
 
-function alternateRepositoryReference(identity: string) {
+function isolatedRepositoryIdentity(readme: string) {
+  const repositoryLinks = [
+    ...readme.matchAll(
+      /\[[^\]]+\]\((https:\/\/github\.com\/[^)\s]+)\)/gi,
+    ),
+  ];
+  if (repositoryLinks.length !== 1) return null;
+
+  const [canonicalLink, repositoryUrl] = repositoryLinks[0] ?? [];
+  if (!canonicalLink || !repositoryUrl) return null;
+
+  const identity = new URL(repositoryUrl).pathname.replace(/^\/|\/$/g, "");
   const escaped = identity.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(
-    `(?:git@github\\.com:|ssh://git@github\\.com/|git://github\\.com/|` +
-      `git\\+https://github\\.com/|http://github\\.com/|github:)` +
-      `${escaped}(?:\\.git)?`,
-    "i",
-  );
+  const remainingReadme = readme.replace(canonicalLink, "");
+  return new RegExp(escaped, "i").test(remainingReadme) ? null : identity;
 }
 
 describe("durable context is task-agnostic", () => {
@@ -110,19 +117,11 @@ describe("canonical guide terminology", () => {
     expect(readme).toMatch(/system of record and control plane/i);
     expect(readme).toMatch(/contributor model/i);
 
-    const repositoryLinks =
-      readme.match(/https:\/\/github\.com\/[^)\s]+/gi) ?? [];
-    expect(repositoryLinks).toHaveLength(1);
-
-    const [repositoryLink] = repositoryLinks;
-    if (!repositoryLink) {
-      throw new Error("README.md has no external GitHub repository link");
+    const repositoryIdentity = isolatedRepositoryIdentity(readme);
+    expect(repositoryIdentity).not.toBeNull();
+    if (!repositoryIdentity) {
+      throw new Error("README.md does not have one isolated repository link");
     }
-    const repositoryIdentity = new URL(repositoryLink).pathname.replace(
-      /^\/|\/$/g,
-      "",
-    );
-    expect(readme).not.toMatch(alternateRepositoryReference(repositoryIdentity));
 
     const outsideReadme = spawnSync(
       "git",
@@ -133,18 +132,21 @@ describe("canonical guide terminology", () => {
     expect(outsideReadme.stdout.trim()).toBe("");
   });
 
-  it("rejects alternate repository transports beside the canonical link", () => {
-    const pattern = alternateRepositoryReference("owner/repository");
+  it("rejects every extra repository reference beside the canonical link", () => {
+    const canonical = "[framework](https://github.com/owner/repository)";
+    expect(isolatedRepositoryIdentity(canonical)).toBe("owner/repository");
+
     for (const reference of [
       "git@github.com:owner/repository.git",
       "ssh://git@github.com/owner/repository",
+      "git+ssh://git@github.com/owner/repository.git",
       "git://github.com/owner/repository",
       "git+https://github.com/owner/repository",
       "http://github.com/owner/repository",
       "github:owner/repository",
+      "https://github.com/owner/repository.git",
     ]) {
-      expect(reference).toMatch(pattern);
+      expect(isolatedRepositoryIdentity(`${canonical}\n${reference}`)).toBeNull();
     }
-    expect("https://github.com/owner/repository").not.toMatch(pattern);
   });
 });
