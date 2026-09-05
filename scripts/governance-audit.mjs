@@ -236,9 +236,32 @@ export function governedScopeUsesPullRequestContext(workflow) {
     .filter(Boolean);
   return (
     exactStringSet(permissions, ["contents: read", "pull-requests: read"]) &&
+    /env:\r?\n {10}GH_TOKEN: \$\{\{ github\.token \}\}/m.test(scopeJob) &&
     /npm run scope:check --\s+--pr "\$PR_NUMBER"\s+--expected-head "\$NORTHSTAR_HEAD_SHA"/m.test(
       scopeJob,
     )
+  );
+}
+
+export function governedMergedArtifactsHaveUniquePaths(workflow) {
+  const text = String(workflow);
+  const qualityJob = /^ {2}quality:\r?\n([\s\S]*?)(?=^ {2}acceptance:\r?$)/m.exec(
+    text,
+  )?.[1];
+  const governanceJob =
+    /^ {2}governance-policy:\r?\n([\s\S]*?)(?=^ {2}repository-controls:\r?$)/m.exec(
+      text,
+    )?.[1];
+  return (
+    Boolean(qualityJob) &&
+    Boolean(governanceJob) &&
+    qualityJob.includes(
+      "npm run governance:check -- --out artifacts/quality-governance-report.json",
+    ) &&
+    qualityJob.includes("artifacts/quality-governance-report.json") &&
+    !qualityJob.includes("artifacts/governance-report.json") &&
+    governanceJob.includes("artifacts/governance-report.json") &&
+    !governanceJob.includes("artifacts/quality-governance-report.json")
   );
 }
 
@@ -345,6 +368,11 @@ export function auditSourceTree() {
         governedScopeUsesPullRequestContext(workflow),
         "workflow:scope-pull-request-context",
         "Hosted scope validation uses immutable pull-request metadata instead of a detached checkout branch.",
+      ),
+      check(
+        governedMergedArtifactsHaveUniquePaths(workflow),
+        "workflow:merged-artifact-paths",
+        "Independently generated reports use unique paths before artifact fan-in.",
       ),
     );
     for (const job of [

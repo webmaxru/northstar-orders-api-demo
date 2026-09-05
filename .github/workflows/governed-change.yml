@@ -139,6 +139,8 @@ jobs:
           path: artifacts
       - id: scope
         continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: >-
           npm run scope:check --
           --pr "$PR_NUMBER"
@@ -177,7 +179,7 @@ jobs:
         continue-on-error: true
         run: |
           npm run instructions:check
-          npm run governance:check
+          npm run governance:check -- --out artifacts/quality-governance-report.json
           npm run lint
           npm run typecheck
           npm run build
@@ -195,7 +197,7 @@ jobs:
           name: northstar-check-quality
           path: |
             artifacts/unit-junit.xml
-            artifacts/governance-report.json
+            artifacts/quality-governance-report.json
             artifacts/checks/quality.json
           if-no-files-found: warn
           retention-days: 90

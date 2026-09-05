@@ -48,6 +48,9 @@ export declare function governedEvidenceTaskLookupPermissionsAreSafe(
 export declare function governedScopeUsesPullRequestContext(
   workflow: string,
 ): boolean;
+export declare function governedMergedArtifactsHaveUniquePaths(
+  workflow: string,
+): boolean;
 export declare function environmentAllowsOnlyDefaultBranch(
   environment: Record<string, unknown>,
   branchPolicies: Array<Record<string, unknown>>,
