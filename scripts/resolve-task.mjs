@@ -21,16 +21,17 @@
  */
 
 import { Buffer } from "node:buffer";
-import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { cacheContract, parseIssueBody } from "./task-contract.mjs";
-import { fetchPlan } from "./publish-plan.mjs";
+import { cacheContract, contractFromIssue } from "./task-contract.mjs";
+import { fetchApprovedPlan } from "./publish-plan.mjs";
+import { planDigest } from "./plan-contract.mjs";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 
 export const PLAN_CACHE = "artifacts/task-plan.md";
+export const PLAN_CONTRACT_CACHE = "artifacts/plan.json";
 
 /**
  * Does this prompt start work that a task contract must govern?
@@ -80,13 +81,6 @@ export function decide(prompt) {
   return { action: "resolve", issue };
 }
 
-function gh(args) {
-  return execFileSync("gh", args, {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-}
-
 function writeArtifact(relativePath, body) {
   const target = resolve(REPO_ROOT, relativePath);
   mkdirSync(dirname(target), { recursive: true });
@@ -95,34 +89,36 @@ function writeArtifact(relativePath, body) {
 }
 
 /** Read the issue, cache the contract, and cache the approved plan beside it. */
-export function resolveTask(issue, { read = gh } = {}) {
-  const raw = read([
-    "issue",
-    "view",
-    String(issue),
-    "--json",
-    "number,title,body,url",
-  ]);
-  const parsed = JSON.parse(raw);
-  const contract = parseIssueBody(parsed.body, {
-    number: parsed.number,
-    url: parsed.url,
-    source: `issue #${parsed.number}`,
-  });
+export function resolveTask(issue) {
+  const contract = contractFromIssue(issue);
   cacheContract(contract);
 
   // The plan lives in the plan-first pull request, not on the issue: the issue
   // is the contract, the PR is the proposal about it.
-  let plan;
+  let approved;
   try {
-    plan = fetchPlan(contract.id);
+    approved = fetchApprovedPlan(contract);
   } catch {
-    plan = null;
+    approved = null;
   }
+  const plan = approved?.body ?? null;
   if (plan) {
     writeArtifact(PLAN_CACHE, `${plan}\n`);
+    writeArtifact(
+      PLAN_CONTRACT_CACHE,
+      `${JSON.stringify(
+        {
+          ...approved.plan,
+          planDigest: planDigest(approved.plan),
+          approval: approved.approval,
+        },
+        null,
+        2,
+      )}\n`,
+    );
   } else {
     rmSync(resolve(REPO_ROOT, PLAN_CACHE), { force: true });
+    rmSync(resolve(REPO_ROOT, PLAN_CONTRACT_CACHE), { force: true });
   }
   return { contract, plan };
 }
@@ -131,8 +127,8 @@ export function renderResult({ contract, plan, issue }) {
   return (
     `Task contract for issue #${issue} (${contract.id}) cached at artifacts/task-contract.json. ` +
     (plan
-      ? "The plan from its plan-first pull request is cached at artifacts/task-plan.md."
-      : "No plan pull request is open for this task yet - plan before implementing.")
+      ? "The human-approved plan from its plan-first pull request is cached at artifacts/task-plan.md."
+      : "No human-approved plan matches this task yet - plan, publish, and approve before implementing.")
   );
 }
 

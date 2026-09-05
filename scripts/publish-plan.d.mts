@@ -6,6 +6,10 @@ export interface PlanPr {
   number: number;
   body: string;
   url: string;
+  author: { login: string };
+  headRefOid: string;
+  baseRefOid: string;
+  comments: Array<{ body: string; author?: { login?: string } }>;
 }
 
 export interface PublishDeps {
@@ -16,6 +20,7 @@ export interface PublishDeps {
 }
 
 export declare function planBranch(taskId: string): string;
+export declare function implementationBranch(taskId: string): string;
 export declare function resolveBase(
   vcs: (args: string[]) => string,
   override?: string,
@@ -30,3 +35,12 @@ export declare function publish(
   deps?: PublishDeps,
 ): { updated: boolean; number: number; url: string };
 export declare function fetchPlan(taskId: string, deps?: PublishDeps): string | null;
+export declare function fetchApprovedPlan(
+  contract: TaskContract,
+  deps?: PublishDeps,
+): {
+  body: string;
+  plan: import("./plan-contract.d.mts").PlanContract;
+  approval: import("./plan-approval.d.mts").ApprovalRecord;
+  pr: PlanPr;
+} | null;

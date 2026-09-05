@@ -8,11 +8,18 @@ import {
 import { contractFromFile, isPathPattern } from "../../scripts/task-contract.mjs";
 
 // The contract comes from the issue. Tests parse the seed file that creates it.
-const contract = contractFromFile("docs/demo-setup/WI-1842.issue-seed.md");
-const context = { scope: contract.inputs.scope, taskId: contract.id };
+const contract = contractFromFile("tests/fixtures/WI-1842.issue.md");
+const context = {
+  scope: contract.inputs.scope,
+  planScope: contract.inputs.scope,
+  taskId: contract.id,
+  trustedContract: true,
+  approvedPlan: true,
+  branchAuthorized: true,
+};
 
 /**
- * The fixture in docs/fixtures/untrusted-issue-comment.md asks an agent to do
+ * The fixture in tests/fixtures/untrusted-issue-comment.md asks an agent to do
  * four things. These tests assume the model was fully persuaded and issued the
  * tool calls anyway. The point is that the decision does not depend on that.
  */
@@ -63,19 +70,24 @@ describe("capability boundary under hostile repository content", () => {
 });
 
 describe("scope comes from the task contract, not from this file", () => {
-  it("falls back to the repository default when no task is in scope", () => {
-    expect(evaluateToolCall({ toolName: "edit", toolArgs: { path: "src/app.ts" } })).toMatchObject({
-      permissionDecision: "allow",
-    });
-    // Outside the default scope with no contract active: there is no contract
-    // to violate, so this asks. See the ungoverned-session tests below.
+  it("fails closed when no task is in scope", () => {
+    expect(
+      evaluateToolCall({ toolName: "edit", toolArgs: { path: "src/app.ts" } }),
+    ).toMatchObject({ permissionDecision: "deny" });
     expect(
       evaluateToolCall({ toolName: "edit", toolArgs: { path: "docs/architecture.md" } }),
-    ).toMatchObject({ permissionDecision: "ask" });
+    ).toMatchObject({ permissionDecision: "deny" });
   });
 
   it("honors a narrower scope supplied by a task", () => {
-    const narrow = { scope: { allowed: ["src/services/**"] }, taskId: "WI-9001" };
+    const narrow = {
+      scope: { allowed: ["src/services/**"] },
+      planScope: { allowed: ["src/services/**"] },
+      taskId: "WI-9001",
+      trustedContract: true,
+      approvedPlan: true,
+      branchAuthorized: true,
+    };
 
     expect(
       evaluateToolCall(
@@ -261,6 +273,18 @@ describe("capability boundary during normal work", () => {
         context,
       ),
     ).toMatchObject({ permissionDecision: "allow" });
+    expect(
+      evaluateToolCall(
+        {
+          toolName: "bash",
+          toolArgs: {
+            command:
+              "npm run contract:fetch -- --file tests/fixtures/WI-1842.issue.md",
+          },
+        },
+        context,
+      ),
+    ).toMatchObject({ permissionDecision: "deny" });
   });
 
   it("allows read and search", () => {
@@ -279,6 +303,69 @@ describe("capability boundary during normal work", () => {
     expect(
       evaluateToolCall({ toolName: "bash", toolArgs: { command: "npm install redis" } }, context),
     ).toMatchObject({ permissionDecision: "deny" });
+  });
+
+  it("denies command chaining and output-path smuggling", () => {
+    expect(
+      evaluateToolCall(
+        {
+          toolName: "bash",
+          toolArgs: {
+            command:
+              'git status && node -e "require(\'node:fs\').writeFileSync(\'.github/workflows/pwn.yml\',\'x\')"',
+          },
+        },
+        context,
+      ),
+    ).toMatchObject({ permissionDecision: "deny" });
+    expect(
+      evaluateToolCall(
+        {
+          toolName: "bash",
+          toolArgs: {
+            command:
+              "npm run evidence -- --out .github/workflows/pwn.yml",
+          },
+        },
+        context,
+      ),
+    ).toMatchObject({ permissionDecision: "deny" });
+  });
+
+  it("requires trusted issue authority and an approved plan before writes", () => {
+    expect(
+      evaluateToolCall(
+        { toolName: "edit", toolArgs: { path: "src/app.ts" } },
+        { ...context, trustedContract: false },
+      ),
+    ).toMatchObject({ permissionDecision: "deny" });
+    expect(
+      evaluateToolCall(
+        { toolName: "edit", toolArgs: { path: "src/app.ts" } },
+        { ...context, approvedPlan: false },
+      ),
+    ).toMatchObject({ permissionDecision: "deny" });
+    expect(
+      evaluateToolCall(
+        { toolName: "edit", toolArgs: { path: "src/app.ts" } },
+        { ...context, branchAuthorized: false },
+      ),
+    ).toMatchObject({ permissionDecision: "deny" });
+  });
+
+  it("enforces the approved plan scope inside the broader task scope", () => {
+    expect(
+      evaluateToolCall(
+        { toolName: "edit", toolArgs: { path: "tests/unit/new.test.ts" } },
+        {
+          ...context,
+          planScope: { allowed: ["src/**"], prohibited: [] },
+        },
+      ),
+    ).toMatchObject({
+      permissionDecision: "deny",
+      permissionDecisionReason: expect.stringMatching(/approved plan scope/),
+    });
   });
 
   it("asks about unknown tools instead of denying them", () => {
@@ -329,22 +416,21 @@ describe("capability is classified from the tool name, not an allowlist", () => 
   });
 });
 describe("an ungoverned session is not judged against someone else's task", () => {
-  // No taskId means no contract was resolved for this session. There is no
-  // contract to violate, so out-of-scope work asks instead of being denied.
-  it("asks rather than denies an out-of-scope edit", () => {
+  // No taskId means no precise inputs, outputs, or success criteria exist.
+  it("denies an edit until a task contract is active", () => {
     const decision = evaluateToolCall({
       tool_name: "editFiles",
       tool_input: { files: ["README.md"] },
     });
 
-    expect(decision.permissionDecision).toBe("ask");
-    expect(decision.permissionDecisionReason).toMatch(/no task contract is active/);
+    expect(decision.permissionDecision).toBe("deny");
+    expect(decision.permissionDecisionReason).toMatch(/task contract is active/);
   });
 
-  it("asks rather than denies a command outside the allowlist", () => {
+  it("denies a command outside the allowlist", () => {
     expect(
       evaluateToolCall({ tool_name: "runInTerminal", tool_input: { command: "npm run build" } }),
-    ).toMatchObject({ permissionDecision: "ask" });
+    ).toMatchObject({ permissionDecision: "deny" });
   });
 
   it("still denies genuinely dangerous commands", () => {
@@ -361,12 +447,32 @@ describe("an ungoverned session is not judged against someone else's task", () =
       evaluateToolCall({ tool_name: "editFiles", tool_input: { files: ["README.md"] } }, context),
     ).toMatchObject({ permissionDecision: "deny" });
   });
+
+  it("allows only read-only bootstrap commands before a contract resolves", () => {
+    expect(
+      evaluateToolCall({
+        tool_name: "runInTerminal",
+        tool_input: { command: "npm run contract:fetch -- --issue 4" },
+      }),
+    ).toMatchObject({ permissionDecision: "allow" });
+    expect(
+      evaluateToolCall({
+        tool_name: "runInTerminal",
+        tool_input: { command: "git status --short" },
+      }),
+    ).toMatchObject({ permissionDecision: "allow" });
+  });
 });
 describe("environment preparation asks instead of blocking the evidence bundle", () => {
   // AGENTS.md requires acceptance evidence; the acceptance suite requires
   // PostgreSQL. Denying the only command that provides it would make the
   // contract demand evidence the boundary forbids producing.
-  it.each(["npm run db:up", "npm run db:down", "docker compose up -d postgres"])(
+  it.each([
+    "npm ci",
+    "npm run db:up",
+    "npm run db:down",
+    "docker compose up -d postgres",
+  ])(
     "asks about %s",
     (command) => {
       const decision = evaluateToolCall(
@@ -391,7 +497,10 @@ describe("environment preparation asks instead of blocking the evidence bundle",
 
   it("still denies an unlisted, non-environment command", () => {
     expect(
-      evaluateToolCall({ tool_name: "runInTerminal", tool_input: { command: "npm run build" } }, context),
+      evaluateToolCall(
+        { tool_name: "runInTerminal", tool_input: { command: "npm run publish" } },
+        context,
+      ),
     ).toMatchObject({ permissionDecision: "deny" });
   });
 });
@@ -401,9 +510,16 @@ describe("prohibited scope beats allowed scope", () => {
   // ignored. Prohibited now takes precedence.
   const scoped = {
     taskId: "WI-1842",
+    trustedContract: true,
+    approvedPlan: true,
+    branchAuthorized: true,
     scope: {
       allowed: ["src/**", "tests/**"],
       prohibited: ["src/api/**", "**/*.deploy.yml", "public API response fields"],
+    },
+    planScope: {
+      allowed: ["src/**", "tests/**"],
+      prohibited: ["src/api/**", "**/*.deploy.yml"],
     },
   };
 
@@ -447,7 +563,14 @@ describe("prohibited scope beats allowed scope", () => {
   it("does not mention prose prohibitions when there are none", () => {
     const decision = evaluateToolCall(
       { tool_name: "editFiles", tool_input: { files: ["src/app.ts"] } },
-      { taskId: "WI-9002", scope: { allowed: ["src/**"], prohibited: ["src/api/**"] } },
+      {
+        taskId: "WI-9002",
+        trustedContract: true,
+        approvedPlan: true,
+        branchAuthorized: true,
+        scope: { allowed: ["src/**"], prohibited: ["src/api/**"] },
+        planScope: { allowed: ["src/**"], prohibited: ["src/api/**"] },
+      },
     );
     expect(decision.permissionDecisionReason).not.toMatch(/prose prohibitions/);
   });

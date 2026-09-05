@@ -1,56 +1,57 @@
 # Recovery policy
 
-Retrying is not recovery. A retry repeats the same request and hopes the world
-changed. Recovery identifies which layer was wrong and changes that layer.
+Retrying is not recovery. Recovery identifies which layer failed, changes that
+layer, and evaluates again against the same task contract.
 
-This policy is executable: `scripts/repair-budget.mjs` implements it and
+`scripts/repair-budget.mjs` implements the policy and
 `tests/unit/repair-budget.test.ts` proves it.
 
 ## Failure signature
 
-An attempt log entry is `{ "check": "...", "message": "..." }`. Before anything
-is compared, the message is normalized: run ids, SHAs, durations, numbers,
-paths, and addresses are replaced with placeholders.
+An attempt is `{ "check": "...", "message": "..." }`. Before comparison, the
+message is normalized so run IDs, SHAs, durations, numbers, paths, and addresses
+do not make the same failure look new.
 
-This matters. Without normalization every attempt looks like a new failure,
-because the timestamp moved, and an agent will keep spending attempts on what is
-actually one unchanged problem.
+## Failure classification
 
-## Which layer changes
+| Signal | Classification | Response |
+| --- | --- | --- |
+| Misunderstood requirement, wrong logic, failed assertion | reasoning error | Revise the plan or implementation; never weaken the assertion |
+| Bad command, workflow, permission, or execution setup | tool misuse | Correct the tool or configuration |
+| Stale PR, missing decision, missing source, inconsistent memory | context issue | Refresh the issue, PR, base, and authoritative sources |
+| Merge conflict, semantic conflict, duplicate or incompatible work | conflict | Reconcile against the PR state anchor |
+| Permission, policy, 401, 403 | policy failure | Escalate immediately; authority is not a prompting problem |
+| CodeQL, secret, credential, vulnerability, injection | security failure | Investigate and escalate; never retry the signal away |
+| Connection timeout or missing service | transient environment failure | Repair the environment, then retry once |
+| Anything unclassified | unknown | Escalate before spending another attempt |
 
-| Signal in the failure                   | Layer       | Action   | What actually changes                                               |
-| --------------------------------------- | ----------- | -------- | ------------------------------------------------------------------- |
-| permission, forbidden, denied, 401, 403 | policy      | escalate | authority, not the prompt                                           |
-| ECONNREFUSED, ETIMEDOUT, ENOTFOUND      | environment | repair   | the bootstrap, so the dependency is present before reasoning starts |
-| cannot find module, type not assignable | context     | repair   | retrieve the missing source of truth                                |
-| assertion mismatch                      | reasoning   | repair   | the plan, never the assertion                                       |
-| anything else                           | unknown     | escalate | classify before spending another attempt                            |
+## Budget and stop conditions
 
-## Stop conditions
+Automated repair stops when any condition is true:
 
-The loop stops and a human decides when any of these is true:
-
-- the same check fails twice with the same signature,
-- the failure is a policy failure, on the first occurrence,
-- the failure cannot be classified,
+- the same required check fails twice with the same normalized signature;
+- a policy or security failure occurs;
+- the failure cannot be classified;
 - three attempts have been spent.
 
-A permission error is never a prompting problem. Do not fix a permission
-problem with a better prompt.
+The escalation report must state what failed, what was attempted, the evidence
+that exists, and the available options or recommended next step.
+
+## Rollback
+
+- Keep unsafe work isolated on a branch.
+- Prefer small commits and pull requests that are easy to revert.
+- Close or discard an unmerged pull request when risk increases.
+- Revert merged commits through the normal reviewed workflow.
+- Database or production rollback requires an explicit owner and recovery
+  validation; never improvise destructive schema commands.
 
 ## Try it
 
-```bash
-node scripts/repair-budget.mjs docs/fixtures/attempts.sample.json
+```powershell
+node scripts/repair-budget.mjs tests/fixtures/attempts.sample.json
 ```
 
-The sample holds two attempts that differ only in path, duration, and run id.
-They are still recognized as one failure, so the run escalates instead of
-spending a third attempt:
-
-```
-"decision": "escalate",
-"reason": "the same acceptance failure signature occurred 2 times; another attempt is not recovery"
-```
-
-Exit code is `1` on escalate, so a workflow can gate on it.
+The sample contains two failures that differ only in path, duration, and run
+ID. They normalize to one signature and the system escalates instead of
+spending a third attempt.

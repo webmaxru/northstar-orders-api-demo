@@ -1,58 +1,106 @@
 # Northstar Orders API
 
-> **Synthetic demo repository.** Northstar Commerce, its incidents, metrics, and identifiers are fictional.
+> **Synthetic reference implementation.** Northstar Commerce, its incidents,
+> metrics, and identifiers are fictional.
 
-A small TypeScript/Fastify API for demonstrating governed GitHub Copilot workflows: task contracts, plan-first implementation, capability boundaries, evidence bundles, deterministic checks, and cost-aware sessions.
+This repository implements the AI engineering system described in
+[`docs/Developing-in-Agentic-AI-Systems-Learning-Paths.md`](docs/Developing-in-Agentic-AI-Systems-Learning-Paths.md).
+The sample workload is a TypeScript/Fastify order API whose idempotency behavior
+must remain correct across multiple stateless service instances.
+
+The system follows **plan -> act -> evaluate** and the responsibility boundary
+**agents propose; humans and policy accept**.
+
+## What is implemented
+
+- GitHub issues as task contracts with inputs, outputs, success criteria,
+  validation expectations, rollout expectations, and stop conditions.
+- A read-only planner, scoped implementer, dependency agent, security reviewer,
+  and read-only risk reviewer.
+- A machine-readable `northstar/plan/1` contract with deterministic
+  low/medium/high/critical risk routing.
+- Human approval bound to the task digest, plan digest, base SHA, and plan-only
+  commit before high-risk implementation.
+- Native Copilot lifecycle hooks for context resolution, pre-tool enforcement,
+  payload-free audit records, and stop-time evidence checks.
+- A fan-out/fan-in GitHub Actions evaluation workflow covering plan, scope,
+  quality, build, PostgreSQL acceptance, dependencies, secrets, CodeQL, merge
+  compatibility, governance, human review, and final evidence.
+- A strict GitHub Agentic Workflow using read-only tools and staged safe
+  outputs for a Daily Repository Status Report.
+- Bounded repair, rollback, escalation, governance cadence, and lifecycle
+  ownership.
 
 ## Quick start
 
-```bash
+```powershell
 npm ci
+npm run db:up
 npm run validate
+npm run test:acceptance
+npm audit --audit-level=high
+npm run security:secrets
+npm run agentic:validate
+```
+
+Run the complete local reference scenario:
+
+```powershell
+npm run demo:system
+```
+
+The final local decision is `ready_for_review`. Only real GitHub workflow runs,
+current human reviews, repository rules, and environment approvals can produce
+`ready_for_acceptance`.
+
+## Reference map
+
+| Concern | Implementation |
+| --- | --- |
+| Task contract | `.github/ISSUE_TEMPLATE/agent-task.yml`, `scripts/task-contract.mjs` |
+| Plan and risk | `scripts/plan-contract.mjs`, `scripts/risk-policy.mjs` |
+| Human plan approval | `scripts/plan-approval.mjs`, `.github/workflows/plan-gate.yml` |
+| Role boundaries | `.github/agents/` |
+| Tool authorization | `.github/hooks/agent-boundary.json`, `scripts/authorize-tool.mjs` |
+| Audit trail | `scripts/audit-hook.mjs`, GitHub workflow logs and artifacts |
+| Evaluation | `.github/workflows/governed-change.yml` |
+| Evidence | `scripts/evidence-record.mjs`, `scripts/build-execution-report.mjs` |
+| Recovery | `scripts/repair-budget.mjs`, `docs/RECOVERY-POLICY.md` |
+| Governance drift | `.github/governance/policy.json`, `scripts/governance-audit.mjs` |
+| Continuous AI | `.github/workflows/daily-repository-status.md` and generated lock file |
+| End-to-end walkthrough | `docs/END-TO-END-DEMO.md` |
+
+## Important boundary
+
+Repository files can define and test expected governance, but they cannot turn
+on GitHub rulesets, required code-owner reviews, secret scanning, push
+protection, or protected-environment reviewers. The current private repository
+plan does not expose those APIs. `npm run governance:check` therefore validates
+source-controlled controls and reports hosted controls as **not verified**;
+the hosted setup steps are documented explicitly.
+
+## Application
+
+Start the service without PostgreSQL for baseline behavior:
+
+```powershell
 npm start
 ```
 
-```bash
-curl -X POST http://localhost:3000/orders -H "content-type: application/json" -d '{"sku":"WIDGET-1","quantity":2}'
+Start it with the shared PostgreSQL durability boundary:
+
+```powershell
+npm run db:up
+$env:DATABASE_URL = "******127.0.0.1:55432/northstar"
+npm start
 ```
 
-## Demo scenario
-
-[Issue #4](https://github.com/webmaxru/northstar-orders-api-demo/issues/4) is the task contract for **WI-1842**: prevent duplicate orders when clients retry after a timeout. The baseline deliberately has no idempotency. See [`docs/demo-setup/`](docs/demo-setup/README.md) for how to recreate the issue.
-
-## Session artifacts
-
-[`docs/SESSION-RUNBOOK.md`](docs/SESSION-RUNBOOK.md) is the slide-by-slide delivery guide: what to put on screen at each slide, for how long, the exact commands with their expected output, and the fallbacks.
-
-[`docs/LOCAL-VSCODE-FLOW.md`](docs/LOCAL-VSCODE-FLOW.md) is the same flow performed by hand in VS Code, including which parts of the boundary VS Code does and does not enforce.
-
-```bash
-npm run hook:check      # pre-tool-use authorization decision from stdin
-npm run contract:fetch -- --issue 4    # resolve the contract from its issue
-npm run evidence                      # build artifacts/report.json and gate on missing evidence
-npm run repair:check    # decide repair or escalate from an attempt log
+```powershell
+curl.exe -X POST http://localhost:3000/orders `
+  -H "content-type: application/json" `
+  -H "idempotency-key: demo-order-001" `
+  -d "{\"sku\":\"WIDGET-1\",\"quantity\":2}"
 ```
 
-## Branches
-
-| Branch | What it holds | Use it to |
-| --- | --- | --- |
-| `main` | The baseline API, tagged `demo-baseline`. No idempotency, no agent harness. | Show the starting point. |
-| `demo/naive-reference` | Baseline plus the plausible wrong answer: process-local state that passes a single-process test and fails across instances. | Show the failure the talk opens with. |
-| `demo/context-enabled` | Durable context - `AGENTS.md`, path-scoped instructions - with the implementation still absent. | Show context as code, before and after. |
-| `demo/governed-reference` | A governed implementation with the acceptance suite. | Show the answer with its evidence. |
-| **`demo/implement-start`** | The full agent harness - agents, prompts, hooks, workflows, migration, metrics, acceptance suite - **without** the idempotency implementation. | **Run the flow.** `/plan 4` and `/implement 4` have real work to do here. |
-| `demo/engineering-system` | The same harness with the implementation finished. | Read the answer, and present Mode A of the session runbook. |
-| `plan/wi-1842` | The plan-first pull request branch, cut from whichever branch you planned on. | Review intent before any code exists. |
-
-`demo/implement-start` is the one to start from if you want to drive the agents
-yourself: on `demo/engineering-system` the work is already done, so
-`/implement 4` correctly finds nothing to do.
-
-## Safety
-
-- No customer or production data.
-- No credentials or tokens are committed.
-- `main` is a stable baseline tagged `demo-baseline`.
-- Rehearse in disposable Git worktrees.
-- Reference branches are never merged into `main`.
+See [`docs/architecture.md`](docs/architecture.md) for the complete system and
+[`docs/END-TO-END-DEMO.md`](docs/END-TO-END-DEMO.md) for the reproducible demo.

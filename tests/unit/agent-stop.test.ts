@@ -7,7 +7,7 @@ const passing = {
     { id: "AC1", proven: true },
     { id: "AC2", proven: true },
   ],
-  checks: {
+  tests: {
     unit: { tests: 86, failures: 0, errors: 0 },
     acceptance: { tests: 8, failures: 0, errors: 0 },
   },
@@ -23,7 +23,7 @@ describe("the stop gate summary", () => {
     const failing = {
       ...passing,
       decision: "review_required",
-      checks: {
+      tests: {
         unit: { tests: 86, failures: 1, errors: 2 },
         acceptance: { tests: 8, failures: 0, errors: 0 },
       },

@@ -21,7 +21,7 @@ describe.sequential("PostgreSQL idempotency privacy", () => {
     await pool.end();
   });
 
-  it("stores only fixed-length hashes, not the raw key or payload", async () => {
+  it("stores only fixed-length hashes", async () => {
     const rawKey = "private-demo-correlation-key";
     await harness.services[0].placeOrder({ sku: "SECRET-SKU", quantity: 2 }, rawKey);
 
@@ -41,4 +41,3 @@ describe.sequential("PostgreSQL idempotency privacy", () => {
     expect(result.rows[0]?.response_text).not.toContain(rawKey);
   });
 });
-

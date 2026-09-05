@@ -31,6 +31,11 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Buffer } from "node:buffer";
 import { loadTaskContract } from "./task-contract.mjs";
+import { extractPlanContract } from "./plan-contract.mjs";
+import {
+  evaluatePlanApproval,
+  parseApprovalRecord,
+} from "./plan-approval.mjs";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 const MARKER = "<!-- northstar:plan -->";
@@ -47,12 +52,13 @@ export function planBranch(taskId) {
   return `plan/${String(taskId).toLowerCase()}`;
 }
 
+export function implementationBranch(taskId) {
+  return `agent/implement/${String(taskId).toLowerCase()}`;
+}
+
 /**
- * The PR description: the plan, plus the sections the PR template requires.
- *
- * Evidence stays empty on purpose. A plan-first PR has no commits yet, so there
- * is nothing to evidence; `publish-evidence.mjs` fills it in once implementation
- * has run and the gate has something to measure.
+ * The PR description carries the complete reviewable plan. Evidence entries in
+ * a plan-only PR are expectations, not claims that execution already occurred.
  */
 export function renderPlan(body, meta = {}) {
   return [
@@ -66,17 +72,6 @@ export function renderPlan(body, meta = {}) {
     PLAN_START,
     String(body).trim(),
     PLAN_END,
-    "",
-    "## Evidence",
-    "",
-    "_No commits yet. The evidence gate fills this in when implementation runs._",
-    "",
-    "## Review checklist",
-    "",
-    "- [ ] Plan reviewed and approved",
-    "- [ ] Required reviews satisfied",
-    "- [ ] Required checks satisfied",
-    "",
   ]
     .join("\n")
     .replace(/\n{3,}/g, "\n\n");
@@ -170,9 +165,14 @@ export function extractPlan(raw) {
 }
 
 function gh(args) {
+  const env = { ...process.env };
+  if (!env.GH_TOKEN && env.GITHUB_COPILOT_GIT_TOKEN) {
+    env.GH_TOKEN = env.GITHUB_COPILOT_GIT_TOKEN;
+  }
   return execFileSync("gh", args, {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    env,
   });
 }
 
@@ -193,7 +193,7 @@ export function findPlanPr(taskId, { run = gh } = {}) {
     "--state",
     "open",
     "--json",
-    "number,body,url",
+    "number,body,url,author,headRefOid,baseRefOid,comments",
   ]);
   const list = JSON.parse(raw);
   return list.length > 0 ? list[0] : null;
@@ -203,10 +203,8 @@ export function findPlanPr(taskId, { run = gh } = {}) {
  * The branch the plan-first PR targets.
  *
  * The current branch, not the default branch. The plan proposes a change to the
- * code you are looking at, and on a demo repository the agent harness itself
- * lives on a branch - cutting the plan branch from `origin/HEAD` would land it
- * on a baseline that has no agents, no prompts and no hooks, so `/implement`
- * could not run there at all.
+ *     code you are looking at. The later implementation branch is created from
+ *     the same approved base SHA; the plan branch remains plan-only.
  *
  * Falls back to the default branch when HEAD is detached.
  */
@@ -226,8 +224,9 @@ export function resolveBase(vcs, override) {
  *
  * The empty commit is deliberate. Option A wants a PR "that contains only the
  * plan (no code changes yet)", and GitHub needs a commit to open one.
- * Implementation then lands as follow-up commits on the same branch, so the
- * approved plan and the diff claiming to implement it stay in one review.
+ * Implementation lands on a separate `agent/implement/<task>` branch. The
+ * plan branch remains plan-only, and final code approval targets the latest
+ * implementation SHA.
  */
 function openPlanPr(contract, body, { run = gh, vcs = git, base: baseOverride } = {}) {
   const branch = planBranch(contract.id);
@@ -246,9 +245,9 @@ function openPlanPr(contract, body, { run = gh, vcs = git, base: baseOverride } 
     "-p",
     `origin/${base}`,
     "-m",
-    `${contract.id}: plan\n\nPlan-first pull request. No code changes yet.`,
+    `${contract.id}: plan\n\nPlan-first pull request. No code changes yet.\n\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>`,
   ]).trim();
-  vcs(["push", "--force", "origin", `${commit}:refs/heads/${branch}`]);
+  vcs(["push", "origin", `${commit}:refs/heads/${branch}`]);
 
   const created = run([
     "pr",
@@ -290,6 +289,54 @@ export function publish(contract, body, deps = {}) {
 export function fetchPlan(taskId, deps = {}) {
   const pr = findPlanPr(taskId, deps);
   return pr ? extractPlanSection(pr.body) : null;
+}
+
+/** Read only a plan whose digest is bound to a human plan-only approval. */
+export function fetchApprovedPlan(contract, deps = {}) {
+  const run = deps.run ?? gh;
+  const pr = findPlanPr(contract.id, { run });
+  if (!pr) return null;
+  const body = extractPlanSection(pr.body);
+  const plan = extractPlanContract(body);
+  if (!body || !plan) return null;
+
+  const reviews = JSON.parse(
+    run(["api", `repos/{owner}/{repo}/pulls/${pr.number}/reviews`]),
+  );
+  const records = (pr.comments ?? [])
+    .map(({ body: commentBody, author }) => {
+      const record = parseApprovalRecord(commentBody);
+      return record
+        ? { ...record, commentAuthor: author?.login ?? null }
+        : null;
+    })
+    .filter(Boolean);
+  const planOnlyCommits = records
+    .filter((record) => {
+      try {
+        const comparison = JSON.parse(
+          run([
+            "api",
+            `repos/{owner}/{repo}/compare/${pr.baseRefOid}...${record.reviewedCommit}`,
+          ]),
+        );
+        return (comparison.files ?? []).length === 0;
+      } catch {
+        return false;
+      }
+    })
+    .map(({ reviewedCommit }) => reviewedCommit);
+  const result = evaluatePlanApproval({
+    plan,
+    contract,
+    approvalRecords: records,
+    reviews,
+    prAuthor: pr.author.login,
+    planHeadSha: pr.headRefOid,
+    baseSha: pr.baseRefOid,
+    planOnlyCommits,
+  });
+  return result.ok ? { body, plan, approval: result.record, pr } : null;
 }
 
 async function readStdin() {

@@ -1,31 +1,41 @@
-<!-- Plan-first: the plan lands here before any code. Learn, "Separate planning,
-     reasoning, and execution", Option A. The Plan Gate check reads this section,
-     so an empty template fails rather than passes. -->
+<!-- Link exactly one task contract: Closes #<issue>. -->
 
-## Plan (required)
+## Objective
 
-- **Goal:**
-- **Scope (paths/files):**
-- **Steps:** 1. 2.
-- **Success criteria (verifiable):**
-  - [ ] Required checks pass
-  - [ ] Security signals reviewed
-- **Risks + mitigations:**
-- **Rollback / escalation:**
+<!-- What problem is solved? Reference the issue; do not copy its criteria. -->
+
+## Plan
+
+<!--
+Include the reviewable plan and its northstar/plan/1 block. Risk must be one of
+low, medium, high, or critical. High and critical work requires plan-only human
+approval before implementation.
+-->
 
 ## Evidence
 
-- Workflow run(s):
-- Scan results (if applicable):
+<!-- Link workflow runs and uploaded artifacts bound to this commit. -->
 
-## Review checklist
+- Execution report:
+- Test evidence:
+- Security and dependency evidence:
+- Merge and scope evidence:
 
-- [ ] Plan reviewed and approved
-- [ ] Required reviews satisfied
-- [ ] Required checks satisfied
-- [ ] Scope matches intent - no unexpected files changed
-- [ ] No raw idempotency keys or payloads are logged
+## Decisions and handoffs
 
-## Limits
+<!-- Record decisions, rationale, current owner, and any escalation. -->
 
-State what was not validated.
+## Risks and rollback
+
+<!-- State known limits, rollback path, and escalation conditions. -->
+
+## Acceptance checklist
+
+- [ ] Task contract is linked and current
+- [ ] Machine-readable plan is valid
+- [ ] Declared risk is not below the deterministic risk floor
+- [ ] Plan approval is present when required
+- [ ] Required checks and CODEOWNERS review passed
+- [ ] Evidence is bound to the current head SHA
+- [ ] No required evidence is missing, stale, skipped, or failed
+- [ ] Rollback and unresolved limits are explicit

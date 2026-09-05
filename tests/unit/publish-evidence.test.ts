@@ -11,7 +11,9 @@ const report = {
   workItem: "WI-1842",
   generatedAt: "2026-08-24T05:00:00.000Z",
   contractSource: { kind: "issue #4", url: "https://example.invalid/issues/4" },
-  checks: {
+  validationLevel: "hosted-integration",
+  provenance: { headSha: "abc123" },
+  tests: {
     unit: { tests: 95, failures: 0, errors: 0 },
     acceptance: { tests: 8, failures: 0, errors: 0 },
   },
@@ -19,10 +21,24 @@ const report = {
     { id: "AC1", statement: "Replays return the original order", proven: true, provenBy: "replays the original response" },
     { id: "AC3", statement: "Concurrent retries create one order", proven: false, provenBy: "creates exactly one order" },
   ],
-  evidence: [
-    { id: "unit-tests", category: "execution results", present: true },
-    { id: "security-scan", category: "uploaded artifacts", present: false },
+  checks: [
+    {
+      id: "quality",
+      present: true,
+      valid: true,
+      status: "pass",
+      record: { category: "execution" },
+    },
+    {
+      id: "codeql",
+      present: false,
+      valid: false,
+      status: "not-run",
+      record: null,
+    },
   ],
+  pendingHostedEvidence: ["codeql"],
+  limits: [],
   decision: "review_required",
 };
 
@@ -48,7 +64,7 @@ describe("the durable evidence comment", () => {
   });
 
   it("records absent evidence rather than omitting it", () => {
-    expect(body).toMatch(/security-scan \|.*\| \*\*absent\*\*/);
+    expect(body).toMatch(/codeql \|.*\| \*\*not-run\*\*/);
   });
 
   it("warns that the linked artifacts outlive nothing", () => {
@@ -67,6 +83,18 @@ describe("the durable evidence comment", () => {
   });
 
   it("says PASS when the report is ready for review", () => {
-    expect(renderComment({ ...report, decision: "ready_for_review" })).toContain("Evidence: PASS");
+    expect(
+      renderComment({ ...report, decision: "ready_for_acceptance" }),
+    ).toContain("Evidence: PASS");
+  });
+
+  it("distinguishes local readiness from hosted acceptance", () => {
+    expect(
+      renderComment({
+        ...report,
+        validationLevel: "local-reference",
+        decision: "ready_for_review",
+      }),
+    ).toContain("LOCAL READY; HOSTED REVIEW REQUIRED");
   });
 });

@@ -16,19 +16,34 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import {
+  extractPlanContract,
+  planDigest,
+  validatePlanContract,
+} from "./plan-contract.mjs";
 import { PLAN_HEADING, extractPlanSection } from "./publish-plan.mjs";
+import { loadTaskContract } from "./task-contract.mjs";
+
+const REPO_ROOT = resolve(import.meta.dirname, "..");
 
 /** Sections a plan must fill in to be reviewable, per Learn's PR template. */
 export const REQUIRED_SECTIONS = [
+  { label: "objective", pattern: /^## Objective\b/im },
+  { label: "plan", pattern: /^## Plan\b/im },
   { label: "scope", pattern: /scope|files to change/i },
   { label: "success criteria", pattern: /success criteria|validation/i },
+  { label: "evidence", pattern: /evidence/i },
+  { label: "decisions and handoffs", pattern: /decisions and handoffs/i },
+  { label: "risks", pattern: /risks?/i },
   { label: "rollback or escalation", pattern: /rollback|escalat/i },
 ];
 
 const PLACEHOLDER = /(_?TBD_?|<!--\s*fill|\$\{input:)/i;
 
-export function validatePlan(prBody) {
+export function validatePlan(prBody, contract = loadTaskContract()) {
   const plan = extractPlanSection(prBody);
   if (!plan) {
     return {
@@ -58,9 +73,27 @@ export function validatePlan(prBody) {
     };
   }
 
+  const machinePlan = extractPlanContract(plan);
+  if (!machinePlan) {
+    return {
+      ok: false,
+      reason:
+        "The plan has no northstar/plan/1 machine-readable contract. Risk routing cannot depend on narrative prose.",
+    };
+  }
+  const validation = validatePlanContract(machinePlan, contract);
+  if (!validation.ok) {
+    return {
+      ok: false,
+      reason: `The machine-readable plan is invalid: ${validation.errors.join(" ")}`,
+    };
+  }
+
   return {
     ok: true,
-    reason: "The pull request description carries a reviewable plan.",
+    reason:
+      `The pull request description carries a reviewable ${machinePlan.risk}-risk plan ` +
+      `bound to contract ${machinePlan.contractDigest} and base ${machinePlan.baseSha}.`,
   };
 }
 
@@ -76,12 +109,46 @@ function main() {
     process.exit(2);
   }
 
-  const raw = execFileSync("gh", ["pr", "view", pr, "--json", "body"], {
+  const raw = execFileSync("gh", ["pr", "view", pr, "--json", "body,headRefOid"], {
     encoding: "utf8",
   });
-  const result = validatePlan(JSON.parse(raw).body);
+  const pull = JSON.parse(raw);
+  const expectedHead = valueOf("--expected-head");
+  if (expectedHead && pull.headRefOid !== expectedHead) {
+    process.stderr.write(
+      `Pull request head ${pull.headRefOid} does not match expected workflow SHA ${expectedHead}.\n`,
+    );
+    process.exit(1);
+  }
+  const result = validatePlan(pull.body);
 
   process.stdout.write(`${result.ok ? "pass" : "fail"}: ${result.reason}\n`);
+  if (result.ok) {
+    const body = pull.body;
+    const plan = extractPlanContract(extractPlanSection(body));
+    const target = resolve(REPO_ROOT, "artifacts/plan.json");
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(
+      target,
+      `${JSON.stringify({ ...plan, planDigest: planDigest(plan) }, null, 2)}\n`,
+      "utf8",
+    );
+  }
+  if (expectedHead) {
+    const after = JSON.parse(
+      execFileSync(
+        "gh",
+        ["pr", "view", pr, "--json", "body,headRefOid"],
+        { encoding: "utf8" },
+      ),
+    );
+    if (after.headRefOid !== expectedHead || after.body !== pull.body) {
+      process.stderr.write(
+        "Pull request head or plan body changed during plan evaluation.\n",
+      );
+      process.exit(1);
+    }
+  }
   process.exit(result.ok ? 0 : 1);
 }
 

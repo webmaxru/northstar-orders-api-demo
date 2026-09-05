@@ -35,14 +35,23 @@ const MARKER = "<!-- northstar:evidence -->";
 export function renderComment(report, links = {}) {
   const proven = report.successCriteria.filter((c) => c.proven).length;
   const total = report.successCriteria.length;
-  const verdict = report.decision === "ready_for_review" ? "PASS" : "REVIEW REQUIRED";
+  const verdict =
+    report.decision === "ready_for_acceptance"
+      ? "PASS"
+      : report.decision === "ready_for_review"
+        ? "LOCAL READY; HOSTED REVIEW REQUIRED"
+        : "REVIEW REQUIRED";
 
   const rows = report.successCriteria
     .map((c) => `| ${c.id} | ${c.statement} | ${c.proven ? "proven" : "**not proven**"} | \`${c.provenBy}\` |`)
     .join("\n");
 
-  const evidenceRows = report.evidence
-    .map((item) => `| ${item.id} | ${item.category} | ${item.present ? "present" : "**absent**"} |`)
+  const evidenceRows = report.checks
+    .map(
+      (item) =>
+        `| ${item.id} | ${item.record?.category ?? "unknown"} | ` +
+        `${item.present && item.valid && item.status === "pass" ? "pass" : `**${item.status}**`} |`,
+    )
     .join("\n");
 
   const source = report.contractSource?.url
@@ -54,6 +63,7 @@ export function renderComment(report, links = {}) {
     `## Evidence: ${verdict}`,
     "",
     `**${report.workItem}** graded against ${source}. ${proven}/${total} success criteria proven.`,
+    `Validation level: **${report.validationLevel}**. Commit: \`${report.provenance?.headSha ?? "unknown"}\`.`,
     "",
     "| Criterion | Statement | Result | Proven by |",
     "| --- | --- | --- | --- |",
@@ -63,9 +73,15 @@ export function renderComment(report, links = {}) {
     "| --- | --- | --- |",
     evidenceRows,
     "",
-    `Unit: ${report.checks.unit.tests ?? 0} tests, ${(report.checks.unit.failures ?? 0) + (report.checks.unit.errors ?? 0)} failed. ` +
-      `Acceptance: ${report.checks.acceptance.tests ?? 0} tests, ${(report.checks.acceptance.failures ?? 0) + (report.checks.acceptance.errors ?? 0)} failed.`,
+    `Unit: ${report.tests.unit.tests ?? 0} tests, ${(report.tests.unit.failures ?? 0) + (report.tests.unit.errors ?? 0)} failed. ` +
+      `Acceptance: ${report.tests.acceptance.tests ?? 0} tests, ${(report.tests.acceptance.failures ?? 0) + (report.tests.acceptance.errors ?? 0)} failed.`,
     "",
+    ...(report.pendingHostedEvidence?.length
+      ? [`Pending hosted evidence: ${report.pendingHostedEvidence.join(", ")}`, ""]
+      : []),
+    ...(report.limits?.length
+      ? ["Limits:", ...report.limits.map((limit) => `- ${limit}`), ""]
+      : []),
     ...(links.run ? [`Full logs and artifacts: [workflow run](${links.run})`, ""] : []),
     "> This comment is the durable record. Workflow logs and artifacts are " +
       "retained for 90 days by default and are deleted afterward, so the links " +

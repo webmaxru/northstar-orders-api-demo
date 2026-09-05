@@ -1,9 +1,15 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { contractFromFile, parseIssueBody, splitSections, taskScope } from "../../scripts/task-contract.mjs";
+import {
+  contractFromFile,
+  matchesPattern,
+  parseIssueBody,
+  splitSections,
+  taskScope,
+} from "../../scripts/task-contract.mjs";
 import { resolveIssueNumber } from "../../scripts/session-start.mjs";
 
-const SEED = "docs/demo-setup/WI-1842.issue-seed.md";
+const SEED = "tests/fixtures/WI-1842.issue.md";
 
 /**
  * The contract lives in the issue. These tests parse the seed file, which is
@@ -29,8 +35,10 @@ describe("parsing a task contract out of an issue body", () => {
   });
 
   it("records where the contract came from", () => {
-    expect(contract.source.kind).toContain("seed file");
+    expect(contract.source.kind).toContain("fixture file");
     expect(contract.source.issue).toBeNull();
+    expect(contract.source.trusted).toBe(false);
+    expect(contract.source.bodyDigest).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it("carries prohibited scope and stop conditions", () => {
@@ -38,9 +46,21 @@ describe("parsing a task contract out of an issue body", () => {
     expect(contract.stopConditions.length).toBeGreaterThanOrEqual(5);
   });
 
-  it("exposes scope to the authorizer, with a default when unresolved", () => {
+  it("exposes scope to the authorizer and fails closed when unresolved", () => {
     expect(taskScope(contract).allowed).toContain("src/**");
-    expect(taskScope(null).allowed).toContain("src/**");
+    expect(taskScope(null).allowed).toEqual([]);
+  });
+
+  it("carries validation, rollout, and non-goal inputs", () => {
+    expect(contract.inputs.validationExpectations).toContain(
+      "PostgreSQL acceptance tests across two service instances",
+    );
+    expect(contract.inputs.rolloutExpectations).toContain(
+      "no production deployment is part of this task",
+    );
+    expect(contract.inputs.nonGoals).toContain(
+      "authentication and authorization changes",
+    );
   });
 });
 
@@ -104,5 +124,16 @@ describe("the active task is given, never inferred", () => {
     // else. Adopting a task nobody named cost a network round trip and governed
     // unrelated work.
     expect(resolveIssueNumber({ env: {} }).number).toBeNull();
+  });
+});
+
+describe("scope glob semantics", () => {
+  it("keeps a single-star directory glob to one path segment", () => {
+    expect(matchesPattern("src/file.ts", "src/*")).toBe(true);
+    expect(matchesPattern("src/deep/file.ts", "src/*")).toBe(false);
+  });
+
+  it("uses double-star for recursive descendants", () => {
+    expect(matchesPattern("src/deep/file.ts", "src/**")).toBe(true);
   });
 });

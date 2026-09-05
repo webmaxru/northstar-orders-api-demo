@@ -15,7 +15,7 @@
  * guesses were usually right, which is precisely why nobody checked them.
  *
  * With no issue, the session still starts and reports that no contract is
- * active. It deliberately does NOT fall back to a seed file in docs/demo-setup:
+ * active. It deliberately does NOT fall back to a fixture under tests/fixtures:
  * those exist to recreate an issue, and silently treating one as the contract
  * would hide the fact that the real one was never read.
  */
@@ -24,7 +24,11 @@ import { rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { CONTRACT_CACHE, splitProhibitions } from "./task-contract.mjs";
-import { PLAN_CACHE, resolveTask } from "./resolve-task.mjs";
+import {
+  PLAN_CACHE,
+  PLAN_CONTRACT_CACHE,
+  resolveTask,
+} from "./resolve-task.mjs";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 
@@ -32,6 +36,7 @@ const REPO_ROOT = resolve(import.meta.dirname, "..");
 function clearContract() {
   rmSync(resolve(REPO_ROOT, CONTRACT_CACHE), { force: true });
   rmSync(resolve(REPO_ROOT, PLAN_CACHE), { force: true });
+  rmSync(resolve(REPO_ROOT, PLAN_CONTRACT_CACHE), { force: true });
 }
 
 export function resolveIssueNumber({ env = process.env } = {}) {
@@ -58,8 +63,8 @@ function summarize(contract, how, plan) {
       ]
     : [
         "",
-        "No plan pull request is open for this task. If you are implementing,",
-        "stop: run the plan agent first, and get its plan-first PR approved. Do",
+        "No human-approved plan matches this task. If you are implementing,",
+        "stop: run the plan agent first, publish its plan-only PR, and get it approved. Do",
         "not plan and implement in the same session.",
       ];
 
@@ -68,7 +73,7 @@ function summarize(contract, how, plan) {
     `Resolved from ${contract.source.kind} via ${how}. Cached at artifacts/task-contract.json.`,
     "",
     "This cached contract is the authority for this session. Do not read any file",
-    "under docs/demo-setup as the contract; those are seed texts for recreating the",
+    "under tests/fixtures as the contract; those are offline test inputs, not the",
     "issue, not the issue itself.",
     "",
     `Allowed scope: ${contract.inputs.scope.allowed.join(", ")}`,
@@ -112,7 +117,7 @@ async function main() {
         "was read and no GitHub call was made. Nothing was inferred from the " +
         "branch name or the open issue list, by design. The capability boundary " +
         "is ungoverned: reads are allowed and writes ask. Do not substitute a " +
-        "seed file from docs/demo-setup. To work on a task, name its issue: " +
+        "fixture file from tests/fixtures. To work on a task, name its issue: " +
         "`/plan <issue>` or `/implement <issue>`.",
     );
     return;

@@ -41,14 +41,35 @@ export function classify(message) {
   if (/permission|forbidden|denied|eacces|401|403/.test(text)) {
     return { layer: "policy", action: "escalate", change: "adjust authority, not the prompt" };
   }
+  if (/codeql|secret scan|credential|vulnerab|cve-|ghsa-|injection/.test(text)) {
+    return {
+      layer: "security",
+      action: "escalate",
+      change: "investigate the security condition; do not retry it away",
+    };
+  }
+  if (/merge conflict|conflict in|both modified|cannot merge/.test(text)) {
+    return {
+      layer: "conflict",
+      action: "repair",
+      change: "reconcile against the authoritative issue, PR, and current base",
+    };
+  }
   if (/econnrefused|etimedout|enotfound|socket hang up/.test(text)) {
-    return { layer: "environment", action: "retry", change: "fix the bootstrap so the dependency is present" };
+    return { layer: "environment", action: "repair", change: "fix the bootstrap so the dependency is present" };
   }
   if (/cannot find module|is not exported|type '.*' is not assignable|ts\d{4}/.test(text)) {
-    return { layer: "context", action: "retry", change: "retrieve the missing source of truth" };
+    return { layer: "context", action: "repair", change: "retrieve the missing source of truth" };
   }
   if (/expected .* received|assertion|to be|toequal/.test(text)) {
-    return { layer: "reasoning", action: "retry", change: "revise the plan, not the assertion" };
+    return { layer: "reasoning", action: "repair", change: "revise the plan, not the assertion" };
+  }
+  if (/command not found|unknown option|invalid argument|tool .* failed/.test(text)) {
+    return {
+      layer: "tool",
+      action: "repair",
+      change: "correct the tool invocation or workflow configuration",
+    };
   }
   return { layer: "unknown", action: "escalate", change: "classify before spending another attempt" };
 }

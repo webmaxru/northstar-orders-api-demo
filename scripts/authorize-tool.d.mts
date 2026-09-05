@@ -18,6 +18,10 @@ export interface TaskScope {
 export interface AuthorizationContext {
   scope?: TaskScope;
   taskId?: string;
+  trustedContract?: boolean;
+  approvedPlan?: boolean;
+  branchAuthorized?: boolean;
+  planScope?: TaskScope;
 }
 
 export interface AuthorizationDecision {

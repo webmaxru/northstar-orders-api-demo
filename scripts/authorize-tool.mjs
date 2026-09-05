@@ -14,37 +14,51 @@
 
 import { pathToFileURL } from "node:url";
 import { Buffer } from "node:buffer";
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   DEFAULT_SCOPE,
+  isPathAllowed,
   loadTaskContract,
   matchesPattern,
-  scopePrefixes,
   splitProhibitions,
   taskScope,
 } from "./task-contract.mjs";
+import { planDigest } from "./plan-contract.mjs";
+
+const REPO_ROOT = resolve(import.meta.dirname, "..");
 
 /**
  * Repository-wide fallback, used when no task contract is in scope. A task
  * contract narrows this; nothing widens it.
  */
-export const WRITABLE_PATH_PREFIXES = scopePrefixes(DEFAULT_SCOPE);
+export const WRITABLE_PATH_PREFIXES = Object.freeze([]);
 
 const ALLOWED_COMMANDS = [
   // Resolving the contract must be allowed, or the agent cannot bootstrap the
   // very boundary that governs it. It only reads an issue and writes into
   // artifacts/, so it grants no authority over the working tree.
-  /^npm run contract:fetch\b/,
-  /^npm run plan:show\b/,
-  /^npm run plan:gate\b/,
+  /^npm run contract:fetch -- --issue \d+$/,
+  /^npm run plan:show$/,
+  /^npm run plan:gate -- --pr \d+$/,
   /^npm run lint$/,
   /^npm run typecheck$/,
+  /^npm run build$/,
   /^npm run test:unit$/,
   /^npm run test:acceptance$/,
+  /^npm run governance:check$/,
+  /^npm run security:secrets$/,
+  /^npm run scope:check -- --base [A-Za-z0-9._/-]+$/,
   /^npm run validate$/,
-  /^npm run evidence\b/,
-  /^npm ci$/,
-  /^git (status|diff|log)\b/,
+  /^npm run validate:all$/,
+  /^npm run evidence$/,
+  /^git status(?: --short| --porcelain| --short --branch)?$/,
+  /^git diff(?: --check| --stat| --name-only| --cached)?$/,
+  /^git log(?: --oneline| --decorate| --graph| --stat| -\d+)*$/,
 ];
+
+const SHELL_METACHARACTERS = /(?:&&|\|\||[;&|><`^]|\r|\n|\$\(|\$\{)/;
 
 /**
  * Commands that prepare the environment rather than validate the change.
@@ -59,6 +73,10 @@ const ALLOWED_COMMANDS = [
  * container instead. So: ask, and name the human action in the reason.
  */
 const ENVIRONMENT_COMMANDS = [
+  {
+    pattern: /^npm ci$/,
+    action: "installs the lockfile-defined dependency tree and may run package lifecycle scripts",
+  },
   {
     pattern: /^npm run db:(up|down)$/,
     action: "starts or stops the local PostgreSQL container",
@@ -103,14 +121,6 @@ const DENIED_COMMAND_PATTERNS = [
 
 function normalize(filePath) {
   return String(filePath).replace(/\\/g, "/").replace(/^\.\//, "");
-}
-
-function isWritable(filePath, prefixes) {
-  const normalized = normalize(filePath);
-  if (normalized.includes("..")) {
-    return false;
-  }
-  return prefixes.some((prefix) => normalized.startsWith(prefix));
 }
 
 function allow(reason) {
@@ -274,7 +284,10 @@ export function normalizeToolCall(call) {
 export function evaluateToolCall(call, context = {}) {
   const { rawName, kind, paths, command } = normalizeToolCall(call);
   const governed = Boolean(context.taskId);
-  const prefixes = scopePrefixes(context.scope ?? DEFAULT_SCOPE);
+  const trusted = context.trustedContract === true;
+  const approved = context.approvedPlan === true;
+  const branchAuthorized = context.branchAuthorized === true;
+  const scope = context.scope ?? DEFAULT_SCOPE;
   const where = governed ? `the ${context.taskId} scope` : "the default scope";
 
   // A dangerous string is dangerous whatever the tool claims to be, and whether
@@ -285,6 +298,9 @@ export function evaluateToolCall(call, context = {}) {
         return deny(reason);
       }
     }
+    if (SHELL_METACHARACTERS.test(command)) {
+      return deny("shell chaining, redirection, interpolation, and pipelines are not allowlisted");
+    }
   }
 
   if (kind === "read") {
@@ -292,6 +308,20 @@ export function evaluateToolCall(call, context = {}) {
   }
 
   if (kind === "edit") {
+    if (!governed) {
+      return deny(
+        "no task contract is active; autonomous writes require precise inputs, outputs, and success criteria",
+      );
+    }
+    if (!trusted) {
+      return deny("the active task contract is not trusted GitHub issue authority");
+    }
+    if (!approved) {
+      return deny("no human-approved machine-readable plan authorizes writes");
+    }
+    if (!branchAuthorized) {
+      return deny("writes require the task's dedicated implementation branch");
+    }
     if (paths.length === 0) {
       return ask(
         `"${rawName}" may write but named no path this policy can check`,
@@ -300,9 +330,7 @@ export function evaluateToolCall(call, context = {}) {
 
     // Prohibited beats allowed. A contract that says src/** but not src/api/**
     // means the second, and checking allowed first would let it through.
-    const { paths: prohibitedPaths, advisory } = splitProhibitions(
-      context.scope ?? DEFAULT_SCOPE,
-    );
+    const { paths: prohibitedPaths, advisory } = splitProhibitions(scope);
     for (const target of paths) {
       const hit = prohibitedPaths.find((pattern) =>
         matchesPattern(target, pattern),
@@ -314,8 +342,21 @@ export function evaluateToolCall(call, context = {}) {
       }
     }
 
-    const blocked = paths.filter((target) => !isWritable(target, prefixes));
+    const blocked = paths.filter((target) => {
+      const normalized = normalize(target);
+      return normalized.includes("..") || !isPathAllowed(normalized, scope);
+    });
+    const outsidePlan = paths.filter(
+      (target) =>
+        !context.planScope ||
+        !isPathAllowed(normalize(target), context.planScope),
+    );
     if (blocked.length === 0) {
+      if (outsidePlan.length > 0) {
+        return deny(
+          `${outsidePlan.map(normalize).join(", ")} is outside the approved plan scope`,
+        );
+      }
       // Inside the allowed paths and not path-prohibited. Any remaining
       // prohibitions are stated in prose, which a path check cannot evaluate,
       // so say so rather than implying they were verified.
@@ -328,13 +369,9 @@ export function evaluateToolCall(call, context = {}) {
     // Outside the scope. If a task governs this session that is a real
     // violation. If none does, there is no contract to violate, so ask instead
     // of enforcing a boundary nobody agreed to.
-    return governed
-      ? deny(
-          `${blocked.map(normalize).join(", ")} is outside ${where} (${prefixes.join(", ")})`,
-        )
-      : ask(
-          `${blocked.map(normalize).join(", ")} is outside the default scope and no task contract is active`,
-        );
+    return deny(
+      `${blocked.map(normalize).join(", ")} is outside ${where} (${scope.allowed.join(", ") || "no writable paths"})`,
+    );
   }
 
   if (kind === "shell") {
@@ -344,27 +381,49 @@ export function evaluateToolCall(call, context = {}) {
       );
     }
     if (ALLOWED_COMMANDS.some((pattern) => pattern.test(command))) {
-      return allow("command is in the validation allowlist");
+      if (
+        /^npm run (contract:fetch|plan:show)\b/.test(command) ||
+        /^git (status|diff|log)\b/.test(command)
+      ) {
+        return allow("command is in the validation allowlist");
+      }
+      if (!trusted) {
+        return deny("the active task contract is not trusted GitHub issue authority");
+      }
+      if (!approved) {
+        return deny("no human-approved machine-readable plan authorizes execution");
+      }
+      if (!branchAuthorized) {
+        return deny("execution requires the task's dedicated implementation branch");
+      }
+      return allow("command is in the approved validation allowlist");
     }
     const environment = ENVIRONMENT_COMMANDS.find(({ pattern }) =>
       pattern.test(command),
     );
     if (environment) {
+      if (!trusted || !approved || !branchAuthorized) {
+        return deny(
+          "environment preparation requires a trusted task contract, approved plan, and dedicated implementation branch",
+        );
+      }
       return ask(
         `"${command}" ${environment.action}. Preparing the environment is a human decision, ` +
           "not part of the task scope, but the acceptance evidence cannot be produced without it.",
       );
     }
-    return governed
-      ? deny("command is not in the validation allowlist")
-      : ask(
-          "command is not in the validation allowlist and no task contract is active",
-        );
+    return deny(
+      governed
+        ? "command is not in the validation allowlist"
+        : "command is not authorized because no task contract is active",
+    );
   }
 
   // Unknown capability. Do not guess in either direction: let the human decide,
   // and the reason names the tool so the policy can learn it.
-  return ask(`"${rawName}" is not a tool this policy recognizes`);
+  return governed
+    ? ask(`"${rawName}" is not a tool this policy recognizes`)
+    : deny(`"${rawName}" is not authorized because no task contract is active`);
 }
 async function readStdin() {
   const chunks = [];
@@ -471,9 +530,56 @@ async function main() {
   } else {
     try {
       const contract = loadTaskContract();
+      let plan = null;
+      try {
+        plan = JSON.parse(
+          readFileSync(resolve(REPO_ROOT, "artifacts/plan.json"), "utf8"),
+        );
+      } catch {
+        plan = null;
+      }
+      const approvedPlan =
+        Boolean(contract?.source?.trusted) &&
+        plan?.schema === "northstar/plan/1" &&
+        plan?.taskId === contract?.id &&
+        plan?.contractDigest === contract?.source?.bodyDigest &&
+        plan?.approval?.schema === "northstar/plan-approval/1" &&
+        plan?.approval?.taskId === contract?.id &&
+        plan?.approval?.contractDigest === contract?.source?.bodyDigest &&
+        plan?.approval?.planDigest === plan?.planDigest &&
+        plan?.planDigest === planDigest(plan);
+      let branch = null;
+      let descendsFromApprovedBase = false;
+      try {
+        branch = execFileSync("git", ["branch", "--show-current"], {
+          cwd: REPO_ROOT,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        }).trim();
+        if (plan?.baseSha) {
+          execFileSync(
+            "git",
+            ["merge-base", "--is-ancestor", plan.baseSha, "HEAD"],
+            {
+              cwd: REPO_ROOT,
+              stdio: ["ignore", "ignore", "ignore"],
+            },
+          );
+          descendsFromApprovedBase = true;
+        }
+      } catch {
+        descendsFromApprovedBase = false;
+      }
+      const branchAuthorized =
+        branch === `agent/implement/${String(contract?.id ?? "").toLowerCase()}` &&
+        descendsFromApprovedBase;
       decision = evaluateToolCall(parsed.value, {
         scope: taskScope(contract),
         taskId: contract?.id,
+        trustedContract: contract?.source?.trusted === true,
+        approvedPlan,
+        branchAuthorized,
+        planScope: plan?.scope,
       });
     } catch (error) {
       decision = deny(/** @type {Error} */ (error).message);

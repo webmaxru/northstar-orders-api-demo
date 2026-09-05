@@ -8,7 +8,8 @@ body:
       value: |
         This issue **is** the task contract. Nothing in the repository restates
         it. The sections below follow the task contract described in Microsoft
-        Learn: inputs, outputs, and success criteria.
+        Learn: **inputs, outputs, and success criteria**. If the task cannot be
+        made precise here, it must not be executed autonomously.
 
   - type: input
     id: task-id
@@ -74,6 +75,41 @@ body:
       placeholder: |
         no new dependencies
         no workflow or Actions changes without human approval
+    validations:
+      required: true
+
+  - type: textarea
+    id: non-goals
+    attributes:
+      label: Non-goals
+      description: Work this task must not expand into. One per line.
+      placeholder: |
+        authentication redesign
+        deployment platform changes
+    validations:
+      required: true
+
+  - type: textarea
+    id: validation-expectations
+    attributes:
+      label: Validation expectations
+      description: Required builds, tests, scans, reviews, and environments. One per line.
+      placeholder: |
+        npm run validate
+        PostgreSQL acceptance tests
+        dependency and CodeQL gates
+    validations:
+      required: true
+
+  - type: textarea
+    id: rollout-expectations
+    attributes:
+      label: Rollout expectations
+      description: How the change is introduced, observed, and rolled back. One per line.
+      placeholder: |
+        merge through a protected pull request
+        no production deployment in this task
+        revert the branch if acceptance evidence regresses
     validations:
       required: true
 

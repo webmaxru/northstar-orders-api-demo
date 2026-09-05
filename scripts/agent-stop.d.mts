@@ -1,7 +1,7 @@
 export interface ExecutionReportLike {
   decision: string;
   successCriteria: Array<{ id: string; proven: boolean }>;
-  checks: {
+  tests: {
     unit: { tests?: number; failures?: number; errors?: number };
     acceptance: { tests?: number; failures?: number; errors?: number };
   };

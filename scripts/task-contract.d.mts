@@ -4,10 +4,16 @@ export interface TaskScope {
 }
 
 export interface ContractSource {
-  /** For example `issue #12` or `seed file docs/demo-setup/WI-1842.issue-seed.md`. */
+  /** For example `issue #12` or `fixture file tests/fixtures/WI-1842.issue.md`. */
   kind: string;
   issue: number | null;
   url: string | null;
+  actor: string | null;
+  association: string | null;
+  trusted: boolean;
+  createdAt: string | null;
+  updatedAt: string | null;
+  bodyDigest: string;
   resolvedAt: string;
 }
 
@@ -17,6 +23,9 @@ export interface TaskInputs {
   authoritativeSources: string[];
   scope: TaskScope;
   constraints: string[];
+  nonGoals: string[];
+  validationExpectations: string[];
+  rolloutExpectations: string[];
 }
 
 /** Learn's "Outputs": what the agent produces. */
@@ -55,7 +64,16 @@ export declare function splitSections(body: string): Record<string, string>;
 
 export declare function parseIssueBody(
   body: string,
-  origin?: { number?: number; url?: string; source?: string },
+  origin?: {
+    number?: number;
+    url?: string;
+    source?: string;
+    actor?: string;
+    association?: string;
+    trusted?: boolean;
+    createdAt?: string;
+    updatedAt?: string;
+  },
 ): TaskContract;
 
 export declare function contractFromIssue(issueNumber: string | number): TaskContract;
@@ -80,3 +98,4 @@ export declare function splitProhibitions(scope?: TaskScope): {
 };
 
 export declare function matchesPattern(filePath: string, pattern: string): boolean;
+export declare function isPathAllowed(filePath: string, scope: TaskScope): boolean;

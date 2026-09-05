@@ -1,4 +1,12 @@
-export type FailureLayer = "policy" | "environment" | "context" | "reasoning" | "unknown";
+export type FailureLayer =
+  | "policy"
+  | "security"
+  | "environment"
+  | "tool"
+  | "context"
+  | "reasoning"
+  | "conflict"
+  | "unknown";
 
 export interface Attempt {
   check: string;
@@ -7,7 +15,7 @@ export interface Attempt {
 
 export interface Classification {
   layer: FailureLayer;
-  action: "retry" | "escalate";
+  action: "repair" | "escalate";
   change: string;
 }
 

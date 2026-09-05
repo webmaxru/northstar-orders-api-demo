@@ -24,6 +24,10 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Buffer } from "node:buffer";
+import {
+  createCheckRecord,
+  writeCheckRecord,
+} from "./evidence-record.mjs";
 import { classify } from "./repair-budget.mjs";
 import { loadTaskContract } from "./task-contract.mjs";
 
@@ -57,14 +61,25 @@ function report() {
   }
 }
 
+function record(id, result, artifact, category = "execution") {
+  writeCheckRecord(
+    createCheckRecord({
+      id,
+      category,
+      status: result.ok ? "pass" : "fail",
+      artifact,
+    }),
+  );
+}
+
 export function summarize(data) {
   if (!data) return "no execution report was produced";
   const proven = data.successCriteria.filter((c) => c.proven).length;
   return [
     `${data.decision}`,
     `criteria ${proven}/${data.successCriteria.length}`,
-    `unit ${data.checks.unit.tests ?? 0} tests, ${(data.checks.unit.failures ?? 0) + (data.checks.unit.errors ?? 0)} failed`,
-    `acceptance ${data.checks.acceptance.tests ?? 0} tests, ${(data.checks.acceptance.failures ?? 0) + (data.checks.acceptance.errors ?? 0)} failed`,
+    `unit ${data.tests.unit.tests ?? 0} tests, ${(data.tests.unit.failures ?? 0) + (data.tests.unit.errors ?? 0)} failed`,
+    `acceptance ${data.tests.acceptance.tests ?? 0} tests, ${(data.tests.acceptance.failures ?? 0) + (data.tests.acceptance.errors ?? 0)} failed`,
   ].join(" | ");
 }
 
@@ -91,25 +106,72 @@ async function main() {
     return;
   }
 
-  const unit = run("npm run test:unit:ci");
+  let plan;
+  try {
+    plan = JSON.parse(
+      readFileSync(resolve(REPO_ROOT, "artifacts/plan.json"), "utf8"),
+    );
+  } catch {
+    emit({
+      hookSpecificOutput: {
+        hookEventName: "Stop",
+        decision: "block",
+        reason:
+          "Do not stop yet. artifacts/plan.json is absent, so no approved machine-readable plan governs implementation.",
+      },
+      systemMessage: "Evidence gate blocked the stop: approved plan missing.",
+    });
+    return;
+  }
+
+  record("plan-contract", { ok: true }, "artifacts/plan.json", "policy");
+  const quality = run(
+    "npm run instructions:check && npm run lint && npm run typecheck && npm run build && npm run test:unit:ci",
+  );
+  record("quality", quality, "artifacts/unit-junit.xml");
   const acceptance = run("npm run test:acceptance:ci");
+  record("acceptance", acceptance, "artifacts/acceptance-junit.xml");
+  const dependency = run(
+    "npm audit --audit-level=high --json > artifacts/dependency-audit.json",
+  );
+  record(
+    "dependency-review",
+    dependency,
+    "artifacts/dependency-audit.json",
+    "security",
+  );
+  const secret = run("npm run security:secrets");
+  record("secret-scan", secret, null, "security");
+  const governance = run("npm run governance:check");
+  record(
+    "governance-policy",
+    governance,
+    "artifacts/governance-report.json",
+    "policy",
+  );
+  const scope = run(`npm run scope:check -- --base ${plan.baseSha}`);
+  record("scope-policy", scope, "artifacts/scope-report.json", "policy");
+  const merge = run(`node scripts/check-merge.mjs --base ${plan.baseSha}`);
+  record(
+    "merge-validation",
+    merge,
+    "artifacts/merge-report.json",
+    "policy",
+  );
   run("npm run evidence");
   const data = report();
 
   // An environment failure is not the agent's to repair, and blocking on it
   // would spend turns on a database that is simply not running.
-  const combined = `${unit.output}\n${acceptance.output}`;
+  const combined = `${quality.output}\n${acceptance.output}`;
   const layer = classify(combined).layer;
-  if (!acceptance.ok && layer === "environment") {
-    emit({
-      systemMessage:
-        "Acceptance suite could not reach its dependencies, so the evidence gate is inconclusive. " +
-        "Start the database with `npm run db:up` and ask the agent to continue. Not blocking.",
-    });
-    return;
-  }
+  const acceptanceEnvironmentFailure =
+    !acceptance.ok && layer === "environment";
 
-  if (data?.decision === "ready_for_review") {
+  if (
+    data?.decision === "ready_for_review" ||
+    data?.decision === "ready_for_acceptance"
+  ) {
     emit({
       systemMessage: `Evidence gate passed: ${summarize(data)}. Report at artifacts/report.json.`,
     });
@@ -117,10 +179,21 @@ async function main() {
   }
 
   const gaps = [];
-  if (data?.missingEvidence?.length) gaps.push(`missing evidence: ${data.missingEvidence.join(", ")}`);
+  if (data?.failedLocalChecks?.length) gaps.push(`failed local checks: ${data.failedLocalChecks.join(", ")}`);
   if (data?.unprovenCriteria?.length) gaps.push(`unproven criteria: ${data.unprovenCriteria.join(", ")}`);
-  if (!unit.ok) gaps.push("unit suite failed");
-  if (!acceptance.ok) gaps.push("acceptance suite failed");
+  if (!quality.ok) gaps.push("quality suite failed");
+  if (acceptanceEnvironmentFailure) {
+    gaps.push(
+      "acceptance environment unavailable; start PostgreSQL and rerun before completion",
+    );
+  } else if (!acceptance.ok) {
+    gaps.push("acceptance suite failed");
+  }
+  if (!dependency.ok) gaps.push("dependency audit failed");
+  if (!secret.ok) gaps.push("secret scan failed");
+  if (!governance.ok) gaps.push("governance audit failed");
+  if (!scope.ok) gaps.push("scope policy failed");
+  if (!merge.ok) gaps.push("merge validation failed");
   if (gaps.length === 0) gaps.push("the execution report did not reach ready_for_review");
 
   emit({

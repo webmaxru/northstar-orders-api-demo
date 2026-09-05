@@ -3,11 +3,10 @@
  *
  * Usage:
  *   node scripts/fetch-task-contract.mjs --issue 12
- *   node scripts/fetch-task-contract.mjs --file docs/demo-setup/WI-1842.issue-seed.md
+ *   node scripts/fetch-task-contract.mjs --file tests/fixtures/WI-1842.issue.md
  *
- * The issue is the contract. The seed file exists so a demo can be rehearsed
- * offline and so CI can resolve a contract without a live issue; the resolved
- * contract records which of the two it came from.
+ * The issue is the contract. A fixture file is accepted only for offline tests
+ * and demos; the resolved contract records that it is not trusted authority.
  */
 
 import { cacheContract, contractFromFile, contractFromIssue } from "./task-contract.mjs";
@@ -22,7 +21,7 @@ const file = valueOf("--file");
 
 if (!issue && !file) {
   process.stderr.write(
-    "Pass --issue <number> to read the live issue, or --file <path> to use a seed file.\n",
+    "Pass --issue <number> to read the live issue, or --file <path> to use an offline fixture.\n",
   );
   process.exit(2);
 }

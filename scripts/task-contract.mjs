@@ -6,24 +6,27 @@
  * the issue, reference those criteria in the pull request, and use them as the
  * basis for validation."
  *
- * So the repository stores no contract. It stores the issue template that gives
- * the contract its shape, and a seed file used to recreate the issue for a
- * demo. The parsed result is cached in artifacts/ (gitignored) so the
- * repository never becomes the source of truth.
+ * So the repository stores no live contract. It stores the issue template that
+ * gives the contract its shape, plus offline test fixtures. The parsed result
+ * is cached in artifacts/ (gitignored) so the repository never becomes the
+ * source of truth.
  */
 
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 export const CONTRACT_CACHE = "artifacts/task-contract.json";
 
-/** Used when no contract has been resolved. Deliberately narrow. */
+/** No autonomous write is valid until a precise task contract is active. */
 export const DEFAULT_SCOPE = {
-  allowed: ["src/**", "tests/**", "migrations/**"],
+  allowed: [],
   prohibited: [],
 };
+
+const TRUSTED_ASSOCIATIONS = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
 
 /** Split a GitHub issue-form body into its `### Heading` sections. */
 export function splitSections(body) {
@@ -64,9 +67,17 @@ function pipeRows(value, arity) {
  */
 export function parseIssueBody(body, origin = {}) {
   const sections = splitSections(body);
-  const missing = ["task id", "goal", "allowed scope", "outputs", "success criteria"].filter(
-    (name) => !sections[name],
-  );
+  const constraints = sections["constraints and non-goals"] ?? sections.constraints;
+  const missing = [
+    "task id",
+    "goal",
+    "authoritative sources",
+    "allowed scope",
+    "outputs",
+    "success criteria",
+    "stop conditions",
+  ].filter((name) => !sections[name]);
+  if (!constraints) missing.push("constraints and non-goals");
   if (missing.length > 0) {
     throw new Error(
       `Issue body is missing required section(s): ${missing.join(", ")}. It must follow .github/ISSUE_TEMPLATE/agent-task.yml.`,
@@ -82,14 +93,25 @@ export function parseIssueBody(body, origin = {}) {
     );
   }
 
+  const normalizedBody = String(body ?? "").replace(/\r\n?/g, "\n");
+  const bodyDigest = createHash("sha256").update(normalizedBody).digest("hex");
+  const validationExpectations = lines(sections["validation expectations"]);
+  const rolloutExpectations = lines(sections["rollout expectations"]);
+
   return {
-    schema: "northstar/task-contract/2",
+    schema: "northstar/task-contract/3",
     id: lines(sections["task id"])[0],
     title: lines(sections.goal)[0],
     source: {
       kind: origin.source ?? "unknown",
       issue: origin.number ?? null,
       url: origin.url ?? null,
+      actor: origin.actor ?? null,
+      association: origin.association ?? null,
+      trusted: origin.trusted ?? false,
+      createdAt: origin.createdAt ?? null,
+      updatedAt: origin.updatedAt ?? null,
+      bodyDigest,
       resolvedAt: new Date().toISOString(),
     },
     inputs: {
@@ -99,7 +121,16 @@ export function parseIssueBody(body, origin = {}) {
         allowed: lines(sections["allowed scope"]),
         prohibited: lines(sections["prohibited scope"]),
       },
-      constraints: lines(sections.constraints),
+      constraints: lines(constraints),
+      nonGoals: lines(sections["non-goals"]),
+      validationExpectations:
+        validationExpectations.length > 0
+          ? validationExpectations
+          : successCriteria.map(({ provenBy }) => provenBy),
+      rolloutExpectations:
+        rolloutExpectations.length > 0
+          ? rolloutExpectations
+          : ["Not specified in this legacy task contract."],
     },
     outputs: pipeRows(sections.outputs, 2).map(([id, description]) => ({ id, description })),
     successCriteria,
@@ -109,23 +140,46 @@ export function parseIssueBody(body, origin = {}) {
 
 /** Read the contract from a live GitHub issue. */
 export function contractFromIssue(issueNumber) {
+  const env = { ...process.env };
+  if (!env.GH_TOKEN && env.GITHUB_COPILOT_GIT_TOKEN) {
+    env.GH_TOKEN = env.GITHUB_COPILOT_GIT_TOKEN;
+  }
   const raw = execFileSync(
     "gh",
-    ["issue", "view", String(issueNumber), "--json", "number,title,body,url"],
-    { encoding: "utf8" },
+    ["api", `repos/{owner}/{repo}/issues/${issueNumber}`],
+    { encoding: "utf8", env },
   );
   const issue = JSON.parse(raw);
+  const labels = (issue.labels ?? []).map((label) =>
+    typeof label === "string" ? label : label.name,
+  );
+  if (!labels.includes("agent-task")) {
+    throw new Error(`Issue #${issue.number} is not labeled agent-task.`);
+  }
+  if (!TRUSTED_ASSOCIATIONS.has(issue.author_association)) {
+    throw new Error(
+      `Issue #${issue.number} was authored by an untrusted association (${issue.author_association ?? "unknown"}).`,
+    );
+  }
   return parseIssueBody(issue.body, {
     number: issue.number,
-    url: issue.url,
+    url: issue.html_url,
+    actor: issue.user?.login,
+    association: issue.author_association,
+    trusted: true,
+    createdAt: issue.created_at,
+    updatedAt: issue.updated_at,
     source: `issue #${issue.number}`,
   });
 }
 
-/** Read the contract from a seed file, for offline rehearsal. */
+/** Read an explicitly untrusted contract fixture for tests or offline demos. */
 export function contractFromFile(path) {
   const absolute = resolve(REPO_ROOT, path);
-  return parseIssueBody(readFileSync(absolute, "utf8"), { source: `seed file ${path}` });
+  return parseIssueBody(readFileSync(absolute, "utf8"), {
+    source: `fixture file ${path}`,
+    trusted: false,
+  });
 }
 
 export function cacheContract(contract, cachePath = CONTRACT_CACHE) {
@@ -148,7 +202,7 @@ export function taskScope(contract) {
 
 /** Turn a scope glob such as "src/**" into a path prefix. */
 export function scopePrefixes(scope) {
-  const allowed = scope?.allowed?.length ? scope.allowed : DEFAULT_SCOPE.allowed;
+  const allowed = scope?.allowed ?? DEFAULT_SCOPE.allowed;
   return allowed.map((pattern) => pattern.replace(/\*+$/, "").replace(/\/+$/, "/"));
 }
 
@@ -186,16 +240,40 @@ export function matchesPattern(filePath, pattern) {
   const path = String(filePath).replace(/\\/g, "/").replace(/^\.\//, "");
   const raw = String(pattern).trim().replace(/^\.\//, "");
 
+  if (raw === "**" || raw === "*") {
+    return true;
+  }
   if (raw.startsWith("**/")) {
-    const suffix = raw.slice(3).replace(/^\*/, "");
-    return path.endsWith(suffix) || path.split("/").pop() === suffix;
+    const suffixPattern = raw.slice(3);
+    return matchesPattern(path, suffixPattern) ||
+      path.split("/").some((_, index, parts) =>
+        matchesPattern(parts.slice(index).join("/"), suffixPattern),
+      );
   }
-  if (raw.endsWith("/**") || raw.endsWith("/*")) {
-    const prefix = raw.replace(/\/\*+$/, "/");
-    return path.startsWith(prefix);
+  if (raw.endsWith("/**")) {
+    const prefix = raw.slice(0, -3);
+    return path === prefix || path.startsWith(`${prefix}/`);
   }
-  if (raw.endsWith("*")) {
-    return path.startsWith(raw.slice(0, -1));
+  if (raw.endsWith("/*")) {
+    const prefix = raw.slice(0, -2);
+    if (!path.startsWith(`${prefix}/`)) return false;
+    return !path.slice(prefix.length + 1).includes("/");
+  }
+  if (raw.includes("*")) {
+    const expression = raw
+      .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
+      .replace(/\*\*/g, "__DOUBLE_STAR__")
+      .replace(/\*/g, "[^/]*");
+    return new RegExp(`^${expression.replace(/__DOUBLE_STAR__/g, ".*")}$`).test(path);
   }
   return path === raw || path.startsWith(`${raw}/`);
+}
+
+export function isPathAllowed(filePath, scope) {
+  const allowed = scope?.allowed ?? [];
+  const { paths: prohibited } = splitProhibitions(scope);
+  return (
+    allowed.some((pattern) => matchesPattern(filePath, pattern)) &&
+    !prohibited.some((pattern) => matchesPattern(filePath, pattern))
+  );
 }

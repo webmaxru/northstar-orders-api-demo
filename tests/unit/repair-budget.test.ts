@@ -46,6 +46,27 @@ describe("classification decides which layer changes", () => {
     });
   });
 
+  it("treats security failures as blockers rather than retry candidates", () => {
+    expect(classify("CodeQL found a reachable vulnerability GHSA-example")).toMatchObject({
+      layer: "security",
+      action: "escalate",
+    });
+  });
+
+  it("routes command misuse to the tool layer", () => {
+    expect(classify("unknown option --unsafe for tool runner")).toMatchObject({
+      layer: "tool",
+      action: "repair",
+    });
+  });
+
+  it("routes merge failures to conflict resolution", () => {
+    expect(classify("merge conflict in src/app.ts")).toMatchObject({
+      layer: "conflict",
+      action: "repair",
+    });
+  });
+
   it("routes a missing source of truth to context retrieval", () => {
     expect(classify("Cannot find module '../telemetry/idempotency-metrics.js'")).toMatchObject({
       layer: "context",

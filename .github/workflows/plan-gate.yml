@@ -1,31 +1,36 @@
 name: Plan Gate
 
-# No `branches:` filter. Learn's snippet scopes the gate to `main`, but that
-# filter matches the PR's BASE branch - and this repository stacks demo PRs onto
-# each other, so a base filter silently skipped the gate on the very PR that
-# introduced it. A plan is required for every pull request, not only the ones
-# aimed at the default branch.
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
 
 permissions:
   contents: read
+  issues: read
   pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.ref }}
+  cancel-in-progress: true
 
 jobs:
   require-plan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
         with:
-          node-version: "20"
-
-      # `edited` is in the trigger list on purpose: the plan lives in the pull
-      # request description, so editing the description must re-run the gate.
-      - name: Require a reviewable plan in the PR description
-        env:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - env:
           GH_TOKEN: ${{ github.token }}
-        run: node scripts/check-plan.mjs --pr ${{ github.event.pull_request.number }}
+        run: |
+          node scripts/resolve-pr-task.mjs --pr ${{ github.event.pull_request.number }}
+          node scripts/check-plan.mjs --pr ${{ github.event.pull_request.number }}
+
+# This read-only workflow validates plan content. Recording the approval is an
+# explicit human safe output:
+#   npm run plan:record-approval -- --pr <n> --review <review-id>

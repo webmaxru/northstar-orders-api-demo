@@ -1,5 +1,5 @@
 /**
- * Persist the plan when the plan agent stops.
+ * Persist a validated plan proposal when the planning agent stops.
  *
  * The plan agent is read-only by design, so it cannot write its own plan
  * anywhere. That is the right capability boundary and the wrong outcome: the
@@ -7,20 +7,27 @@
  * and not an artifact anyone else can review, resume, or hand to an
  * implementer.
  *
- * The hook resolves that. It runs outside the agent's tool boundary - the
- * system persists the artifact, the agent still cannot write - and opens the
- * plan-first pull request Learn's Option A describes: a PR containing only the
- * plan, no code changes, reviewed and approved before implementation begins.
+ * The hook resolves the durability problem without publishing. It runs outside
+ * the agent's tool boundary, validates the human-readable and machine-readable
+ * plan, and writes both under artifacts/. A human explicitly publishes the
+ * plan-only pull request after inspection.
  *
- * If the transcript cannot be read, it says so and gives the exact command,
+ * If the transcript cannot be read or the plan contract is invalid, it says so
  * rather than reporting success and persisting nothing.
  */
 
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Buffer } from "node:buffer";
-import { extractPlan, publish } from "./publish-plan.mjs";
+import { extractPlan } from "./publish-plan.mjs";
+import {
+  extractPlanContract,
+  validatePlanContract,
+} from "./plan-contract.mjs";
 import { loadTaskContract } from "./task-contract.mjs";
+
+const REPO_ROOT = resolve(import.meta.dirname, "..");
 
 async function readStdin() {
   const chunks = [];
@@ -72,19 +79,30 @@ async function main() {
     return;
   }
 
-  try {
-    const result = publish(contract, body);
+  const plan = extractPlanContract(body);
+  const validation = validatePlanContract(plan, contract);
+  if (!validation.ok) {
     emit(
-      `Plan ${result.updated ? "updated on" : "published as"} PR #${result.number} (${result.url}). ` +
-        "It contains the plan and no code. Review and approve it there, then implement in a fresh " +
-        "session so planning context is not carried into it.",
+      `Plan not persisted: ${validation.errors.join(" ")} ` +
+        "Return a complete northstar/plan/1 contract and stop again.",
     );
-  } catch (error) {
-    emit(
-      `Plan not persisted: ${/** @type {Error} */ (error).message.split("\n")[0]}. ` +
-        "Run node scripts/publish-plan.mjs --file <plan.md>",
-    );
+    return;
   }
+
+  const proposalPath = resolve(REPO_ROOT, "artifacts/plan-proposal.md");
+  const planPath = resolve(REPO_ROOT, "artifacts/plan.json");
+  mkdirSync(resolve(REPO_ROOT, "artifacts"), { recursive: true });
+  writeFileSync(proposalPath, `${body.trim()}\n`, "utf8");
+  writeFileSync(
+    planPath,
+    `${JSON.stringify({ ...plan, planDigest: validation.planDigest }, null, 2)}\n`,
+    "utf8",
+  );
+  emit(
+    "Plan proposal persisted locally at artifacts/plan-proposal.md and artifacts/plan.json. " +
+      "No branch, push, or pull request was created. A human may publish it explicitly with " +
+      "`npm run plan:publish -- --file artifacts/plan-proposal.md`, then approve the plan-only pull request.",
+  );
 }
 
 const invokedDirectly =
