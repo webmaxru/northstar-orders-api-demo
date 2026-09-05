@@ -163,6 +163,19 @@ export function strictRequiredContexts(protection, rulesets) {
   return contexts;
 }
 
+export function governedAcceptanceDatabaseUrlIsSafe(workflow) {
+  const databaseUrlLines =
+    String(workflow).match(/^\s*DATABASE_URL:\s*.+$/gm) ?? [];
+  if (databaseUrlLines.length !== 1) return false;
+
+  const expected =
+    "DATABASE_URL: \"${{ format('postgresql://{0}:{1}@localhost:5432/{2}', 'postgres', 'postgres', 'northstar') }}\"";
+  return (
+    databaseUrlLines[0].trim() === expected &&
+    !/^\s*DATABASE_URL:\s*\*+/m.test(workflow)
+  );
+}
+
 export function auditSourceTree() {
   const checks = [];
   const tracked = execFileSync("git", ["ls-files"], {
@@ -241,6 +254,11 @@ export function auditSourceTree() {
         /group:\s*\$\{\{\s*github\.workflow\s*\}\}-/.test(workflow),
         "workflow:concurrency",
         "Concurrency is scoped by workflow and branch.",
+      ),
+      check(
+        governedAcceptanceDatabaseUrlIsSafe(workflow),
+        "workflow:acceptance-database-url",
+        "Acceptance uses the declared ephemeral PostgreSQL service without a YAML alias scalar.",
       ),
     );
     for (const job of [

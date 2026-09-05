@@ -1,9 +1,11 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   auditSourceTree,
   environmentAllowsOnlyDefaultBranch,
   environmentReviewersMatch,
   exactStringSet,
+  governedAcceptanceDatabaseUrlIsSafe,
   hasRulesetBypass,
   rulesetAppliesToDefaultBranch,
   strictRequiredContexts,
@@ -22,6 +24,27 @@ describe("source-controlled governance", () => {
     expect(new Set(Object.values(auditSourceTree().externalControls))).toEqual(
       new Set(["not-verified"]),
     );
+  });
+
+  it("preserves the governed acceptance database boundary", () => {
+    const workflow = readFileSync(
+      ".github/workflows/governed-change.yml",
+      "utf8",
+    );
+    expect(governedAcceptanceDatabaseUrlIsSafe(workflow)).toBe(true);
+  });
+
+  it("rejects an invalid governed workflow database URL", () => {
+    const workflow = readFileSync(
+      ".github/workflows/governed-change.yml",
+      "utf8",
+    );
+    const invalid = workflow.replace(
+      /^\s*DATABASE_URL:.*$/m,
+      "      DATABASE_URL: ******localhost:5432/northstar",
+    );
+    expect(invalid).not.toBe(workflow);
+    expect(governedAcceptanceDatabaseUrlIsSafe(invalid)).toBe(false);
   });
 
   it("ignores a ruleset that excludes the default branch", () => {
