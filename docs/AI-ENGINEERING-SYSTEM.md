@@ -148,3 +148,14 @@ can produce `ready_for_acceptance`.
 The current repository plan does not expose branch-protection/ruleset APIs for
 this private repository, so hosted integration must remain unverified until
 that external limitation is removed.
+
+## Evolving the system
+
+The hooks do not prevent planned maintenance of the engineering system. They
+prevent uncontracted or unapproved maintenance. Control-plane changes use the
+same high-risk issue, plan, approval, branch, and evidence path as other work.
+
+Because changed validation code cannot safely approve itself, those pull
+requests intentionally stop at local `ready_for_review` until an external
+bootstrap authority accepts them. See
+[`SYSTEM-MAINTENANCE.md`](SYSTEM-MAINTENANCE.md).

@@ -38,6 +38,7 @@ const REQUIRED_FILES = [
   "docs/architecture.md",
   "docs/AI-ENGINEERING-SYSTEM.md",
   "docs/END-TO-END-DEMO.md",
+  "docs/SYSTEM-MAINTENANCE.md",
   "docs/RECOVERY-POLICY.md",
 ];
 

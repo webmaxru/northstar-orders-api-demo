@@ -69,6 +69,7 @@ current human reviews, repository rules, and environment approvals can produce
 | Governance drift | `.github/governance/policy.json`, `scripts/governance-audit.mjs` |
 | Continuous AI | `.github/workflows/daily-repository-status.md` and generated lock file |
 | End-to-end walkthrough | `docs/END-TO-END-DEMO.md` |
+| Maintaining the control plane | `docs/SYSTEM-MAINTENANCE.md` |
 
 ## Important boundary
 
@@ -104,3 +105,5 @@ curl.exe -X POST http://localhost:3000/orders `
 
 See [`docs/architecture.md`](docs/architecture.md) for the complete system and
 [`docs/END-TO-END-DEMO.md`](docs/END-TO-END-DEMO.md) for the reproducible demo.
+Use [`docs/SYSTEM-MAINTENANCE.md`](docs/SYSTEM-MAINTENANCE.md) when changing
+the agents, hooks, workflows, evidence code, or governance policy themselves.
