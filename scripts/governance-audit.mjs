@@ -189,6 +189,18 @@ export function governedArtifactsTargetExpectedDirectory(workflow) {
   );
 }
 
+export function governedSingleCheckArtifactsPreserveDirectory(workflow) {
+  const text = String(workflow);
+  return [
+    ["northstar-check-secret", "secret-scan"],
+    ["northstar-check-review", "human-review"],
+  ].every(([artifact, check]) =>
+    new RegExp(
+      `name: ${artifact}\\r?\\n\\s+path: artifacts/\\*\\*/${check}\\.json`,
+    ).test(text),
+  );
+}
+
 export function governedEvidenceTaskLookupPermissionsAreSafe(workflow) {
   const evidenceJob = /^ {2}evidence:\r?\n([\s\S]*)$/m.exec(
     String(workflow),
@@ -297,6 +309,11 @@ export function auditSourceTree() {
         governedArtifactsTargetExpectedDirectory(workflow),
         "workflow:artifact-handoff",
         "Downloaded evidence is restored under the artifacts directory consumed by policy scripts.",
+      ),
+      check(
+        governedSingleCheckArtifactsPreserveDirectory(workflow),
+        "workflow:single-check-artifact-layout",
+        "Single-file check artifacts preserve their checks directory during upload.",
       ),
       check(
         governedEvidenceTaskLookupPermissionsAreSafe(workflow),

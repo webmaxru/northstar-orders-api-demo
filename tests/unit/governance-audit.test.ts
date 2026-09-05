@@ -8,6 +8,7 @@ import {
   governedAcceptanceDatabaseUrlIsSafe,
   governedArtifactsTargetExpectedDirectory,
   governedEvidenceTaskLookupPermissionsAreSafe,
+  governedSingleCheckArtifactsPreserveDirectory,
   hasRulesetBypass,
   rulesetAppliesToDefaultBranch,
   strictRequiredContexts,
@@ -96,7 +97,16 @@ describe("source-controlled governance", () => {
       "utf8",
     );
     expect(governedArtifactsTargetExpectedDirectory(workflow)).toBe(true);
+    expect(governedSingleCheckArtifactsPreserveDirectory(workflow)).toBe(true);
     expect(governedEvidenceTaskLookupPermissionsAreSafe(workflow)).toBe(true);
+    expect(
+      governedSingleCheckArtifactsPreserveDirectory(
+        workflow.replace(
+          "path: artifacts/**/secret-scan.json",
+          "path: artifacts/checks/secret-scan.json",
+        ),
+      ),
+    ).toBe(false);
   });
 
   it("ignores a ruleset that excludes the default branch", () => {

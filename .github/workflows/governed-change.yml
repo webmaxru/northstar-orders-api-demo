@@ -304,7 +304,7 @@ jobs:
         if: always()
         with:
           name: northstar-check-secret
-          path: artifacts/checks/secret-scan.json
+          path: artifacts/**/secret-scan.json
           if-no-files-found: error
           retention-days: 90
       - if: steps.scan.outcome != 'success'
@@ -487,7 +487,7 @@ jobs:
         if: always()
         with:
           name: northstar-check-review
-          path: artifacts/checks/human-review.json
+          path: artifacts/**/human-review.json
           if-no-files-found: error
           retention-days: 90
       - if: steps.review.outcome != 'success'

@@ -39,6 +39,9 @@ export declare function governedAcceptanceDatabaseUrlIsSafe(
 export declare function governedArtifactsTargetExpectedDirectory(
   workflow: string,
 ): boolean;
+export declare function governedSingleCheckArtifactsPreserveDirectory(
+  workflow: string,
+): boolean;
 export declare function governedEvidenceTaskLookupPermissionsAreSafe(
   workflow: string,
 ): boolean;
