@@ -19,6 +19,16 @@ const DURABLE_CONTEXT = [
 
 const WORK_ITEM_PATTERN = /\bWI-\d+\b/;
 
+function alternateRepositoryReference(identity: string) {
+  const escaped = identity.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(
+    `(?:git@github\\.com:|ssh://git@github\\.com/|git://github\\.com/|` +
+      `git\\+https://github\\.com/|http://github\\.com/|github:)` +
+      `${escaped}(?:\\.git)?`,
+    "i",
+  );
+}
+
 describe("durable context is task-agnostic", () => {
   it("covers every durable context file", () => {
     expect(DURABLE_CONTEXT.length).toBeGreaterThanOrEqual(6);
@@ -112,6 +122,8 @@ describe("canonical guide terminology", () => {
       /^\/|\/$/g,
       "",
     );
+    expect(readme).not.toMatch(alternateRepositoryReference(repositoryIdentity));
+
     const outsideReadme = spawnSync(
       "git",
       ["grep", "-i", "-l", "-F", repositoryIdentity, "--", ":!README.md"],
@@ -119,5 +131,20 @@ describe("canonical guide terminology", () => {
     );
     expect([0, 1]).toContain(outsideReadme.status);
     expect(outsideReadme.stdout.trim()).toBe("");
+  });
+
+  it("rejects alternate repository transports beside the canonical link", () => {
+    const pattern = alternateRepositoryReference("owner/repository");
+    for (const reference of [
+      "git@github.com:owner/repository.git",
+      "ssh://git@github.com/owner/repository",
+      "git://github.com/owner/repository",
+      "git+https://github.com/owner/repository",
+      "http://github.com/owner/repository",
+      "github:owner/repository",
+    ]) {
+      expect(reference).toMatch(pattern);
+    }
+    expect("https://github.com/owner/repository").not.toMatch(pattern);
   });
 });
