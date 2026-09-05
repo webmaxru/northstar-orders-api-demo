@@ -24,7 +24,7 @@ const MACHINE_PLAN: PlanContract = {
   schema: "northstar/plan/1",
   taskId: TASK_CONTRACT.id,
   contractDigest: TASK_CONTRACT.source.bodyDigest,
-  baseBranch: "reference/ai-engineering-system",
+  baseBranch: "release/reference-baseline",
   baseSha: "a".repeat(40),
   risk: "high",
   objective: TASK_CONTRACT.inputs.goal,
@@ -128,7 +128,7 @@ describe("the plan is a pull request, not a chat message", () => {
   it("opens a plan-first PR as a draft off the branch being planned against", () => {
     const vcs = (args: string[]) => {
       if (args[1] === "--abbrev-ref" && args[2] === "HEAD") {
-        return "reference/ai-engineering-system\n";
+        return "release/reference-baseline\n";
       }
       return "abc123\n";
     };
@@ -144,7 +144,7 @@ describe("the plan is a pull request, not a chat message", () => {
 
     const create = created.find(([a, b]) => a === "pr" && b === "create")!;
     expect(create[create.indexOf("--base") + 1]).toBe(
-      "reference/ai-engineering-system",
+      "release/reference-baseline",
     );
     expect(create[create.indexOf("--head") + 1]).toBe("plan/wi-1842");
   });
@@ -155,8 +155,8 @@ describe("the plan branch is cut from the branch you are on", () => {
   // agents, prompts or hooks, so /implement could not run there at all.
   it("uses the current branch", () => {
     const vcs = (args: string[]) =>
-      args[2] === "HEAD" ? "reference/ai-engineering-system\n" : "main\n";
-    expect(resolveBase(vcs)).toBe("reference/ai-engineering-system");
+      args[2] === "HEAD" ? "release/reference-baseline\n" : "main\n";
+    expect(resolveBase(vcs)).toBe("release/reference-baseline");
   });
 
   it("falls back to the default branch when HEAD is detached", () => {
@@ -168,8 +168,8 @@ describe("the plan branch is cut from the branch you are on", () => {
     const vcs = () => {
       throw new Error("git should not be consulted when --base is given");
     };
-    expect(resolveBase(vcs, "origin/reference/ai-engineering-system")).toBe(
-      "reference/ai-engineering-system",
+    expect(resolveBase(vcs, "origin/release/reference-baseline")).toBe(
+      "release/reference-baseline",
     );
   });
 });

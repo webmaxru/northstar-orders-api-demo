@@ -3,44 +3,42 @@
 > **Synthetic reference implementation.** Northstar Commerce, its incidents,
 > metrics, and identifiers are fictional.
 
-This repository implements the AI engineering system described in
-[`docs/Developing-in-Agentic-AI-Systems-Learning-Paths.md`](docs/Developing-in-Agentic-AI-Systems-Learning-Paths.md).
-The sample workload is a TypeScript/Fastify order API whose idempotency behavior
-must remain correct across multiple stateless service instances.
+This repository is the executable reference implementation of
+[`webmaxru/ai-engineering-system`](https://github.com/webmaxru/ai-engineering-system).
+The workload is a TypeScript/Fastify order API whose idempotency behavior must
+remain correct across multiple stateless service instances.
 
-The system follows **plan -> act -> evaluate** and the responsibility boundary
-**agents propose; humans and policy accept**.
+## Application behavior
 
-## What is implemented
+`POST /orders` accepts:
 
-- GitHub issues as task contracts with inputs, outputs, success criteria,
-  validation expectations, rollout expectations, and stop conditions.
-- A read-only planner, scoped implementer, dependency agent, security reviewer,
-  and read-only risk reviewer.
-- A machine-readable `northstar/plan/1` contract with deterministic
-  low/medium/high/critical risk routing.
-- Human approval bound to the task digest, plan digest, base SHA, and plan-only
-  commit before high-risk implementation.
-- Native Copilot lifecycle hooks for context resolution, pre-tool enforcement,
-  payload-free audit records, and stop-time evidence checks.
-- A fan-out/fan-in GitHub Actions evaluation workflow covering plan, scope,
-  quality, build, PostgreSQL acceptance, dependencies, secrets, CodeQL, merge
-  compatibility, governance, human review, and final evidence.
-- A strict GitHub Agentic Workflow using read-only tools and staged safe
-  outputs for a Daily Repository Status Report.
-- Bounded repair, rollback, escalation, governance cadence, and lifecycle
-  ownership.
+```json
+{
+  "sku": "WIDGET-1",
+  "quantity": 2
+}
+```
+
+An optional `Idempotency-Key` header provides durable request replay:
+
+- the first request creates an order and returns `201`;
+- the same key and payload return the original order with `200`;
+- the same key and a different payload return `409`;
+- requests without a key retain normal create behavior;
+- concurrent retries across service instances create exactly one order.
+
+The implementation stores SHA-256 hashes instead of raw idempotency keys or
+request payloads. PostgreSQL transaction-scoped advisory locks serialize work
+for one key, and the order plus completed replay record commit atomically.
 
 ## Quick start
+
+Prerequisites are Node.js 22 or later and Docker Desktop.
 
 ```powershell
 npm ci
 npm run db:up
-npm run validate
-npm run test:acceptance
-npm audit --audit-level=high
-npm run security:secrets
-npm run agentic:validate
+npm run validate:all
 ```
 
 Run the complete local reference scenario:
@@ -49,61 +47,58 @@ Run the complete local reference scenario:
 npm run demo:system
 ```
 
-The final local decision is `ready_for_review`. Only real GitHub workflow runs,
-current human reviews, repository rules, and environment approvals can produce
-`ready_for_acceptance`.
+The expected local decision is `ready_for_review`. Hosted reviews, workflow
+provenance, repository rules, and protected-environment approvals are evaluated
+separately and cannot be synthesized by a local run.
 
-## Reference map
-
-| Concern | Implementation |
-| --- | --- |
-| Task contract | `.github/ISSUE_TEMPLATE/agent-task.yml`, `scripts/task-contract.mjs` |
-| Plan and risk | `scripts/plan-contract.mjs`, `scripts/risk-policy.mjs` |
-| Human plan approval | `scripts/plan-approval.mjs`, `.github/workflows/plan-gate.yml` |
-| Role boundaries | `.github/agents/` |
-| Tool authorization | `.github/hooks/agent-boundary.json`, `scripts/authorize-tool.mjs` |
-| Audit trail | `scripts/audit-hook.mjs`, GitHub workflow logs and artifacts |
-| Evaluation | `.github/workflows/governed-change.yml` |
-| Evidence | `scripts/evidence-record.mjs`, `scripts/build-execution-report.mjs` |
-| Recovery | `scripts/repair-budget.mjs`, `docs/RECOVERY-POLICY.md` |
-| Governance drift | `.github/governance/policy.json`, `scripts/governance-audit.mjs` |
-| Continuous AI | `.github/workflows/daily-repository-status.md` and generated lock file |
-| End-to-end walkthrough | `docs/END-TO-END-DEMO.md` |
-| Maintaining the control plane | `docs/SYSTEM-MAINTENANCE.md` |
-
-## Important boundary
-
-Repository files can define and test expected governance, but they cannot turn
-on GitHub rulesets, required code-owner reviews, secret scanning, push
-protection, or protected-environment reviewers. The current private repository
-plan does not expose those APIs. `npm run governance:check` therefore validates
-source-controlled controls and reports hosted controls as **not verified**;
-the hosted setup steps are documented explicitly.
-
-## Application
-
-Start the service without PostgreSQL for baseline behavior:
+Stop PostgreSQL when finished:
 
 ```powershell
+npm run db:down
+```
+
+## Run the API
+
+With PostgreSQL:
+
+```powershell
+$env:DATABASE_URL = "postgres://northstar:northstar@127.0.0.1:55432/northstar"
+$env:PORT = "3000"
 npm start
 ```
 
-Start it with the shared PostgreSQL durability boundary:
+Without `DATABASE_URL`, the API uses an in-memory repository for baseline
+single-process behavior.
+
+Create and replay an order:
 
 ```powershell
-npm run db:up
-$env:DATABASE_URL = "******127.0.0.1:55432/northstar"
-npm start
-```
-
-```powershell
-curl.exe -X POST http://localhost:3000/orders `
+$body = '{"sku":"WIDGET-1","quantity":2}'
+curl.exe -i -X POST http://localhost:3000/orders `
   -H "content-type: application/json" `
   -H "idempotency-key: demo-order-001" `
-  -d "{\"sku\":\"WIDGET-1\",\"quantity\":2}"
+  -d $body
+curl.exe -i -X POST http://localhost:3000/orders `
+  -H "content-type: application/json" `
+  -H "idempotency-key: demo-order-001" `
+  -d $body
 ```
 
-See [`docs/architecture.md`](docs/architecture.md) for the complete system and
-[`docs/END-TO-END-DEMO.md`](docs/END-TO-END-DEMO.md) for the reproducible demo.
-Use [`docs/SYSTEM-MAINTENANCE.md`](docs/SYSTEM-MAINTENANCE.md) when changing
-the agents, hooks, workflows, evidence code, or governance policy themselves.
+The first response has `x-idempotent-replay: false`; the replay has
+`x-idempotent-replay: true` and the same order ID.
+
+## Repository map
+
+| Area | Location |
+| --- | --- |
+| HTTP routes and error mapping | `src/app.ts` |
+| Order domain model | `src/domain/` |
+| In-memory baseline | `src/repositories/`, `src/services/order-service.ts` |
+| PostgreSQL idempotency | `src/services/postgres-idempotent-order-service.ts` |
+| Database schema | `migrations/` |
+| Runtime metrics | `src/telemetry/` |
+| Unit tests | `tests/unit/` |
+| Cross-instance acceptance | `tests/acceptance/` |
+| Runtime architecture | `docs/architecture.md` |
+| Idempotency decision | `docs/adr/007-durable-idempotency.md` |
+| Recovery rules | `docs/RECOVERY-POLICY.md` |

@@ -1,192 +1,140 @@
-# Architecture
+# Runtime architecture
 
-Northstar is two systems in one repository:
-
-1. a stateless Orders API with PostgreSQL as its durability boundary; and
-2. an AI engineering system that governs how agents plan, implement, evaluate,
-   and hand work to humans.
-
-The design follows the learning guide's control loop:
-
-```text
-task contract -> plan -> human plan approval -> act -> evaluate
-      ^                                                   |
-      +-------------- repair or escalate ----------------+
-```
-
-The responsibility boundary is **agents propose; humans and policy accept**.
-
-## System of record and external memory
-
-GitHub is the system of record:
-
-| Artifact | Canonical responsibility |
-| --- | --- |
-| Issue | Goal, constraints, non-goals, scope, success criteria, validation, rollout |
-| Plan-first pull request | Current plan, risk, decisions, handoffs, rollback |
-| Branch and commits | Isolated implementation history |
-| Checks and workflow runs | Objective evaluation |
-| Uploaded artifacts | JUnit, SARIF, dependency, scope, governance, and execution reports |
-| Reviews | Plan approval and final human acceptance |
-| Environment approval | Critical production authorization |
-
-Chats and model reasoning are short-term memory. They are never authoritative.
-On resume, an agent re-reads the issue, pull request, base/head SHAs, checks,
-and latest reviews.
-
-## Control-plane components
+Northstar is a stateless TypeScript/Fastify Orders API. PostgreSQL is the
+durability and concurrency boundary for idempotent order creation.
 
 ```mermaid
 flowchart LR
-  I[Issue task contract] --> P[Read-only planner]
-  P --> PJ[Machine-readable plan + risk]
-  PJ --> PA[Human plan-only approval]
-  PA --> A[Scoped implementer]
-  A --> PR[Pull request state anchor]
-
-  PR --> Q[Quality + build + unit]
-  PR --> X[PostgreSQL acceptance]
-  PR --> D[Dependency review]
-  PR --> S[Secret scan + CodeQL]
-  PR --> M[Merge + scope policy]
-  PR --> R[Human review]
-
-  Q --> E[Evidence fan-in]
-  X --> E
-  D --> E
-  S --> E
-  M --> E
-  R --> E
-
-  E -->|ready_for_review| HR[Human review]
-  E -->|ready_for_acceptance| H[Human and policy acceptance]
-  E -->|review_required| F[Repair or escalate]
+  C[Client] --> L[Load balancer]
+  L --> A[API instance A]
+  L --> B[API instance B]
+  A --> P[(PostgreSQL)]
+  B --> P
 ```
 
-### Task contract
+Any retry may reach a different process. Process memory is neither shared nor
+durable, so it cannot coordinate idempotency.
 
-`.github/ISSUE_TEMPLATE/agent-task.yml` defines inputs, outputs, success
-criteria, validation expectations, rollout expectations, and stop conditions.
-`scripts/task-contract.mjs` verifies the shape, trusted issue provenance, and a
-SHA-256 body digest. Offline fixtures are accepted only for tests and demos and
-are marked untrusted.
+## HTTP surface
 
-### Plan and risk
+### `GET /health`
 
-`scripts/plan-contract.mjs` validates a `northstar/plan/1` document embedded in
-the PR plan. It binds the task-contract digest, base SHA, path scope, success
-criteria, risk, required checks, evidence, decisions, and rollback.
+Returns:
 
-`.github/governance/policy.json` implements the guide's risk levels:
+```json
+{
+  "status": "ok"
+}
+```
 
-- `low`: reversible documentation and formatting;
-- `medium`: dependencies and bounded application changes;
-- `high`: workflows, hooks, agents, security, infrastructure, and migrations;
-- `critical`: production deployment or production-secret access.
+### `POST /orders`
 
-The declared risk may exceed the deterministic floor but cannot lower it.
+Accepts:
 
-### Approval
+```json
+{
+  "sku": "WIDGET-1",
+  "quantity": 2
+}
+```
 
-High and critical work uses a plan-first pull request. A valid plan approval is
-a human `APPROVED` review of the plan-only commit plus a durable record binding:
+`sku` must be a non-empty string and `quantity` must be an integer from 1
+through 100.
 
-- task and contract digest;
-- canonical plan digest;
-- plan PR and review IDs;
-- base SHA and reviewed commit;
-- reviewer and timestamp.
+The optional `Idempotency-Key` header must contain 8 through 128 letters,
+numbers, dots, underscores, colons, or hyphens.
 
-Editing the canonical plan changes its digest and invalidates the record.
-Final implementation approval is separate and must target the current head SHA.
+| Outcome | Status | Replay header |
+| --- | --- | --- |
+| New order | `201` | `x-idempotent-replay: false` |
+| Same key and request | `200` | `x-idempotent-replay: true` |
+| Same key, different request | `409` | not applicable |
+| Invalid input or key | `400` | not applicable |
+| Unexpected failure | `500` | not applicable |
 
-### Capabilities and hooks
+## Idempotency transaction
 
-Custom agents expose only the tools their role needs. The native Copilot hook
-uses `PreToolUse` to deny missing-contract writes, out-of-scope paths,
-unapproved commands, secret handling, external exfiltration, direct publishing,
-and destructive operations.
+For a request with an idempotency key:
 
-`PostToolUse`, `PostToolUseFailure`, and `SessionEnd` produce payload-free local
-audit records. Those records contain hashes and attribution, not raw prompts,
-commands, payloads, or secrets. Copilot command-hook timeouts are fail-open, so
-hooks are defense in depth; GitHub Actions is the durable acceptance authority.
+1. Validate the order and key.
+2. Canonically serialize `{ quantity, sku }` and hash the request.
+3. Salt and hash the idempotency key with SHA-256.
+4. Begin a PostgreSQL transaction.
+5. Acquire a transaction-scoped advisory lock derived from the key hash.
+6. Delete an expired record for that key, if present.
+7. Read the current idempotency record.
+8. Return its stored response when the request hash matches.
+9. Return a conflict when the request hash differs.
+10. Otherwise insert the order and idempotency record in the same transaction.
+11. Commit and release the connection.
 
-### Evaluation and evidence
+The advisory lock removes the check-then-act race across API instances. The
+single transaction prevents an order from committing without its completed
+replay record.
 
-`.github/workflows/governed-change.yml` fans out independent checks and fans
-them into one report. Every producer emits a
-`northstar/check-evidence/1` envelope with repository, workflow, job, run,
-actor, PR, base SHA, head SHA, status, and artifact digest.
+## Persistence
 
-`scripts/build-execution-report.mjs` rejects missing, failed, stale,
-cross-commit, or cross-run evidence. Success criteria match stable test names,
-not arbitrary substrings.
+`orders` contains:
 
-- `ready_for_review`: all local-reference evidence passed; hosted evidence is
-  still pending.
-- `ready_for_acceptance`: all hosted checks and human approvals passed.
-- `review_required`: required evidence failed, is missing, or is stale.
+- UUID order ID;
+- SKU;
+- quantity;
+- creation timestamp.
 
-The trusted default-branch publisher writes the commit status
-`trusted-acceptance`. Branch protection requires that stable context, so a PR
-comment or a PR-controlled workflow cannot substitute for the final verdict.
+`idempotency_records` contains:
 
-When `validation-authority` detects that a PR changes its own control plane,
-the first trusted verdict remains failed. A second trusted job is gated by the
-protected `system-maintenance` environment. A dispatch-only GitHub App starts
-that workflow, while a separate trusted-publisher App publishes
-`trusted-acceptance`. Their keys are available only in protected,
-default-branch environments; neither App is a human environment reviewer.
-After approval, the publisher App's Administration-read permission verifies
-current repository controls; the job rebinds the same PR and SHA, imports only
-allowlisted evidence, replaces the validation-authority record, and may emit a
-successful `trusted-acceptance`.
+- a fixed-length key hash as the primary key;
+- a fixed-length canonical request hash;
+- the related order ID;
+- the response body needed for replay;
+- creation and expiration timestamps.
 
-## Continuous AI
+Records expire after 24 hours. Expired records are removed lazily when the same
+key is used again.
 
-`.github/workflows/daily-repository-status.md` is a GitHub Agentic Workflow.
-It runs in strict mode with read-only tools, a bounded AI-credit budget, and a
-staged safe output. `gh aw compile` produces the hardened `.lock.yml`.
+Raw idempotency keys and raw request payloads are not persisted. Application
+and workflow logs must not contain them.
 
-The Agentic Workflow may analyze and propose. It does not replace deterministic
-CI, required checks, ownership review, or human acceptance.
+## Baseline mode
 
-## MCP governance
+When `DATABASE_URL` is absent, `src/server.ts` uses an in-memory order
+repository. This mode demonstrates the basic API but intentionally does not
+claim cross-instance idempotency.
 
-The reference uses built-in GitHub context and does not commit a fake MCP
-endpoint. Repository and organization administrators manage MCP servers in
-GitHub settings:
+When `DATABASE_URL` is present, the server uses
+`PostgresIdempotentOrderService`.
 
-- approved servers are discovered through the GitHub MCP Registry or an
-  MCP registry v0.1 endpoint;
-- only named tools are enabled;
-- credentials use protected `COPILOT_MCP_*` runtime variables;
-- adding a server or widening tools is treated as a high-risk dependency and
-  policy change.
+## Telemetry
 
-## Runtime boundary
+The reference metrics interface records replay and conflict counts without
+recording keys or payloads. The current in-memory metrics implementation is
+used by acceptance tests and can be replaced by a production metrics adapter.
 
-The Orders API is stateless and may run as multiple instances behind a load
-balancer:
+## Failure behavior
 
-- any retry can reach a different process;
-- process memory is not shared and is lost on restart;
-- PostgreSQL is the shared durability and concurrency boundary;
-- the API must remain safe when two instances receive the same request
-  concurrently.
+- Validation errors return a controlled `400`.
+- Reusing a key for a different request returns a controlled `409`.
+- Database or unexpected failures roll back and return a generic `500`.
+- If both the transaction and rollback fail, the service surfaces both errors
+  as an `AggregateError`.
+- The implementation does not retry database operations indefinitely.
 
-Raw idempotency keys and request payloads are sensitive correlation data.
-Store only hashes and do not write either value to logs or evidence.
+## Evidence
 
-## Hosted control boundary
+Unit tests cover domain, service, policy, and evidence behavior without
+external dependencies.
 
-Repository files can express and test the desired governance configuration,
-but only GitHub settings can enforce required checks, required code-owner
-reviews, direct-push restrictions, secret scanning, push protection, and
-protected-environment reviewers.
+PostgreSQL acceptance tests create two service instances over one database and
+prove:
 
-This private repository currently returns HTTP 403 for ruleset and branch
-protection APIs on its plan. The local reference is therefore fully testable,
-but hosted integration remains **not verified** until those settings can be
-enabled and real pull-request, workflow, review, and environment events run.
+- same-instance replay;
+- cross-instance replay;
+- conflicting payload rejection;
+- exactly one order under concurrent cross-instance retries;
+- baseline behavior without a key;
+- replay and conflict metrics;
+- HTTP behavior across two Fastify instances;
+- fixed-length hashes instead of raw sensitive values.
+
+See [`adr/007-durable-idempotency.md`](adr/007-durable-idempotency.md) for the
+decision record.

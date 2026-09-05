@@ -34,11 +34,7 @@ const REQUIRED_FILES = [
   ".github/workflows/production-gate.yml",
   ".github/workflows/daily-repository-status.md",
   ".github/workflows/daily-repository-status.lock.yml",
-  "docs/Developing-in-Agentic-AI-Systems-Learning-Paths.md",
   "docs/architecture.md",
-  "docs/AI-ENGINEERING-SYSTEM.md",
-  "docs/END-TO-END-DEMO.md",
-  "docs/SYSTEM-MAINTENANCE.md",
   "docs/RECOVERY-POLICY.md",
 ];
 
