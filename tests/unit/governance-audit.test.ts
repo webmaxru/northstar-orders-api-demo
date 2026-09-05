@@ -83,7 +83,7 @@ describe("source-controlled governance", () => {
     expect(
       governedEvidenceTaskLookupPermissionsAreSafe(
         workflow.replace(
-          /(  evidence:[\s\S]*?    permissions:\r?\n(?:      [^\r\n]+\r?\n)*?)      pull-requests: read\r?\n/,
+          /( {2}evidence:[\s\S]*? {4}permissions:\r?\n(?: {6}[^\r\n]+\r?\n)*?) {6}pull-requests: read\r?\n/,
           "$1",
         ),
       ),

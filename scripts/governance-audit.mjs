@@ -179,7 +179,7 @@ export function governedAcceptanceDatabaseUrlIsSafe(workflow) {
 export function governedArtifactsTargetExpectedDirectory(workflow) {
   const downloadSteps =
     String(workflow).match(
-      /^      - uses: actions\/download-artifact@[^\r\n]+\r?\n(?: {8,}[^\r\n]*(?:\r?\n|$))*/gm,
+      /^ {6}- uses: actions\/download-artifact@[^\r\n]+\r?\n(?: {8,}[^\r\n]*(?:\r?\n|$))*/gm,
     ) ?? [];
   return (
     downloadSteps.length === 4 &&
@@ -190,11 +190,11 @@ export function governedArtifactsTargetExpectedDirectory(workflow) {
 }
 
 export function governedEvidenceTaskLookupPermissionsAreSafe(workflow) {
-  const evidenceJob = /^  evidence:\r?\n([\s\S]*)$/m.exec(
+  const evidenceJob = /^ {2}evidence:\r?\n([\s\S]*)$/m.exec(
     String(workflow),
   )?.[1];
   const permissionBlock = evidenceJob
-    ? /^    permissions:\r?\n((?:      [^\r\n]+\r?\n)+)/m.exec(evidenceJob)?.[1]
+    ? /^ {4}permissions:\r?\n((?: {6}[^\r\n]+\r?\n)+)/m.exec(evidenceJob)?.[1]
     : null;
   if (!permissionBlock) return false;
 
