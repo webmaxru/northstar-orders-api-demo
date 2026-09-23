@@ -12,7 +12,7 @@ export interface AuditRecord {
   commandDigest: string | null;
   argumentsDigest: string;
   resultDigest: string | null;
-  success: boolean;
+  success: boolean | null;
 }
 
 export declare function createAuditRecord(

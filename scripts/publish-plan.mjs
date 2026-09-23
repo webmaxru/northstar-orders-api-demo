@@ -26,16 +26,21 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Buffer } from "node:buffer";
 import { loadTaskContract } from "./task-contract.mjs";
-import { extractPlanContract } from "./plan-contract.mjs";
+import { canonicalPlan, extractPlanContract, planDigest, validatePlanContract } from "./plan-contract.mjs";
 import {
+  evaluateNativePlanApproval,
   evaluatePlanApproval,
   parseApprovalRecord,
 } from "./plan-approval.mjs";
+import { githubJson, githubPages, runGitHub } from "./github-api.mjs";
+import { planArtifactPath, readPlanArtifact, validatePlanOnlyFiles } from "./plan-artifact.mjs";
+import { approvalPolicyForRisk, GOVERNANCE_POLICY } from "./risk-policy.mjs";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 const MARKER = "<!-- northstar:plan -->";
@@ -67,7 +72,7 @@ export function renderPlan(body, meta = {}) {
     "",
     PLAN_HEADING,
     "",
-    `Produced by the read-only \`plan\` agent${meta.at ? ` at ${meta.at}` : ""}. No code changes yet.`,
+    `Plan proposed${meta.at ? ` at ${meta.at}` : ""}. No implementation changes; publication is not approval.`,
     "",
     PLAN_START,
     String(body).trim(),
@@ -165,21 +170,16 @@ export function extractPlan(raw) {
 }
 
 function gh(args) {
-  const env = { ...process.env };
-  if (!env.GH_TOKEN && env.GITHUB_COPILOT_GIT_TOKEN) {
-    env.GH_TOKEN = env.GITHUB_COPILOT_GIT_TOKEN;
-  }
-  return execFileSync("gh", args, {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    env,
-  });
+  return runGitHub(args);
 }
 
-function git(args) {
+function git(args, options = {}) {
   return execFileSync("git", args, {
+    cwd: REPO_ROOT,
     encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0", ...options.env },
+    input: options.input,
   });
 }
 
@@ -192,10 +192,15 @@ export function findPlanPr(taskId, { run = gh } = {}) {
     planBranch(taskId),
     "--state",
     "open",
+    "--limit",
+    "2",
     "--json",
-    "number,body,url,author,headRefOid,baseRefOid,comments",
+    "number,body,url,author,headRefOid,baseRefOid,isDraft",
   ]);
   const list = JSON.parse(raw);
+  if (!Array.isArray(list) || list.length > 1) {
+    throw new Error("The task must resolve to exactly one open plan pull request.");
+  }
   return list.length > 0 ? list[0] : null;
 }
 
@@ -219,58 +224,106 @@ export function resolveBase(vcs, override) {
     .replace(/^origin\//, "");
 }
 
-/**
- * Open the plan-first PR: a branch whose only content is the plan.
- *
- * The empty commit is deliberate. Option A wants a PR "that contains only the
- * plan (no code changes yet)", and GitHub needs a commit to open one.
- * Implementation lands on a separate `agent/implement/<task>` branch. The
- * plan branch remains plan-only, and final code approval targets the latest
- * implementation SHA.
- */
-function openPlanPr(contract, body, { run = gh, vcs = git, base: baseOverride } = {}) {
+export function configuredPlanReviewers(author, {
+  run = gh,
+  reviewers = GOVERNANCE_POLICY.planApproval?.reviewers,
+} = {}) {
+  if (!Array.isArray(reviewers) || reviewers.length === 0 ||
+      !reviewers.every((login) => typeof login === "string" && /^[a-z\d][a-z\d-]{0,38}$/i.test(login))) {
+    throw new Error("Configure explicit human plan reviewers in governance policy before publication.");
+  }
+  const candidates = [...new Set(reviewers.map((login) => login.toLowerCase()))]
+    .filter((login) => login !== String(author).toLowerCase());
+  if (candidates.length === 0) throw new Error("No configured reviewer is independent of the PR author.");
+  return candidates.map((login) => {
+    const permission = githubJson(
+      `repos/{owner}/{repo}/collaborators/${encodeURIComponent(login)}/permission`,
+      { run },
+    );
+    if (
+      permission.user?.type !== "User" ||
+      permission.user?.login?.toLowerCase() !== login ||
+      !["write", "maintain", "admin"].includes(permission.permission)
+    ) {
+      throw new Error(`Configured plan reviewer ${login} is not an eligible human collaborator.`);
+    }
+    return permission.user.login;
+  });
+}
+
+function isLegacyPlan(pr, plan, contract, legacyPlans) {
+  return (legacyPlans ?? []).some((legacy) =>
+    legacy.pr === pr.number &&
+    pr.url === `https://github.com/${legacy.repository}/pull/${legacy.pr}` &&
+    legacy.headSha === pr.headRefOid &&
+    legacy.baseSha === pr.baseRefOid &&
+    legacy.baseSha === plan.baseSha &&
+    legacy.contractDigest === contract.source.bodyDigest &&
+    legacy.planDigest === planDigest(plan)
+  );
+}
+
+/** Materialize only the plan, without touching the caller's checkout or index. */
+function commitPlan(contract, plan, body, existing, { vcs = git, base: baseOverride } = {}) {
   const branch = planBranch(contract.id);
-  const base = resolveBase(vcs, baseOverride);
-
+  const base = resolveBase(vcs, baseOverride ?? plan.baseBranch);
+  if (base !== plan.baseBranch || !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(base)) {
+    throw new Error("The publication base must match the validated plan branch.");
+  }
   vcs(["fetch", "origin", base]);
-
-  // GitHub refuses a PR with no commits between the branches, so the branch
-  // needs one commit of its own. `commit-tree` builds it directly from the base
-  // tree: an empty commit that touches no file, and no checkout, no index and no
-  // stash - the human's working tree is not part of this.
-  const tree = vcs(["rev-parse", `origin/${base}^{tree}`]).trim();
-  const commit = vcs([
-    "commit-tree",
-    tree,
-    "-p",
-    `origin/${base}`,
-    "-m",
-    `${contract.id}: plan\n\nPlan-first pull request. No code changes yet.\n\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>`,
-  ]).trim();
-  vcs(["push", "origin", `${commit}:refs/heads/${branch}`]);
-
-  const created = run([
-    "pr",
-    "create",
-    "--draft",
-    "--base",
-    base,
-    "--head",
-    branch,
-    "--title",
-    `${contract.id}: plan`,
-    "--body",
-    body,
-  ]);
-  return {
-    number: Number(/\/pull\/(\d+)/.exec(created)?.[1]),
-    url: created.trim(),
-  };
+  if (vcs(["rev-parse", `origin/${base}`]).trim() !== plan.baseSha) {
+    throw new Error("The base changed; refresh the proposed plan before publishing.");
+  }
+  const parents = [plan.baseSha];
+  if (existing) {
+    vcs(["fetch", "origin", `refs/heads/${branch}`]);
+    if (vcs(["rev-parse", "FETCH_HEAD"]).trim() !== existing.headRefOid) {
+      throw new Error("The plan branch changed during publication.");
+    }
+    parents[0] = existing.headRefOid;
+    try {
+      vcs(["merge-base", "--is-ancestor", plan.baseSha, existing.headRefOid]);
+    } catch (error) {
+      if (error.status !== 1) throw error;
+      parents.push(plan.baseSha);
+    }
+  }
+  const directory = mkdtempSync(resolve(tmpdir(), "northstar-plan-index-"));
+  const env = { GIT_INDEX_FILE: resolve(directory, "index") };
+  try {
+    const blob = vcs(["hash-object", "-w", "--stdin"], { input: `${body.trim()}\n` }).trim();
+    if (!/^[0-9a-f]{40}$/.test(blob)) throw new Error("Git did not return a plan blob identity.");
+    vcs(["read-tree", plan.baseSha], { env });
+    vcs(["update-index", "--add", "--cacheinfo", `100644,${blob},${planArtifactPath(contract.id)}`], { env });
+    const tree = vcs(["write-tree"], { env }).trim();
+    const commit = vcs([
+      "commit-tree", tree, ...parents.flatMap((parent) => ["-p", parent]),
+      "-m", `${contract.id}: plan\n\nVersioned plan only; no implementation changes.\n\nCo-authored-by: Copilot App <223556219+Copilot@users.noreply.github.com>`,
+    ]).trim();
+    if (!/^[0-9a-f]{40}$/.test(commit)) throw new Error("Git did not return a plan commit identity.");
+    vcs(["push", "origin", `${commit}:refs/heads/${branch}`]);
+    return { branch, base, commit };
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 }
 
 /** Put the plan in the PR description, opening the plan-first PR if needed. */
 export function publish(contract, body, deps = {}) {
   const run = deps.run ?? gh;
+  if (contract.source?.trusted !== true) {
+    throw new Error("Only a trusted live task contract may be published as a plan.");
+  }
+  const plan = extractPlanContract(body);
+  const validation = validatePlanContract(plan, contract);
+  if (!validation.ok) throw new Error(`Invalid proposed plan: ${validation.errors.join(" ")}`);
+  planArtifactPath(contract.id);
+  if (Buffer.byteLength(body, "utf8") > 1024 * 1024) {
+    throw new Error("The proposed plan exceeds the 1 MiB review limit.");
+  }
+  const viewer = githubJson("user", { run });
+  if (!viewer.login) throw new Error("The publishing identity could not be established.");
+  const reviewers = configuredPlanReviewers(viewer.login, { ...deps, run });
   const rendered = renderPlan(body, {
     at: deps.at ?? new Date().toISOString(),
     issue: contract.source?.issue,
@@ -278,11 +331,33 @@ export function publish(contract, body, deps = {}) {
 
   const existing = findPlanPr(contract.id, { run });
   if (existing) {
-    run(["pr", "edit", String(existing.number), "--body", rendered]);
-    return { updated: true, number: existing.number, url: existing.url };
+    if (existing.author.login !== viewer.login) {
+      throw new Error("Only the plan PR's publishing identity may amend it.");
+    }
+    const artifact = readPlanArtifact(existing.headRefOid, contract.id, { run });
+    const files = githubPages(`repos/{owner}/{repo}/pulls/${existing.number}/files?per_page=100`, { run });
+    const valid = validatePlanOnlyFiles({ taskId: contract.id, files, entry: artifact.entry });
+    if (!valid.ok) throw new Error(valid.reason);
   }
-  const created = openPlanPr(contract, rendered, deps);
-  return { updated: false, number: created.number, url: created.url };
+  const committed = commitPlan(contract, plan, body, existing, deps);
+  let result;
+  if (existing) {
+    run(["api", "--method", "PATCH", `repos/{owner}/{repo}/pulls/${existing.number}`, "-f", `body=${rendered}`]);
+    result = { updated: true, number: existing.number, url: existing.url };
+  } else {
+    const url = run([
+      "pr", "create", "--base", committed.base, "--head", committed.branch,
+      "--title", `${contract.id}: plan`, "--body", rendered,
+    ]).trim();
+    const number = Number(/\/pull\/(\d+)$/.exec(url)?.[1]);
+    if (!Number.isSafeInteger(number) || number < 1) throw new Error("GitHub did not return a plan PR URL.");
+    result = { updated: false, number, url };
+  }
+  run([
+    "api", "--method", "POST", `repos/{owner}/{repo}/pulls/${result.number}/requested_reviewers`,
+    ...reviewers.flatMap((reviewer) => ["-f", `reviewers[]=${reviewer}`]),
+  ]);
+  return result;
 }
 
 /** Read the plan back from the task's pull request. */
@@ -291,51 +366,81 @@ export function fetchPlan(taskId, deps = {}) {
   return pr ? extractPlanSection(pr.body) : null;
 }
 
+export function fetchProposedPlan(contract, deps = {}) {
+  const pr = findPlanPr(contract.id, deps);
+  if (!pr) return null;
+  const artifact = readPlanArtifact(pr.headRefOid, contract.id, deps);
+  const plan = extractPlanContract(artifact.body);
+  const validation = validatePlanContract(plan, contract);
+  if (!validation.ok || plan.baseSha !== pr.baseRefOid) {
+    throw new Error("The proposed plan does not match the live task and base.");
+  }
+  if (approvalPolicyForRisk(plan.risk).requirePlanOnlyApproval) return null;
+  const mirror = extractPlanContract(extractPlanSection(pr.body));
+  if (!mirror || canonicalPlan(mirror) !== canonicalPlan(plan)) {
+    throw new Error("The proposed plan's PR description differs from its committed artifact.");
+  }
+  const files = githubPages(`repos/{owner}/{repo}/pulls/${pr.number}/files?per_page=100`, deps);
+  const result = validatePlanOnlyFiles({ taskId: contract.id, files, entry: artifact.entry });
+  if (!result.ok) throw new Error(result.reason);
+  return { body: artifact.body, plan, pr, approval: null };
+}
+
 /** Read only a plan whose digest is bound to a human plan-only approval. */
 export function fetchApprovedPlan(contract, deps = {}) {
   const run = deps.run ?? gh;
+  if (!contract.source?.trusted) throw new Error("Approved plans require a trusted live task contract.");
   const pr = findPlanPr(contract.id, { run });
   if (!pr) return null;
-  const body = extractPlanSection(pr.body);
-  const plan = extractPlanContract(body);
-  if (!body || !plan) return null;
-
-  const reviews = JSON.parse(
-    run(["api", `repos/{owner}/{repo}/pulls/${pr.number}/reviews`]),
-  );
-  const records = (pr.comments ?? [])
-    .map(({ body: commentBody, author }) => {
+  if (pr.isDraft !== false) return null;
+  let body = extractPlanSection(pr.body);
+  let plan = extractPlanContract(body);
+  if (!body || !plan) throw new Error("The plan PR has no structured plan.");
+  const validation = validatePlanContract(plan, contract);
+  if (!validation.ok || plan.baseSha !== pr.baseRefOid) {
+    throw new Error("The plan PR does not match the current task and approved base.");
+  }
+  const reviews = githubPages(`repos/{owner}/{repo}/pulls/${pr.number}/reviews?per_page=100`, { run });
+  const files = githubPages(`repos/{owner}/{repo}/pulls/${pr.number}/files?per_page=100`, { run });
+  let result;
+  if (files.length > 0) {
+    const artifact = readPlanArtifact(pr.headRefOid, contract.id, { run });
+    const committedPlan = extractPlanContract(artifact.body);
+    if (!committedPlan || canonicalPlan(committedPlan) !== canonicalPlan(plan)) {
+      throw new Error("The PR description does not match its immutable committed plan.");
+    }
+    plan = committedPlan;
+    body = artifact.body.trim();
+    const repository = githubJson("repos/{owner}/{repo}", { run }).full_name;
+    result = evaluateNativePlanApproval({
+      plan, contract, pr, reviews, files, entry: artifact.entry, repository,
+      eligibleReviewers: configuredPlanReviewers(pr.author.login, { ...deps, run }),
+    });
+  } else {
+    if (!isLegacyPlan(pr, plan, contract, deps.legacyPlans ?? GOVERNANCE_POLICY.planApproval?.legacyPlans)) {
+      throw new Error("Zero-file plan approval is restricted to the explicitly pinned legacy bootstrap.");
+    }
+    const records = githubPages(`repos/{owner}/{repo}/issues/${pr.number}/comments?per_page=100`, { run })
+    .map(({ body: commentBody, user }) => {
       const record = parseApprovalRecord(commentBody);
       return record
-        ? { ...record, commentAuthor: author?.login ?? null }
+        ? { ...record, commentAuthor: user?.login ?? null }
         : null;
     })
     .filter(Boolean);
-  const planOnlyCommits = records
-    .filter((record) => {
-      try {
-        const comparison = JSON.parse(
-          run([
-            "api",
-            `repos/{owner}/{repo}/compare/${pr.baseRefOid}...${record.reviewedCommit}`,
-          ]),
-        );
-        return (comparison.files ?? []).length === 0;
-      } catch {
-        return false;
-      }
-    })
-    .map(({ reviewedCommit }) => reviewedCommit);
-  const result = evaluatePlanApproval({
-    plan,
-    contract,
-    approvalRecords: records,
-    reviews,
-    prAuthor: pr.author.login,
-    planHeadSha: pr.headRefOid,
-    baseSha: pr.baseRefOid,
-    planOnlyCommits,
-  });
+    const comparison = githubJson(`repos/{owner}/{repo}/compare/${pr.baseRefOid}...${pr.headRefOid}`, { run });
+    if (!Array.isArray(comparison.files)) throw new Error("The legacy plan comparison is incomplete.");
+    result = evaluatePlanApproval({
+      plan, contract, approvalRecords: records, reviews, prAuthor: pr.author.login,
+      planHeadSha: pr.headRefOid, baseSha: pr.baseRefOid,
+      planOnlyCommits: comparison.files.length === 0 ? [pr.headRefOid] : [],
+    });
+  }
+  const current = findPlanPr(contract.id, { run });
+  if (!current || current.isDraft !== false || current.headRefOid !== pr.headRefOid ||
+      current.baseRefOid !== pr.baseRefOid || current.body !== pr.body) {
+    throw new Error("The plan PR changed while its approval was being resolved.");
+  }
   return result.ok ? { body, plan, approval: result.record, pr } : null;
 }
 

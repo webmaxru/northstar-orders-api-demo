@@ -1,7 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import { cacheContract, contractFromIssue } from "./task-contract.mjs";
+import { cacheContract } from "./task-contract.mjs";
+import { clearTaskState, resolveTask } from "./resolve-task.mjs";
 
 function gh(args) {
   return execFileSync("gh", args, {
@@ -16,10 +17,10 @@ function valueOf(flag) {
 }
 
 export function linkedIssue(body) {
-  const match = /\b(?:closes|fixes|resolves)\s+#(\d+)\b/i.exec(
-    String(body ?? ""),
-  );
-  return match ? Number(match[1]) : null;
+  const matches = [...String(body ?? "").matchAll(/\b(?:closes|fixes|resolves)\s+#(\d+)\b/gi)];
+  const issues = [...new Set(matches.map((match) => Number(match[1])))];
+  if (issues.length > 1) throw new Error("Multiple task issues are linked; select one explicit task.");
+  return issues[0] ?? null;
 }
 
 function main() {
@@ -36,7 +37,7 @@ function main() {
       "No task issue linked. Add `Closes #<number>` to the pull request body.",
     );
   }
-  const contract = contractFromIssue(issue);
+  const contract = resolveTask(issue).contract;
   const target = cacheContract(contract);
   if (process.env.GITHUB_OUTPUT) {
     appendFileSync(
@@ -49,6 +50,7 @@ function main() {
     `issue=${issue} task=${contract.id} digest=${contract.source.bodyDigest}\n${target}\n`,
   );
   } catch (error) {
+    clearTaskState();
     process.stderr.write(`${/** @type {Error} */ (error).message}\n`);
     process.exit(1);
   }

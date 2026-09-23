@@ -136,6 +136,7 @@ export function validatePlanContract(plan, contract) {
       errors.push(`Plan ${field} must contain at least one entry.`);
     }
   }
+  if (errors.length > 0) return { ok: false, errors, warnings };
 
   const plannedCriteria = Array.isArray(plan.successCriteria)
     ? plan.successCriteria
@@ -188,6 +189,9 @@ export function validatePlanContract(plan, contract) {
 
   if (approvalPolicyForRisk(isRisk(plan.risk) ? plan.risk : "critical").requirePlanOnlyApproval) {
     warnings.push("This risk level requires a human approval of the plan-only state.");
+  }
+  if (plan.planDigest !== undefined && plan.planDigest !== planDigest(plan)) {
+    errors.push("Plan planDigest does not match its canonical content.");
   }
 
   return {

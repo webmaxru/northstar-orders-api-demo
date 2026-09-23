@@ -5,9 +5,9 @@
  * before working: a contract you must remember to fetch is a contract that will
  * be missing exactly when it matters.
  *
- * The task is an INPUT. This hook reads exactly one source - the
- * AGENT_TASK_ISSUE environment variable - which exists for non-interactive
- * runs (CI and the cloud agent) where no human types a prompt.
+ * Task identity is explicit input: AGENT_TASK_ISSUE, the documented initial
+ * prompt fields, or cloud agent's COPILOT_AGENT_PROMPT. Conflicting selectors
+ * fail closed; branch names and cached tasks are never task selectors.
  *
  * Interactive sessions do not use it. There, the human passes the issue number
  * to `/plan` or `/implement` and the UserPromptSubmit hook resolves it. Nothing
@@ -20,30 +20,40 @@
  * would hide the fact that the real one was never read.
  */
 
-import { rmSync } from "node:fs";
-import { resolve } from "node:path";
+import { Buffer } from "node:buffer";
 import { pathToFileURL } from "node:url";
-import { CONTRACT_CACHE, splitProhibitions } from "./task-contract.mjs";
+import { splitProhibitions } from "./task-contract.mjs";
 import {
-  PLAN_CACHE,
-  PLAN_CONTRACT_CACHE,
+  clearTaskState,
+  decide,
   resolveTask,
+  taskRole,
 } from "./resolve-task.mjs";
 
-const REPO_ROOT = resolve(import.meta.dirname, "..");
-
-/** Drop a contract left by an earlier session so it cannot govern this one. */
-function clearContract() {
-  rmSync(resolve(REPO_ROOT, CONTRACT_CACHE), { force: true });
-  rmSync(resolve(REPO_ROOT, PLAN_CACHE), { force: true });
-  rmSync(resolve(REPO_ROOT, PLAN_CONTRACT_CACHE), { force: true });
-}
-
-export function resolveIssueNumber({ env = process.env } = {}) {
-  if (env.AGENT_TASK_ISSUE) {
-    return { number: Number(env.AGENT_TASK_ISSUE), how: "AGENT_TASK_ISSUE" };
+export function resolveIssueNumber({ env = process.env, payload = {} } = {}) {
+  const candidates = [];
+  if (env.AGENT_TASK_ISSUE !== undefined && env.AGENT_TASK_ISSUE !== "") {
+    if (!/^[1-9]\d*$/.test(env.AGENT_TASK_ISSUE) ||
+        !Number.isSafeInteger(Number(env.AGENT_TASK_ISSUE))) {
+      throw new Error("AGENT_TASK_ISSUE must be a positive issue number.");
+    }
+    candidates.push({ number: Number(env.AGENT_TASK_ISSUE), how: "AGENT_TASK_ISSUE" });
   }
-  return { number: null, how: "nothing" };
+  for (const [how, prompt] of [
+    ["initial_prompt", payload.initial_prompt],
+    ["initialPrompt", payload.initialPrompt],
+    ["COPILOT_AGENT_PROMPT", env.COPILOT_AGENT_PROMPT],
+  ]) {
+    if (prompt === undefined) continue;
+    if (typeof prompt !== "string") throw new Error(`${how} must be text.`);
+    const decision = decide(prompt);
+    if (decision.action === "stop") throw new Error(decision.reason);
+    if (decision.action === "resolve") candidates.push({ number: decision.issue, how });
+  }
+  if (new Set(candidates.map(({ number }) => number)).size > 1) {
+    throw new Error("Conflicting explicit task selectors; cached authority was cleared.");
+  }
+  return candidates[0] ?? { number: null, how: "nothing" };
 }
 
 function summarize(contract, how, plan) {
@@ -94,6 +104,7 @@ function emit(additionalContext) {
   process.stdout.write(
     `${JSON.stringify(
       {
+        additionalContext,
         hookSpecificOutput: {
           hookEventName: "SessionStart",
           additionalContext,
@@ -106,31 +117,31 @@ function emit(additionalContext) {
 }
 
 async function main() {
-  const resolution = resolveIssueNumber();
-
-  if (!resolution.number) {
-    // Clear any contract left by a previous session. Inheriting one would mean
-    // an unrelated chat is judged against a task nobody is working on.
-    clearContract();
-    emit(
-      "No task contract is active yet. AGENT_TASK_ISSUE is unset, so no issue " +
-        "was read and no GitHub call was made. Nothing was inferred from the " +
-        "branch name or the open issue list, by design. The capability boundary " +
-        "is ungoverned: reads are allowed and writes ask. Do not substitute a " +
-        "fixture file from tests/fixtures. To work on a task, name its issue: " +
-        "`/plan <issue>` or `/implement <issue>`.",
-    );
-    return;
-  }
-
+  clearTaskState();
   try {
-    // Same resolver the UserPromptSubmit hook uses, so an interactive session
-    // and a non-interactive one end up with byte-identical artifacts.
-    const { contract, plan } = resolveTask(resolution.number);
+    const chunks = [];
+    if (!process.stdin.isTTY) {
+      for await (const chunk of process.stdin) chunks.push(chunk);
+    }
+    const raw = Buffer.concat(chunks).toString("utf8").trim();
+    const payload = raw ? JSON.parse(raw) : {};
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("Invalid session hook envelope.");
+    const resolution = resolveIssueNumber({ payload });
+    if (!resolution.number) {
+      emit("No explicit task issue was supplied. Reads remain available; writes are denied. " +
+        "Supply `/plan <issue>`, `/implement <issue>`, or AGENT_TASK_ISSUE. No cached task or fixture was adopted.");
+      return;
+    }
+    const prompt = payload.initial_prompt ?? payload.initialPrompt ?? process.env.COPILOT_AGENT_PROMPT ?? "";
+    const { contract, plan } = resolveTask(resolution.number, {
+      role: taskRole(prompt),
+      sessionId: payload.session_id ?? payload.sessionId ?? null,
+    });
     emit(summarize(contract, resolution.how, plan));
   } catch (error) {
+    clearTaskState();
     emit(
-      `Issue #${resolution.number} was found but could not be read as a task contract: ` +
+      "Task resolution failed; cached authority was cleared and writes remain denied: " +
         `${/** @type {Error} */ (error).message.split("\n")[0]} ` +
         "Fix the issue body to match .github/ISSUE_TEMPLATE/agent-task.yml.",
     );

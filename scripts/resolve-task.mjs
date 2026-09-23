@@ -24,14 +24,39 @@ import { Buffer } from "node:buffer";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { cacheContract, contractFromIssue } from "./task-contract.mjs";
-import { fetchApprovedPlan } from "./publish-plan.mjs";
-import { planDigest } from "./plan-contract.mjs";
+import { CONTRACT_CACHE, cacheContract, contractFromIssue } from "./task-contract.mjs";
+import { fetchApprovedPlan, fetchProposedPlan } from "./publish-plan.mjs";
+import { planDigest, validatePlanContract } from "./plan-contract.mjs";
+import { resolveCloudExecution } from "./execution-context.mjs";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 
 export const PLAN_CACHE = "artifacts/task-plan.md";
 export const PLAN_CONTRACT_CACHE = "artifacts/plan.json";
+export const APPROVED_PLAN_CACHE = "artifacts/approved-plan.json";
+export const TASK_SESSION_CACHE = "artifacts/task-session.json";
+export const EXECUTION_CONTEXT_CACHE = "artifacts/execution-context.json";
+
+export function clearTaskState(root = REPO_ROOT) {
+  for (const file of [
+    CONTRACT_CACHE, PLAN_CACHE, PLAN_CONTRACT_CACHE, APPROVED_PLAN_CACHE,
+    TASK_SESSION_CACHE, EXECUTION_CONTEXT_CACHE,
+  ]) {
+    rmSync(resolve(root, file), { force: true });
+  }
+}
+
+function promptText(prompt) {
+  return String(prompt ?? "")
+    .replace(/```[\s\S]*?```|~~~[\s\S]*?~~~/g, "")
+    .split(/\r?\n/).filter((line) => !/^\s*>/.test(line)).join("\n");
+}
+
+export function taskRole(prompt) {
+  const text = promptText(prompt);
+  return /^\s*\/(plan|implement)\b/i.exec(text)?.[1]?.toLowerCase() ??
+    /^\s*Task role:\s*(plan|implement)\s*$/im.exec(text)?.[1]?.toLowerCase() ?? null;
+}
 
 /**
  * Does this prompt start work that a task contract must govern?
@@ -41,15 +66,15 @@ export const PLAN_CONTRACT_CACHE = "artifacts/plan.json";
  * forms are recognized, so the hook behaves the same either way.
  */
 export function isTaskInvocation(prompt) {
-  const text = String(prompt ?? "");
+  const text = promptText(prompt);
   return (
-    /^\s*\/(plan|implement)\b/m.test(text) || /^\s*Task issue:/im.test(text)
+    /^\s*\/(plan|implement)\b/.test(text) || /^\s*Task issue:/im.test(text)
   );
 }
 
 /** The issue number the human supplied, or null. */
 export function extractIssue(prompt) {
-  const text = String(prompt ?? "");
+  const text = promptText(prompt);
   const patterns = [
     /^\s*Task issue:\s*#?(\d+)/im,
     /--issue\s+#?(\d+)/i,
@@ -58,7 +83,10 @@ export function extractIssue(prompt) {
   ];
   for (const pattern of patterns) {
     const match = pattern.exec(text);
-    if (match) return Number(match[match.length - 1]);
+    if (match) {
+      const issue = Number(match[match.length - 1]);
+      return Number.isSafeInteger(issue) && issue > 0 ? issue : null;
+    }
   }
   return null;
 }
@@ -81,46 +109,58 @@ export function decide(prompt) {
   return { action: "resolve", issue };
 }
 
-function writeArtifact(relativePath, body) {
-  const target = resolve(REPO_ROOT, relativePath);
+function writeArtifact(relativePath, body, root = REPO_ROOT) {
+  const target = resolve(root, relativePath);
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(target, body, "utf8");
   return target;
 }
 
 /** Read the issue, cache the contract, and cache the approved plan beside it. */
-export function resolveTask(issue) {
-  const contract = contractFromIssue(issue);
-  cacheContract(contract);
-
-  // The plan lives in the plan-first pull request, not on the issue: the issue
-  // is the contract, the PR is the proposal about it.
-  let approved;
+export function resolveTask(issue, {
+  root = REPO_ROOT,
+  readContract = contractFromIssue,
+  readApprovedPlan = fetchApprovedPlan,
+  readProposedPlan = fetchProposedPlan,
+  role = null,
+  sessionId = null,
+  cloud = Boolean(process.env.COPILOT_AGENT_PROMPT),
+} = {}) {
+  clearTaskState(root);
   try {
-    approved = fetchApprovedPlan(contract);
-  } catch {
-    approved = null;
+    if (!Number.isSafeInteger(issue) || issue < 1) throw new Error("A positive explicit task issue is required.");
+    const contract = readContract(issue);
+    if (!contract.source?.trusted || contract.source.issue !== issue) {
+      throw new Error("The resolver did not return the requested trusted task.");
+    }
+    const approved = readApprovedPlan(contract);
+    const selected = approved ?? (role === "implement" ? readProposedPlan(contract) : null);
+    const plan = selected?.body ?? null;
+    if (selected) {
+      const validation = validatePlanContract(selected.plan, contract);
+      if (!validation.ok) throw new Error(`The resolved approved plan is invalid: ${validation.errors.join(" ")}`);
+      const content = `${JSON.stringify({
+        ...selected.plan, planDigest: planDigest(selected.plan),
+        ...(approved ? { approval: approved.approval } : {}),
+      }, null, 2)}\n`;
+      writeArtifact(PLAN_CACHE, `${plan}\n`, root);
+      writeArtifact(PLAN_CONTRACT_CACHE, content, root);
+      if (approved) writeArtifact(APPROVED_PLAN_CACHE, content, root);
+    }
+    cacheContract(contract, resolve(root, CONTRACT_CACHE));
+    writeArtifact(TASK_SESSION_CACHE, `${JSON.stringify({
+      issue, taskId: contract.id, contractDigest: contract.source.bodyDigest,
+      role, sessionId,
+    })}\n`, root);
+    if (cloud && role === "implement" && approved) {
+      const context = resolveCloudExecution(contract, approved.plan);
+      writeArtifact(EXECUTION_CONTEXT_CACHE, `${JSON.stringify(context, null, 2)}\n`, root);
+    }
+    return { contract, plan };
+  } catch (error) {
+    clearTaskState(root);
+    throw error;
   }
-  const plan = approved?.body ?? null;
-  if (plan) {
-    writeArtifact(PLAN_CACHE, `${plan}\n`);
-    writeArtifact(
-      PLAN_CONTRACT_CACHE,
-      `${JSON.stringify(
-        {
-          ...approved.plan,
-          planDigest: planDigest(approved.plan),
-          approval: approved.approval,
-        },
-        null,
-        2,
-      )}\n`,
-    );
-  } else {
-    rmSync(resolve(REPO_ROOT, PLAN_CACHE), { force: true });
-    rmSync(resolve(REPO_ROOT, PLAN_CONTRACT_CACHE), { force: true });
-  }
-  return { contract, plan };
 }
 
 export function renderResult({ contract, plan, issue }) {
@@ -146,12 +186,14 @@ function emit(payload) {
 async function main() {
   const raw = await readStdin();
   let prompt;
+  let payload;
   try {
-    const payload = JSON.parse(raw);
+    payload = JSON.parse(raw);
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("Invalid hook envelope.");
     prompt = payload.prompt ?? payload.userPrompt ?? "";
   } catch {
-    // A malformed payload must not stop an unrelated turn.
-    emit({ continue: true });
+    clearTaskState();
+    emit({ continue: false, stopReason: "Task prompt hook received invalid input; cached authority was cleared." });
     return;
   }
 
@@ -161,12 +203,16 @@ async function main() {
     return;
   }
   if (decision.action === "stop") {
+    clearTaskState();
     emit({ continue: false, stopReason: decision.reason });
     return;
   }
 
   try {
-    const { contract, plan } = resolveTask(decision.issue);
+    const { contract, plan } = resolveTask(decision.issue, {
+      role: taskRole(prompt),
+      sessionId: payload.session_id ?? payload.sessionId ?? null,
+    });
     emit({
       continue: true,
       systemMessage: renderResult({ contract, plan, issue: decision.issue }),
