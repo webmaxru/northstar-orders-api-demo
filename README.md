@@ -15,6 +15,11 @@ ownership, policy, and fallback rather than by the identity of the author.
 
 ## Application behavior
 
+Two presenter runbooks are in [`docs/demos/README.md`](docs/demos/README.md):
+plan-first for the genuine historical idempotency repair, and plan + execution
+for the new order-lookup candidate. They include separate VS Code/cloud paths,
+exact revisions, human checkpoints, and explicitly unverified stages.
+
 `POST /orders` accepts:
 
 ```json
@@ -35,6 +40,13 @@ An optional `Idempotency-Key` header provides durable request replay:
 The implementation stores SHA-256 hashes instead of raw idempotency keys or
 request payloads. PostgreSQL transaction-scoped advisory locks serialize work
 for one key, and the order plus completed replay record commit atomically.
+
+`GET /orders/:id` retrieves the same `Order` representation without writing
+orders or idempotency records. It returns `400` for a malformed UUID, `404` for
+an absent order, and a generic `500` for an unexpected storage failure.
+The in-memory baseline is process-local; cross-process retrieval requires
+PostgreSQL. This fictional unauthenticated route is not a production access
+control design.
 
 ## Quick start
 
