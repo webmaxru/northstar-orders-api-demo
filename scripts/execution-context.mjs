@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
-import { canonicalPlan, extractPlanContract } from "./plan-contract.mjs";
+import { canonicalPlan, extractPlanContract, planDigest } from "./plan-contract.mjs";
 import { githubJson, runGitHub } from "./github-api.mjs";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
@@ -26,8 +26,11 @@ export function validateCloudExecution({ pull, repository, contract, plan, branc
   );
 }
 
-export function resolveCloudExecution(contract, plan, { run = runGitHub } = {}) {
-  const git = (args) => execFileSync("git", args, { cwd: REPO_ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+export function resolveCloudExecution(contract, plan, {
+  run = runGitHub,
+  vcs = (args) => execFileSync("git", args, { cwd: REPO_ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }),
+} = {}) {
+  const git = (args) => vcs(args).trim();
   const branch = git(["branch", "--show-current"]);
   const headSha = git(["rev-parse", "HEAD"]);
   const repository = githubJson("repos/{owner}/{repo}", { run }).full_name;
@@ -44,6 +47,6 @@ export function resolveCloudExecution(contract, plan, { run = runGitHub } = {}) 
     schema: "northstar/execution-context/1", host: "cloud",
     repository, pullRequest: pull.number, branch, headSha, baseSha: plan.baseSha,
     baseBranch: plan.baseBranch, taskId: contract.id,
-    contractDigest: contract.source.bodyDigest, planDigest: plan.planDigest,
+    contractDigest: contract.source.bodyDigest, planDigest: planDigest(plan),
   };
 }

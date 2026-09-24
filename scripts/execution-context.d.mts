@@ -31,4 +31,8 @@ export declare function validateCloudExecution(input: {
   headSha: string;
   descendsFromApprovedBase: boolean;
 }): boolean;
-export declare function resolveCloudExecution(contract: TaskContract, plan: PlanContract, deps?: GitHubDeps): ExecutionContext;
+export declare function resolveCloudExecution(
+  contract: TaskContract,
+  plan: PlanContract,
+  deps?: GitHubDeps & { vcs?: (args: string[]) => string },
+): ExecutionContext;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { validateCloudExecution } from "../../scripts/execution-context.mjs";
-import { renderPlanContract, type PlanContract } from "../../scripts/plan-contract.mjs";
+import { resolveCloudExecution, validateCloudExecution } from "../../scripts/execution-context.mjs";
+import { planDigest, renderPlanContract, type PlanContract } from "../../scripts/plan-contract.mjs";
 import { contractFromFile } from "../../scripts/task-contract.mjs";
 
 describe("cloud execution isolation", () => {
@@ -32,5 +32,17 @@ describe("cloud execution isolation", () => {
     expect(validateCloudExecution({ ...input, pull: { ...pull, body: `Closes #99\n${renderPlanContract(plan)}` } })).toBe(false);
     expect(validateCloudExecution({ ...input, pull: { ...pull, head: { ...pull.head, repo: { full_name: "outside/fork" } } } })).toBe(false);
     expect(validateCloudExecution({ ...input, pull: { ...pull, user: { type: "User" } } })).toBe(false);
+    expect(plan.planDigest).toBeUndefined();
+    const context = resolveCloudExecution(contract, plan, {
+      vcs: (args) => args[0] === "branch" ? branch : headSha,
+      run: (args) => {
+        if (args[0] === "pr") return JSON.stringify([{ number: pull.number }]);
+        if (args[1] === "repos/{owner}/{repo}") return JSON.stringify({ full_name: repository });
+        if (args[1]?.includes("/pulls/")) return JSON.stringify(pull);
+        if (args[1]?.includes("/compare/")) return JSON.stringify({ merge_base_commit: { sha: plan.baseSha }, status: "ahead" });
+        throw new Error("Unexpected mocked GitHub command.");
+      },
+    });
+    expect(context.planDigest).toBe(planDigest(plan));
   });
 });
