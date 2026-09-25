@@ -28,6 +28,8 @@ import {
   decide,
   resolveTask,
   taskRole,
+  taskInputs,
+  renderResult,
 } from "./resolve-task.mjs";
 
 export function resolveIssueNumber({ env = process.env, payload = {} } = {}) {
@@ -56,7 +58,7 @@ export function resolveIssueNumber({ env = process.env, payload = {} } = {}) {
   return candidates[0] ?? { number: null, how: "nothing" };
 }
 
-function summarize(contract, how, plan) {
+function summarize(contract, how, plan, approvalState) {
   const criteria = contract.successCriteria
     .map((c) => `  ${c.id}: ${c.statement} (proven by: ${c.provenBy})`)
     .join("\n");
@@ -64,7 +66,9 @@ function summarize(contract, how, plan) {
   const planSection = plan
     ? [
         "",
-        "APPROVED PLAN, cached at artifacts/task-plan.md from the task's plan-first pull request:",
+        approvalState === "approved"
+          ? "APPROVED PLAN, cached at artifacts/task-plan.md:"
+          : "VALIDATED PROPOSED PLAN (not human-approved), cached at artifacts/task-plan.md:",
         "",
         plan,
         "",
@@ -73,9 +77,7 @@ function summarize(contract, how, plan) {
       ]
     : [
         "",
-        "No human-approved plan matches this task. If you are implementing,",
-        "stop: run the plan agent first, publish its plan-only PR, and get it approved. Do",
-        "not plan and implement in the same session.",
+        renderResult({ contract, plan, issue: contract.source.issue, approvalState }),
       ];
 
   return [
@@ -133,11 +135,12 @@ async function main() {
       return;
     }
     const prompt = payload.initial_prompt ?? payload.initialPrompt ?? process.env.COPILOT_AGENT_PROMPT ?? "";
-    const { contract, plan } = resolveTask(resolution.number, {
+    const { contract, plan, approvalState } = resolveTask(resolution.number, {
       role: taskRole(prompt),
       sessionId: payload.session_id ?? payload.sessionId ?? null,
+      ...taskInputs(prompt),
     });
-    emit(summarize(contract, resolution.how, plan));
+    emit(summarize(contract, resolution.how, plan, approvalState));
   } catch (error) {
     clearTaskState();
     emit(

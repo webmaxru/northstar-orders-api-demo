@@ -31,6 +31,9 @@ export interface PublishDeps {
   base?: string;
   reviewers?: string[];
   legacyPlans?: LegacyPlan[];
+  pullRequest?: number | null;
+  headBranch?: string;
+  expectedHead?: string;
 }
 
 export declare function planBranch(taskId: string): string;

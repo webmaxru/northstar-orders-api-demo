@@ -13,6 +13,7 @@ export interface PlanTreeEntry {
 }
 export declare const PLAN_DIRECTORY: string;
 export declare function planArtifactPath(taskId: string): string;
+export declare function localProposalPath(file: string, root: string): string;
 export declare function validatePlanOnlyFiles(input: {
   taskId: string;
   files: PlanFileChange[];

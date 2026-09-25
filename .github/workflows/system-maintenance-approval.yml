@@ -92,29 +92,27 @@ jobs:
 
           set +e
 
+          rm -f artifacts/candidate-plan.json artifacts/approved-plan.json artifacts/checks/plan-approval.json
           node scripts/check-plan.mjs --pr "$PR_NUMBER" --expected-head "$NORTHSTAR_HEAD_SHA"
           PLAN_STATUS=$?
-          if [ -f artifacts/plan.json ]; then
+          if [ "$PLAN_STATUS" -eq 0 ] && [ -f artifacts/plan.json ]; then
             cp artifacts/plan.json artifacts/candidate-plan.json
           fi
+
+          ISSUE=$(node -p "require('./artifacts/task-contract.json').source.issue")
+          node scripts/select-execution-plan.mjs \
+            --issue "$ISSUE" \
+            --pr "$PR_NUMBER" \
+            --expected-head "$NORTHSTAR_HEAD_SHA" \
+            --expected-plan artifacts/candidate-plan.json \
+            --record-approval
+          SELECTION_STATUS=$?
           node scripts/evidence-record.mjs \
             --id plan-contract \
             --job plan-contract \
             --category policy \
-            --status "$([ "$PLAN_STATUS" -eq 0 ] && echo pass || echo fail)" \
+            --status "$([ "$PLAN_STATUS" -eq 0 ] && [ "$SELECTION_STATUS" -eq 0 ] && echo pass || echo fail)" \
             --artifact artifacts/candidate-plan.json
-
-          ISSUE=$(node -p "require('./artifacts/task-contract.json').source.issue")
-          node scripts/fetch-approved-plan.mjs \
-            --issue "$ISSUE" \
-            --expected-plan artifacts/candidate-plan.json
-          APPROVAL_STATUS=$?
-          node scripts/evidence-record.mjs \
-            --id plan-approval \
-            --job plan-approval \
-            --category approval \
-            --status "$([ "$APPROVAL_STATUS" -eq 0 ] && echo pass || echo fail)" \
-            --artifact artifacts/approved-plan.json
 
           node scripts/check-scope.mjs --pr "$PR_NUMBER" --expected-head "$NORTHSTAR_HEAD_SHA"
           SCOPE_STATUS=$?
@@ -163,7 +161,8 @@ jobs:
             --summary "Approved through the protected system-maintenance environment" \
             --artifact artifacts/validation-authority-report.json
           exit 0
-      - name: Revalidate mutable state at the publication boundary
+      - id: execution-plan
+        name: Revalidate mutable state at the publication boundary
         env:
           GH_TOKEN: ${{ steps.publisher-token.outputs.token }}
         run: |
@@ -171,24 +170,17 @@ jobs:
           npm run contract:from-pr -- --pr "$PR_NUMBER"
 
           node scripts/check-plan.mjs --pr "$PR_NUMBER" --expected-head "$NORTHSTAR_HEAD_SHA"
-          cp artifacts/plan.json artifacts/candidate-plan.json
+          node scripts/select-execution-plan.mjs \
+            --pr "$PR_NUMBER" \
+            --expected-head "$NORTHSTAR_HEAD_SHA" \
+            --expected-plan artifacts/plan.json \
+            --record-approval
           node scripts/evidence-record.mjs \
             --id plan-contract \
             --job plan-contract \
             --category policy \
             --status pass \
             --artifact artifacts/candidate-plan.json
-
-          ISSUE=$(node -p "require('./artifacts/task-contract.json').source.issue")
-          node scripts/fetch-approved-plan.mjs \
-            --issue "$ISSUE" \
-            --expected-plan artifacts/candidate-plan.json
-          node scripts/evidence-record.mjs \
-            --id plan-approval \
-            --job plan-approval \
-            --category approval \
-            --status pass \
-            --artifact artifacts/approved-plan.json
 
           node scripts/check-scope.mjs --pr "$PR_NUMBER" --expected-head "$NORTHSTAR_HEAD_SHA"
           node scripts/evidence-record.mjs \
@@ -212,7 +204,16 @@ jobs:
             --category policy \
             --status pass \
             --artifact artifacts/repository-controls-report.json
-      - run: node scripts/build-execution-report.mjs --hosted --plan artifacts/approved-plan.json
+      - if: always()
+        env:
+          SELECTION_OUTCOME: ${{ steps.execution-plan.outcome }}
+          PLAN_PATH: ${{ steps.execution-plan.outputs.plan_path }}
+        run: |
+          if [ "$SELECTION_OUTCOME" != "success" ]; then
+            rm -f artifacts/plan.json artifacts/approved-plan.json artifacts/candidate-plan.json
+            PLAN_PATH=artifacts/plan.json
+          fi
+          node scripts/build-execution-report.mjs --hosted --plan "$PLAN_PATH"
       - run: >-
           node -e "const report=require('./artifacts/report.json');
           if(report.decision!=='ready_for_acceptance')

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -13,6 +14,7 @@ import {
   loadTaskContract,
   matchesPattern,
 } from "./task-contract.mjs";
+import { localProposalPath } from "./plan-artifact.mjs";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 
@@ -215,7 +217,8 @@ function main() {
     process.stderr.write("Pass --file <plan.md|plan.json>.\n");
     process.exit(2);
   }
-  const absolute = resolve(REPO_ROOT, file);
+  const absolute = process.argv.includes("--execute-proposed")
+    ? localProposalPath(file, REPO_ROOT) : resolve(REPO_ROOT, file);
   const raw = readFileSync(absolute, "utf8");
   const plan = file.endsWith(".json") ? JSON.parse(raw) : extractPlanContract(raw);
   if (!plan) {
@@ -228,13 +231,43 @@ function main() {
     process.exit(1);
   }
   const out = valueOf("--out") ?? "artifacts/plan.json";
+  if (process.argv.includes("--execute-proposed") && out !== "artifacts/plan.json") {
+    throw new Error("Proposed execution must materialize the canonical local plan path.");
+  }
   const target = resolve(REPO_ROOT, out);
+  let activatedSession = null;
+  if (process.argv.includes("--execute-proposed")) {
+    const contract = loadTaskContract();
+    const session = JSON.parse(readFileSync(resolve(REPO_ROOT, "artifacts/task-session.json"), "utf8"));
+    if (session.role !== "implement" || session.workflow !== "plan-and-execute" ||
+        session.canPropose !== true || session.taskId !== contract?.id ||
+        session.contractDigest !== contract?.source?.bodyDigest ||
+        approvalPolicyForRisk(plan.risk).requirePlanOnlyApproval ||
+        Object.hasOwn(plan, "approval") ||
+        resolve(REPO_ROOT, file) !== resolve(REPO_ROOT, "artifacts/plan-proposal.md")) {
+      throw new Error("Only the selected lower-risk session may activate this proposed plan.");
+    }
+    const git = (args) => execFileSync("git", args, {
+      cwd: REPO_ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+    if (git(["branch", "--show-current"]) !== `agent/implement/${contract.id.toLowerCase()}` ||
+        git(["rev-parse", "HEAD"]) !== plan.baseSha || session.workspaceHead !== plan.baseSha) {
+      throw new Error("The proposed plan must start from the session's exact isolated base.");
+    }
+    writeFileSync(resolve(REPO_ROOT, "artifacts/task-plan.md"), `${raw.trim()}\n`, "utf8");
+    activatedSession = {
+      ...session, approvalState: "proposed", canPropose: false,
+    };
+  }
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(
     target,
     `${JSON.stringify({ ...plan, planDigest: result.planDigest }, null, 2)}\n`,
     "utf8",
   );
+  if (activatedSession) {
+    writeFileSync(resolve(REPO_ROOT, "artifacts/task-session.json"), `${JSON.stringify(activatedSession)}\n`, "utf8");
+  }
   process.stdout.write(
     `plan=${plan.taskId} risk=${plan.risk} digest=${result.planDigest}\n${target}\n`,
   );

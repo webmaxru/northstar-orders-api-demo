@@ -367,6 +367,8 @@ export function evaluateToolCall(call, context = {}) {
   const branchAuthorized = context.branchAuthorized === true;
   const scope = context.scope ?? DEFAULT_SCOPE;
   const where = governed ? `the ${context.taskId} scope` : "the default scope";
+  const canPropose = trusted && context.role === "implement" &&
+    context.canPropose === true;
 
   // A dangerous string is dangerous whatever the tool claims to be, and whether
   // or not a task governs this session.
@@ -394,6 +396,16 @@ export function evaluateToolCall(call, context = {}) {
     }
     if (!trusted) {
       return deny("the active task contract is not trusted GitHub issue authority");
+    }
+    if (canPropose) {
+      try {
+        const proposalPaths = paths.map((target) => normalizeEditPath(target, context.repoRoot));
+        if (proposalPaths.length === 1 && proposalPaths[0] === "artifacts/plan-proposal.md") {
+          return allow("the selected lower-risk session may propose a plan artifact, not edit source yet");
+        }
+      } catch (error) {
+        return deny(error.message);
+      }
     }
     if (!canExecute) {
       return deny("no human-approved machine-readable plan authorizes writes");
@@ -463,6 +475,9 @@ export function evaluateToolCall(call, context = {}) {
       return ask(
         `"${rawName}" may execute but named no command this policy can check`,
       );
+    }
+    if (canPropose && command === "npm run plan:materialize -- --file artifacts/plan-proposal.md --execute-proposed") {
+      return allow("validate the exact lower-risk proposal against the live task and isolated base");
     }
     if (ALLOWED_COMMANDS.some((pattern) => pattern.test(command))) {
       if (
@@ -687,6 +702,12 @@ async function main() {
         validPlan: validation.ok,
         requirePlanApproval: validation.ok ? approvalPolicyForRisk(plan.risk).requirePlanOnlyApproval : true,
         role: session?.role ?? null,
+        canPropose: session?.canPropose === true &&
+          session?.workflow === "plan-and-execute" &&
+          session?.taskId === contract?.id &&
+          session?.contractDigest === contract?.source?.bodyDigest &&
+          session?.workspaceHead === headSha &&
+          branch === `agent/implement/${String(contract?.id ?? "").toLowerCase()}`,
         branchAuthorized,
         planScope: plan?.scope,
         repoRoot: REPO_ROOT,

@@ -26,6 +26,7 @@ export interface AuthorizationContext {
   role?: "plan" | "implement" | null;
   validPlan?: boolean;
   requirePlanApproval?: boolean;
+  canPropose?: boolean;
 }
 
 export interface AuthorizationDecision {

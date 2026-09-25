@@ -11,6 +11,14 @@ export const ZIZMOR_IMAGE = "ghcr.io/zizmorcore/zizmor@sha256:1ba0035c343f50e85f
 const object = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const nonempty = (value) => typeof value === "string" && value.trim().length > 0;
 
+function diagnosticMessage(message) {
+  return object(message) &&
+    (typeof message.text === "string" || typeof message.markdown === "string" || nonempty(message.id)) &&
+    (message.text === undefined || typeof message.text === "string") &&
+    (message.markdown === undefined || typeof message.markdown === "string") &&
+    (message.id === undefined || nonempty(message.id));
+}
+
 function regularFiles(path) {
   const stat = lstatSync(path);
   if (stat.isSymbolicLink()) throw new Error("Symbolic links are not security scan inputs.");
@@ -59,8 +67,7 @@ export function validateSarif(sarif, file = "<memory>") {
           for (const field of ["toolExecutionNotifications", "toolConfigurationNotifications"]) {
             if (invocation[field] === undefined) continue;
             if (!Array.isArray(invocation[field]) || invocation[field].some((notice) =>
-              !object(notice) || !object(notice.message) ||
-              ![notice.message.text, notice.message.markdown, notice.message.id].some(nonempty) ||
+              !object(notice) || !diagnosticMessage(notice.message) ||
               (notice.level !== undefined && !["none", "note", "warning", "error"].includes(notice.level)))) {
               errors.push(`${context}: malformed scanner diagnostics.`);
             } else if (invocation[field].some(({ level }) => level === "error")) {

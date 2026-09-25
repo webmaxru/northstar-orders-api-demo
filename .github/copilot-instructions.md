@@ -89,10 +89,21 @@ the zero-file plus reviewer-authored-record protocol.
 
 Low and medium work may execute a validated, explicitly handed-off plan before
 plan approval, with the risk's required checks and final review still required.
+Use `/work <issue>` for the explicit combined route. A fresh local session may
+write only `artifacts/plan-proposal.md` until `plan:materialize` with
+`--execute-proposed` validates the task, scope, risk and exact base. This does
+not create an approval. To resume, explicitly select the implementation
+`Task PR: #<number>` or local `Task plan: artifacts/plan.json`; startup never
+adopts an arbitrary remaining file. The combined PR carries plan and code
+together, and the hosted selector requires independent plan approval only for
+high/critical risk.
 Local implementation uses `agent/implement/<task>` from the declared base.
 Cloud implementation retains the host branch only after resolving the actual
 same-repository PR, task, plan, base and current head; its branch prefix alone
 grants no authority. Final acceptance targets the latest implementation commit.
+Cloud combined execution requires the actual implementation PR to carry its
+task-bound proposed plan. Local proposal files do not replace that live PR
+binding; absence of the binding remains a visible stop condition.
 
 ## Risk-based autonomy
 

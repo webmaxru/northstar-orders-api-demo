@@ -186,6 +186,22 @@ canaries remain acceptance requirements after the changed controls are reviewed.
 Rules/branch protection, protected environments, App identities and secrets
 are external administrator settings, not established by repository files.
 
+The combined-mode controller now selects a lower-risk proposed plan from the
+same implementation PR, not a separate `plan/<task>` PR. It validates live task,
+base/head, repository and ancestry and creates no approval record. Local
+`/work` startup may prepare only a bounded proposal artifact, then activate it
+through the dedicated materialization command before any source edit.
+Resuming local proposals requires an explicit artifact selector and fresh
+validation; existing files are not default authority. Hosted workflows select
+the candidate or independently approved plan according to risk and retain
+security checks and final human acceptance for both modes.
+
+A real CodeQL run exposed valid informational SARIF notifications whose
+`message.text` is empty. The parser now accepts that valid message shape while
+still failing absent/wrong-typed diagnostics, error-level notifications,
+unsuccessful invocations and findings. The downloaded original CodeQL result
+was revalidated directly; this is distinct from claiming every hosted gate passed.
+
 ### Adoption settings
 
 `CUSTOMIZE` comments mark runtime invocation, reviewer ownership, workflow

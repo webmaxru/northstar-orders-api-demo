@@ -367,23 +367,70 @@ export function fetchPlan(taskId, deps = {}) {
 }
 
 export function fetchProposedPlan(contract, deps = {}) {
-  const pr = findPlanPr(contract.id, deps);
-  if (!pr) return null;
-  const artifact = readPlanArtifact(pr.headRefOid, contract.id, deps);
-  const plan = extractPlanContract(artifact.body);
+  const run = deps.run ?? gh;
+  if (!contract.source?.trusted) throw new Error("Proposed plans require a trusted live task.");
+  let number = deps.pullRequest;
+  if (number === undefined || number === null) {
+    const matches = JSON.parse(run([
+      "pr", "list", "--head", deps.headBranch ?? implementationBranch(contract.id),
+      "--state", "open", "--limit", "2", "--json", "number",
+    ]));
+    if (!Array.isArray(matches) || matches.length > 1) {
+      throw new Error("The implementation branch does not identify one unambiguous PR.");
+    }
+    if (!matches.length) return null;
+    number = matches[0].number;
+  }
+  if (!Number.isSafeInteger(number) || number < 1) {
+    throw new Error("An explicit valid implementation PR number is required.");
+  }
+  const pull = githubJson(`repos/{owner}/{repo}/pulls/${number}`, { run });
+  if (pull.state !== "open" || pull.head?.ref?.startsWith("plan/")) {
+    throw new Error("Combined execution requires an open implementation PR, not a plan-only PR.");
+  }
+  const repository = githubJson("repos/{owner}/{repo}", { run }).full_name;
+  if (pull.head?.repo?.full_name !== repository || pull.base?.repo?.full_name !== repository) {
+    throw new Error("The implementation PR must belong to the selected repository.");
+  }
+  const links = [...new Set([...String(pull.body ?? "").matchAll(/\b(?:closes|fixes|resolves)\s+#(\d+)\b/gi)]
+    .map((match) => Number(match[1])))];
+  if (links.length !== 1 || links[0] !== contract.source.issue) {
+    throw new Error("The implementation PR must link exactly the selected task.");
+  }
+  const body = extractPlanSection(pull.body);
+  const plan = extractPlanContract(body);
   const validation = validatePlanContract(plan, contract);
-  if (!validation.ok || plan.baseSha !== pr.baseRefOid) {
-    throw new Error("The proposed plan does not match the live task and base.");
+  if (!validation.ok || plan.baseSha !== pull.base.sha || plan.baseBranch !== pull.base.ref) {
+    throw new Error("The implementation PR plan does not match the current task and base.");
   }
-  if (approvalPolicyForRisk(plan.risk).requirePlanOnlyApproval) return null;
-  const mirror = extractPlanContract(extractPlanSection(pr.body));
-  if (!mirror || canonicalPlan(mirror) !== canonicalPlan(plan)) {
-    throw new Error("The proposed plan's PR description differs from its committed artifact.");
+  if (Object.hasOwn(plan, "approval")) {
+    throw new Error("A proposed plan must not contain an approval claim.");
   }
-  const files = githubPages(`repos/{owner}/{repo}/pulls/${pr.number}/files?per_page=100`, deps);
-  const result = validatePlanOnlyFiles({ taskId: contract.id, files, entry: artifact.entry });
-  if (!result.ok) throw new Error(result.reason);
-  return { body: artifact.body, plan, pr, approval: null };
+  if (approvalPolicyForRisk(plan.risk).requirePlanOnlyApproval) {
+    throw new Error("This risk requires independent plan-first approval.");
+  }
+  if (deps.expectedHead && pull.head.sha !== deps.expectedHead) {
+    throw new Error("The implementation PR head differs from the selected execution.");
+  }
+  if (deps.headBranch && pull.head.ref !== deps.headBranch) {
+    throw new Error("The implementation PR branch differs from the selected workspace.");
+  }
+  const comparison = githubJson(`repos/{owner}/{repo}/compare/${plan.baseSha}...${pull.head.sha}`, { run });
+  if (comparison.merge_base_commit?.sha !== plan.baseSha ||
+      !["ahead", "identical"].includes(comparison.status)) {
+    throw new Error("The implementation PR does not descend from its declared base.");
+  }
+  const after = githubJson(`repos/{owner}/{repo}/pulls/${pull.number}`, { run });
+  if (after.state !== "open" || after.head.sha !== pull.head.sha ||
+      after.base.sha !== pull.base.sha || after.body !== pull.body) {
+    throw new Error("The implementation proposal changed during resolution.");
+  }
+  return {
+    body, plan, approval: null,
+    pr: { number: pull.number, url: pull.html_url, body: pull.body,
+      author: { login: pull.user.login }, isDraft: pull.draft,
+      headRefOid: pull.head.sha, baseRefOid: pull.base.sha },
+  };
 }
 
 /** Read only a plan whose digest is bound to a human plan-only approval. */

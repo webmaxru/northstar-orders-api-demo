@@ -77,6 +77,37 @@ describe("fail-closed security evidence", () => {
     expect(validateSarif(diagnostics).ok).toBe(false);
   });
 
+  it("accepts CodeQL informational notifications with an empty valid text message", () => {
+    const diagnostics = {
+      ...log(),
+      runs: [{
+        ...log().runs[0],
+        invocations: [{
+          executionSuccessful: true,
+          toolExecutionNotifications: [{
+            level: "none", message: { text: "" },
+            descriptor: { id: "fixture/extraction-coverage" },
+          }],
+        }],
+      }],
+    };
+    expect(validateSarif(diagnostics)).toMatchObject({ ok: true, errors: [], findings: [] });
+    diagnostics.runs[0]!.invocations[0]!.toolExecutionNotifications[0]!.level = "error";
+    expect(validateSarif(diagnostics).ok).toBe(false);
+  });
+
+  it("rejects absent and wrong-typed diagnostic messages", () => {
+    for (const message of [{}, { text: 12 }, { id: "" }, { text: "", markdown: false }]) {
+      expect(validateSarif({
+        ...log(),
+        runs: [{
+          ...log().runs[0],
+          invocations: [{ executionSuccessful: true, toolExecutionNotifications: [{ level: "none", message }] }],
+        }],
+      }).ok).toBe(false);
+    }
+  });
+
   it("does not treat suppression metadata as permission to discard a finding", () => {
     const result = validateSarif(log([{
       ruleIndex: 0, message: { text: "sensitive details must not be logged" },

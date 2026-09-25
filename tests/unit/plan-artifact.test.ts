@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { planArtifactPath, validatePlanOnlyFiles } from "../../scripts/plan-artifact.mjs";
+import { mkdirSync, mkdtempSync, rmdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { localProposalPath, planArtifactPath, validatePlanOnlyFiles } from "../../scripts/plan-artifact.mjs";
 
 const input = {
   taskId: "WI-1842",
@@ -8,6 +11,24 @@ const input = {
 };
 
 describe("versioned plan-only boundaries", () => {
+  it("rejects redirected local proposal directories and noncanonical selectors", () => {
+    const root = mkdtempSync(join(tmpdir(), "northstar-proposal-path-"));
+    const outside = mkdtempSync(join(tmpdir(), "northstar-outside-proposal-"));
+    try {
+      mkdirSync(join(root, "artifacts"));
+      writeFileSync(join(root, "artifacts", "plan-proposal.md"), "bounded proposal");
+      expect(localProposalPath("artifacts/plan-proposal.md", root)).toBe(join(root, "artifacts", "plan-proposal.md"));
+      expect(() => localProposalPath("../outside.md", root)).toThrow(/canonical/);
+      rmSync(join(root, "artifacts", "plan-proposal.md"));
+      rmdirSync(join(root, "artifacts"));
+      writeFileSync(join(outside, "plan-proposal.md"), "external input");
+      symlinkSync(outside, join(root, "artifacts"), "junction");
+      expect(() => localProposalPath("artifacts/plan-proposal.md", root)).toThrow(/regular file/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
   it("accepts only the task-bound versioned plan artifact", () => {
     expect(validatePlanOnlyFiles(input)).toMatchObject({ ok: true, path: "docs/plans/wi-1842.md" });
     expect(validatePlanOnlyFiles({

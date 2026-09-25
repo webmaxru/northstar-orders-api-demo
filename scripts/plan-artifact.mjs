@@ -1,10 +1,27 @@
 import { Buffer } from "node:buffer";
 import { TextDecoder } from "node:util";
+import { lstatSync } from "node:fs";
+import { resolve } from "node:path";
 import { githubJson } from "./github-api.mjs";
 
 export const PLAN_DIRECTORY = "docs/plans";
 const MAX_PLAN_BYTES = 1024 * 1024;
 const SHA = /^[0-9a-f]{40}$/;
+
+export function localProposalPath(file, root) {
+  if (!["artifacts/plan-proposal.md", "artifacts/plan.json"].includes(file)) {
+    throw new Error("Only an explicit canonical local proposal path is supported.");
+  }
+  const directory = resolve(root, "artifacts");
+  const target = resolve(root, file);
+  const parent = lstatSync(directory);
+  const entry = lstatSync(target);
+  if (parent.isSymbolicLink() || !parent.isDirectory() ||
+      entry.isSymbolicLink() || !entry.isFile() || entry.size > MAX_PLAN_BYTES) {
+    throw new Error("A local proposal must be a bounded regular file in the owned artifacts directory.");
+  }
+  return target;
+}
 
 export function planArtifactPath(taskId) {
   const id = String(taskId ?? "").toLowerCase();

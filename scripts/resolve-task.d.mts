@@ -5,8 +5,14 @@ export declare const PLAN_CONTRACT_CACHE: string;
 export declare const APPROVED_PLAN_CACHE: string;
 export declare const TASK_SESSION_CACHE: string;
 export declare const EXECUTION_CONTEXT_CACHE: string;
+export declare const PROPOSAL_PATH: string;
 export declare function clearTaskState(root?: string): void;
 export declare function taskRole(prompt: unknown): "plan" | "implement" | null;
+export declare function taskInputs(prompt: unknown): {
+  pullRequest: number | null;
+  proposalPath: string | null;
+  combined: boolean;
+};
 
 export type TaskDecision =
   | { action: "ignore" }
@@ -26,10 +32,17 @@ export declare function resolveTask(
     role?: "plan" | "implement" | null;
     sessionId?: string | null;
     cloud?: boolean;
+    pullRequest?: number | null;
+    expectedHead?: string;
+    proposalPath?: string | null;
+    combined?: boolean;
+    readWorkspace?: () => { branch: string; headSha: string };
+    readCloudContext?: typeof import("./execution-context.d.mts").resolveCloudExecution;
   },
-): { contract: TaskContract; plan: string | null };
+): { contract: TaskContract; plan: string | null; approvalState: "approved" | "proposed" | "missing" };
 export declare function renderResult(input: {
   contract: TaskContract;
   plan: string | null;
   issue: number;
+  approvalState?: "approved" | "proposed" | "missing";
 }): string;

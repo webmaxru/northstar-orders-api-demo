@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import { cacheContract } from "./task-contract.mjs";
-import { clearTaskState, resolveTask } from "./resolve-task.mjs";
+import { cacheContract, contractFromIssue } from "./task-contract.mjs";
+import { clearTaskState } from "./resolve-task.mjs";
 
 function gh(args) {
   return execFileSync("gh", args, {
@@ -30,6 +30,7 @@ function main() {
     process.exit(2);
   }
   try {
+  clearTaskState();
   const pull = JSON.parse(gh(["pr", "view", pr, "--json", "body"]));
   const issue = linkedIssue(pull.body);
   if (!issue) {
@@ -37,7 +38,8 @@ function main() {
       "No task issue linked. Add `Closes #<number>` to the pull request body.",
     );
   }
-  const contract = resolveTask(issue).contract;
+  // Resolve task authority only. Plan selection is a distinct risk-aware gate.
+  const contract = contractFromIssue(issue);
   const target = cacheContract(contract);
   if (process.env.GITHUB_OUTPUT) {
     appendFileSync(
