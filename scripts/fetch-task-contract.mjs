@@ -9,7 +9,8 @@
  * and demos; the resolved contract records that it is not trusted authority.
  */
 
-import { cacheContract, contractFromFile, contractFromIssue } from "./task-contract.mjs";
+import { cacheContract, contractFromFile } from "./task-contract.mjs";
+import { clearTaskState, resolveTask } from "./resolve-task.mjs";
 
 function valueOf(flag) {
   const index = process.argv.indexOf(flag);
@@ -28,8 +29,14 @@ if (!issue && !file) {
 
 let contract;
 try {
-  contract = issue ? contractFromIssue(issue) : contractFromFile(file);
+  if (issue) {
+    contract = resolveTask(Number(issue)).contract;
+  } else {
+    clearTaskState();
+    contract = contractFromFile(file);
+  }
 } catch (error) {
+  clearTaskState();
   process.stderr.write(`${/** @type {Error} */ (error).message}\n`);
   process.exit(1);
 }

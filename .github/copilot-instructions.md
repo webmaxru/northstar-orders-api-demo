@@ -72,13 +72,38 @@ The machine-readable plan must bind:
 - required checks and evidence;
 - decisions, handoffs, risks, rollback, and escalation.
 
-This repository uses a plan-first pull request for implementation work. The
-planner is read-only. Its Stop hook persists a local proposal; a human must
-explicitly publish it. High and critical plans require a human approval bound
-to the current plan digest and plan-only commit before write tools are used.
-Implementation runs on a separate `agent/implement/<task>` branch created from
-the approved base SHA. Final acceptance requires a separate human review of the
-latest implementation commit.
+The planner is read-only. The repository-level Stop dispatcher persists its
+local proposal; an explicitly authorized publisher commits the proposal as
+`docs/plans/<task-id>.md` and requests eligible human reviewers configured in
+`.github/governance/policy.json`. A plan-only PR may add or modify only that
+task's non-executable regular Markdown artifact. It cannot contain source,
+workflow, symlink, submodule, renamed, or deleted files.
+
+High and critical plans require a real current GitHub APPROVED review of the
+plan-only commit before implementation. The resolver binds that native review
+to the committed plan, live task digest, base SHA and current plan head.
+Changing any binding invalidates approval. A PR-description copy must match
+the committed plan. New file-backed plans do not require a reviewer to run
+`plan:record-approval`; only the explicitly pinned legacy bootstrap retains
+the zero-file plus reviewer-authored-record protocol.
+
+Low and medium work may execute a validated, explicitly handed-off plan before
+plan approval, with the risk's required checks and final review still required.
+Use `/work <issue>` for the explicit combined route. A fresh local session may
+write only `artifacts/plan-proposal.md` until `plan:materialize` with
+`--execute-proposed` validates the task, scope, risk and exact base. This does
+not create an approval. To resume, explicitly select the implementation
+`Task PR: #<number>` or local `Task plan: artifacts/plan.json`; startup never
+adopts an arbitrary remaining file. The combined PR carries plan and code
+together, and the hosted selector requires independent plan approval only for
+high/critical risk.
+Local implementation uses `agent/implement/<task>` from the declared base.
+Cloud implementation retains the host branch only after resolving the actual
+same-repository PR, task, plan, base and current head; its branch prefix alone
+grants no authority. Final acceptance targets the latest implementation commit.
+Cloud combined execution requires the actual implementation PR to carry its
+task-bound proposed plan. Local proposal files do not replace that live PR
+binding; absence of the binding remains a visible stop condition.
 
 ## Risk-based autonomy
 
@@ -123,7 +148,8 @@ checks, and latest approvals before acting.
 
 - Workflow permissions default to read-only and elevate only per job.
 - Planning and review agents have no edit tools.
-- Implementation tools are enabled only after an approved plan is resolved.
+- Implementation tools require a trusted task and validated plan; high/critical
+  work additionally requires the current human plan approval.
 - Tool writes must remain inside the task scope; prohibited paths beat allowed
   paths.
 - Raw idempotency keys, request payloads, credentials, and secret values must
@@ -136,7 +162,13 @@ checks, and latest approvals before acting.
   not a substitute for durable GitHub workflow evidence.
 
 Copilot command-hook timeouts are fail-open, and cloud-agent `ask` decisions
-become deny decisions. Keep pre-tool policy deterministic and fast.
+become deny decisions. Keep pre-tool policy deterministic and fast. Hook
+compatibility is host-specific; a schema unit test is not a live host canary.
+The SessionStart resolver accepts explicit `AGENT_TASK_ISSUE`, documented
+`initial_prompt`/`initialPrompt`, or `COPILOT_AGENT_PROMPT` task input.
+Conflicting selectors and failed resolution clear all cached authority.
+UserPromptSubmit output cannot reliably halt every host; PreToolUse still
+denies writes without matching task, plan, isolation and session identity.
 
 ## MCP governance
 

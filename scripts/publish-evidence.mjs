@@ -24,10 +24,10 @@
  * Usage: node scripts/publish-evidence.mjs --pr <number>
  */
 
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { githubJson, githubPages, runGitHub } from "./github-api.mjs";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 const MARKER = "<!-- northstar:evidence -->";
@@ -92,17 +92,22 @@ export function renderComment(report, links = {}) {
 }
 
 function gh(args) {
-  return execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  return runGitHub(args);
 }
 
 /** Replace our previous comment rather than adding one per run. */
-function existingCommentId(pr) {
-  const raw = gh(["api", `repos/{owner}/{repo}/issues/${pr}/comments`, "--jq", ".[] | {id, body}"]);
-  for (const line of raw.split("\n").filter(Boolean)) {
-    const comment = JSON.parse(line);
-    if (comment.body?.includes(MARKER)) return comment.id;
+export function existingCommentId(pr, publisher, { run = gh } = {}) {
+  if (!/^[a-z0-9-]+\[bot\]$/i.test(publisher ?? "")) {
+    throw new Error("Configure the trusted publisher App login before publishing evidence.");
   }
-  return null;
+  const comments = githubPages(`repos/{owner}/{repo}/issues/${pr}/comments?per_page=100`, { run });
+  const matches = comments.filter((comment) =>
+    comment.user?.login === publisher && comment.user?.type === "Bot" &&
+    comment.body?.startsWith(MARKER) &&
+    Number.isSafeInteger(comment.id) && comment.id > 0
+  );
+  if (matches.length > 1) throw new Error("Multiple trusted evidence comments exist; reconcile them explicitly.");
+  return matches[0]?.id ?? null;
 }
 
 function main() {
@@ -121,7 +126,11 @@ function main() {
         : null,
   });
 
-  const existing = existingCommentId(pr);
+  const existing = existingCommentId(pr, process.env.NORTHSTAR_TRUSTED_PUBLISHER_APP_LOGIN);
+  const pull = githubJson(`repos/{owner}/{repo}/pulls/${pr}`);
+  if (pull.state !== "open" || pull.head.sha !== report.provenance?.headSha) {
+    throw new Error("The evidence report does not match the current open implementation PR.");
+  }
   if (existing) {
     gh(["api", "--method", "PATCH", `repos/{owner}/{repo}/issues/comments/${existing}`, "-f", `body=${body}`]);
     process.stdout.write(`updated evidence comment ${existing} on PR #${pr}\n`);
