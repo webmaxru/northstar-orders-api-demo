@@ -1,17 +1,18 @@
 # Plan: AES-TRUSTED-ACCEPTANCE-BOOTSTRAP
 
 ## Objective
-Safely bootstrap trusted-acceptance publication for same-repository stacked PRs without exposing publisher credentials to pull-request code. During ordinary processing, require the PR to be open. For the single approved migration only, permit protected-default-branch workflow_dispatch to process the exact merged migration PR after verifying source run/attempt, repository, workflow/event, original head/base, merge commit, task and plan. Publish `trusted-acceptance` on the validated original PR head from App 5075466. Temporarily restore `repository-controls` to its original Actions integration 15368; issue #22 separately owns any later rebind.
+Safely bootstrap trusted-acceptance publication for same-repository stacked PRs without exposing publisher credentials to pull-request code. During ordinary processing, require the PR to be open. For the single approved migration only, permit protected-default-branch workflow_dispatch to process the exact merged migration PR after verifying source run/attempt, repository, workflow/event, original head/base, merge commit, task and plan. After the parent merge, first restore repository-controls to its original Actions integration 15368 and trusted-acceptance to App 5075466, then run the trusted online audit and publish `trusted-acceptance` on the validated original PR head only if the report is ready_for_acceptance. Issue #22 separately owns any later repository-controls rebind.
 
 ## Plan
-Risk: high. Base: `agent/implement/aes-surface-evidence` at `2e3cd083399661947b98b420f66ce7a9523ca68b`. The plan-only PR and child implementation PR use the active parent task branch; the temporary main ruleset window applies only to the eventual parent PR #18 after child work is integrated. This replaces the prior main-based proposal. The previous PR #25 approval is invalid. No implementation or setting mutation is authorized until this exact revision is independently approved.
+Risk: high. Base: `agent/implement/aes-surface-evidence` at `2e3cd083399661947b98b420f66ce7a9523ca68b`. The plan-only and child implementation PRs use the active parent branch; the final bootstrap window applies only to parent PR #18 targeting main. This revision corrects the ordering: restore the original required contexts before the trusted online audit. The previous PR #25 approval is invalid. No implementation or settings mutation is authorized until this exact revision is independently approved.
 
 ### Parent bootstrap sequence
-- Child implementation PR: base `agent/implement/aes-surface-evidence` at the approved SHA; merge into the parent only through human review.
-- Main bootstrap PR: parent PR #18 after issue #24 and dependent work are integrated. Preflight all remaining contexts and evidence.
-- Temporarily remove only `repository-controls` and `trusted-acceptance` for at most 60 minutes; keep `evidence`, all other checks, strictness, review, CODEOWNERS, environments, and no bypass actors.
-- After merge, dispatch the protected publisher from main with exact source run ID/attempt. Validate merged PR metadata and publish trusted-acceptance from App `5075466` to the original PR head.
-- Restore repository-controls to Actions `15368` and trusted-acceptance to App `5075466`; issue #22 owns the later repository-controls rebind.
+- Child implementation PR: target `agent/implement/aes-surface-evidence` at the approved SHA; a human integrates it into parent PR #18.
+- Main bootstrap PR: parent PR #18 after issue #24 child code and dependent work are integrated; all checks other than the two named contexts must pass.
+- Temporarily remove only `repository-controls` and `trusted-acceptance` for no more than 60 minutes; keep `evidence`, all other checks, strictness, review, CODEOWNERS, environments and no-bypass unchanged.
+- Merge PR #18 via normal human review, then immediately restore repository-controls -> Actions `15368` and trusted-acceptance -> App `5075466`.
+- Only after restoration, dispatch the trusted publisher on protected main with exact source run/attempt; validate the merged PR and original source snapshot, then publish trusted-acceptance on the original PR head only after ready_for_acceptance.
+- If the audit/status fails, preserve the restored original ruleset, publish no success, and keep future merges blocked. Issue #22 owns the later repository-controls rebind.
 
 ## Scope and files to change
 - `scripts/import-evidence-artifacts.mjs`
@@ -73,43 +74,43 @@ Prohibited paths and operations:
 - AC6 | The implementation passes focused/full validation and records exact hosted status identity and ruleset restoration | records complete trusted-acceptance validation
 
 ## Evidence
-- Exact parent base SHA and plan approval; ruleset 23998987 before/during/after snapshots proving only the two named contexts were temporarily absent, all other rules unchanged, strict mode true and bypass actors empty.
-- Preflight record for parent PR #18: all remaining status checks pass, evidence is truthful, unrelated main merges are paused, and publisher/rollback are ready.
-- Resolver output binding source workflow/event/run/attempt, same-repository parent PR, original head/base, merge commit, task/plan, report digest and freshness.
-- Protected main workflow_dispatch run and commit status proving trusted-acceptance was created by App 5075466 on the exact original PR head only after ready_for_acceptance.
-- Post-window state proving repository-controls restored to integration 15368 and trusted-acceptance to integration 5075466; all other fields unchanged and no bypass actor.
-- Focused/full validation outputs, exact test counts, candidate SHA and hosted run URLs; if preflight fails, a blocked report and unchanged ruleset.
+- Exact parent base, plan approval, and ruleset 23998987 before/during/after snapshots; prove only the two named contexts were absent during the bounded window, all other rules unchanged, strict mode true and bypass actors empty.
+- Preflight evidence that all remaining contexts pass, evidence is truthful, unrelated main merges are paused, and rollback is ready.
+- Resolver output binding source workflow/event/run/attempt, parent PR, original head/base, merge commit, task/plan, report digest and freshness.
+- Protected main publisher run and status API response proving `trusted-acceptance` came from App 5075466 and targets the original PR head only after ready_for_acceptance.
+- Final ruleset state showing repository-controls integration 15368 and trusted-acceptance integration 5075466 restored with all other fields unchanged.
+- Focused/full validation results and hosted workflow links; if trusted audit fails after restoration, a blocked report and no success status.
 
 ## Decisions and handoffs
-- The owner authorized the one-time maximum-60-minute removal of exactly repository-controls and trusted-acceptance for planning; this proposal is bound to the active parent branch at 2e3cd083399661947b98b420f66ce7a9523ca68b, and the setting window is only for parent PR #18 targeting main.
-- The issue #24 child implementation PR targets the parent task branch; a human integrates reviewed child changes into the parent PR. The agent does not merge.
-- Current main is b65c2de5c8224342c72c37eeed7ef9f965ad8a2c; parent PR #18 is based on main and currently at head 2e3cd083399661947b98b420f66ce7a9523ca68b. Any move of the parent base/head invalidates this proposal.
-- Current final ruleset identities for this task remain repository-controls 15368 and trusted-acceptance 5075466. Issue #22 owns the later repository-controls rebind.
-- Issue #24 is a prerequisite for #22, which is a prerequisite for #20; refresh dependent plans after shared-base changes.
+- The owner authorized planning one maximum-60-minute removal of only repository-controls and trusted-acceptance; the setting change is performed only under this exact approved plan.
+- The child implementation PR targets the parent task branch at 2e3cd083399661947b98b420f66ce7a9523ca68b. A human integrates it into parent PR #18; the agent does not merge.
+- The main-target migration window applies only after parent PR #18 contains the approved child code and dependent updates, and its preflight has passed.
+- The issue24 publisher code restores original identities: repository-controls 15368 and trusted-acceptance 5075466. Issue #22 owns the later repository-controls rebind.
+- Issue #24 is a prerequisite for issue #22, which blocks issue #20. Refresh and re-approve dependent plans after shared-base changes.
 
 ## Risks
-- Temporarily removing two required contexts reduces protection; retain every other context, pause unrelated main merges, cap the window at 60 minutes and restore immediately on deviation.
-- The parent PR #18 may not reach ready_for_review or may have unproven criteria; the preflight must fail closed and the window must not start.
-- The post-merge publisher may fail to validate the closed PR, source run or merge commit; no success status may be emitted on any mismatch.
-- A trusted status on the wrong head/run/plan could satisfy an unintended commit; bind and re-read all identities.
-- Concurrent ruleset edits or unrelated merges could invalidate rollback; abort on any drift.
+- Temporarily removing two required contexts reduces protection; keep all remaining gates, pause unrelated main merges, cap at 60 minutes and restore before trusted audit.
+- The post-restore trusted audit may still fail because external controls are unavailable; if so, publish no success status and keep future merges blocked.
+- A wrong or stale source run, original base/head, merge commit, task/plan or status target could falsely satisfy a control; bind every identity.
+- The evidence job could claim ready_for_acceptance while statuses are absent; it must report at most ready_for_review during the window.
+- Concurrent main merges or ruleset edits can invalidate the rollback snapshot; abort on drift.
 
 ## Rollback and escalation
-- Never start the window unless the parent PR head/base, every remaining passing check, evidence behavior, pause on unrelated merges and rollback are confirmed.
-- On any failure, restore repository-controls integration 15368 and trusted-acceptance integration 5075466, verify all other protections and empty bypass list, and stop.
-- Never add a bypass actor, disable ruleset enforcement, lower strictness, remove evidence, expose credentials to PR code or exceed 60 minutes.
-- If exact restoration cannot be verified immediately, stop all other actions and escalate to the repository owner.
+- Never start the window unless all remaining required checks, evidence readiness, unrelated-merge pause and rollback conditions are verified.
+- On any issue during the window, restore repository-controls integration 15368 and trusted-acceptance integration 5075466 immediately, verify all other protections and empty bypass list, and stop.
+- After restoration, if trusted publisher/audit/status does not pass, do not alter more settings, do not publish success, and keep later merges blocked pending a new human-approved decision.
+- Never add a bypass actor, disable enforcement, lower strictness, expose credentials to PR code, or exceed 60 minutes.
 
 <!-- northstar:plan-contract:start -->
 ```json
 {
   "schema": "northstar/plan/1",
   "taskId": "AES-TRUSTED-ACCEPTANCE-BOOTSTRAP",
-  "contractDigest": "6d0c378fd9872693865b3dbefe5b2e23f435dbdbf652a8f0fccc816045c1351e",
+  "contractDigest": "a9a49b16475c26b8a755a07dc1b26dcf069fc3745c9b9e049ceeb59c392cee53",
   "baseSha": "2e3cd083399661947b98b420f66ce7a9523ca68b",
   "baseBranch": "agent/implement/aes-surface-evidence",
   "risk": "high",
-  "objective": "Safely bootstrap trusted-acceptance publication for same-repository stacked PRs without exposing publisher credentials to pull-request code. During ordinary processing, require the PR to be open. For the single approved migration only, permit protected-default-branch workflow_dispatch to process the exact merged migration PR after verifying source run/attempt, repository, workflow/event, original head/base, merge commit, task and plan. Publish `trusted-acceptance` on the validated original PR head from App 5075466. Temporarily restore `repository-controls` to its original Actions integration 15368; issue #22 separately owns any later rebind.",
+  "objective": "Safely bootstrap trusted-acceptance publication for same-repository stacked PRs without exposing publisher credentials to pull-request code. During ordinary processing, require the PR to be open. For the single approved migration only, permit protected-default-branch workflow_dispatch to process the exact merged migration PR after verifying source run/attempt, repository, workflow/event, original head/base, merge commit, task and plan. After the parent merge, first restore repository-controls to its original Actions integration 15368 and trusted-acceptance to App 5075466, then run the trusted online audit and publish `trusted-acceptance` on the validated original PR head only if the report is ready_for_acceptance. Issue #22 separately owns any later repository-controls rebind.",
   "scope": {
     "allowed": [
       "scripts/import-evidence-artifacts.mjs",
@@ -168,17 +169,17 @@ Prohibited paths and operations:
     "security-change"
   ],
   "steps": [
-    "Reconfirm the live task digest, exact parent base 2e3cd083399661947b98b420f66ce7a9523ca68b, ruleset 23998987 identities, strict mode, empty bypass list and protected App/environment identities. The plan-only PR and child implementation PR must target the active parent branch whose plan-only and task-contract guard is present.",
-    "Implement and locally validate the resolver/publisher on an isolated child branch from the approved parent base. Its PR targets `agent/implement/aes-surface-evidence`; the temporary main ruleset window applies only to the main-target parent PR #18 after child code and dependent changes are reviewed and integrated.",
+    "Reconfirm the live issue digest, exact parent base 2e3cd083399661947b98b420f66ce7a9523ca68b, ruleset 23998987 identities, strict mode, empty bypass list and protected environment/App identities. The plan-only and child implementation PRs stay on the parent task branch.",
+    "Implement and locally validate the resolver/publisher on an isolated child branch from the approved parent base. The child PR targets agent/implement/aes-surface-evidence. The temporary main ruleset window applies only to parent PR #18 after child code and dependent changes are reviewed and integrated.",
     "Normal source-run resolution requires one open same-repository PR for the exact run head and declared base. The single bootstrap workflow_dispatch may process only the exact merged parent PR and must verify merged=true, merge_commit_sha, source run/attempt, original head/base, task and plan.",
-    "Use a protected-default-branch workflow_dispatch with source-run-id and source-run-attempt. Treat all inputs as untrusted; validate source workflow/event/repository/run/attempt/PR/base/head/merge/task/plan/artifact identity before import. Never check out or execute PR code in the publisher.",
-    "For merged bootstrap validation, bind evidence to the source-run snapshot of the original base/head and the verified merge commit. Revalidate the committed plan, approval, scope, human review, source artifacts, and trusted online controls without comparing the original plan base to a mutable post-merge base ref.",
-    "Keep privileged audit and status publication in the existing trusted-publisher environment using App 5075466. Publish trusted-acceptance on the exact original PR head only after a fresh report is ready_for_acceptance. Do not change repository-controls integration under this task; issue #22 owns its later rebind.",
-    "Preflight the parent PR #18 before any rule change: all checks that will remain required must pass, evidence must remain required and truthfully report at most ready_for_review while trusted statuses are absent, unrelated main merges must be paused, and publisher/rollback must be ready. Abort if any condition fails.",
-    "Only after preflight, start one maximum-60-minute window on parent PR #18 and remove exactly repository-controls and trusted-acceptance entries from ruleset 23998987. Keep evidence, every other context, strict mode, PR review, CODEOWNERS, environments and the empty bypass list unchanged.",
-    "Merge parent PR #18 through the normal human-reviewed path; the agent does not merge. After merge, dispatch the protected publisher from main with the exact source run ID/attempt, validate the merged PR and original source head/base/merge commit, publish trusted-acceptance from App 5075466 on the original PR head, then restore repository-controls to Actions integration 15368 and trusted-acceptance to App 5075466.",
-    "Read ruleset 23998987 before/during/after and verify every other field, context, strict setting and empty bypass list is unchanged. If any check fails, evidence is not ready_for_acceptance, source identity is ambiguous, status is wrong, ruleset drifts, or the deadline is at risk, immediately restore both original context identities and stop.",
-    "Add positive and negative tests for open/stacked and merged PR resolution, original base/head snapshots, merge-commit ancestry, run/attempt/task/plan/artifact binding, status target and App creator, and ready_for_review versus ready_for_acceptance behavior. Run focused tests, npm run agentic:compile, npm run agentic:zizmor, npm run validate, npm run test:acceptance and npm run validate:all; record exact outcomes, test counts, PostgreSQL result and candidate SHA."
+    "Use protected-default-branch workflow_dispatch with source-run-id and source-run-attempt. Treat all inputs as untrusted; validate source workflow/event/repository/run/attempt/PR/base/head/merge/task/plan/artifact identity before import. Never check out or execute PR code in the publisher.",
+    "For a merged bootstrap PR, bind the report to the source-run snapshot of original base/head and the verified merge commit. Revalidate plan, approval, scope, human review, source artifacts and task identity without treating mutable post-merge base SHA as the original plan base.",
+    "Preflight parent PR #18: all contexts that will remain required must pass, evidence must pass while reporting no more than ready_for_review, unrelated main merges must be paused, and publisher/rollback must be ready. Abort if any condition fails.",
+    "Only after preflight, start one maximum-60-minute window and remove exactly repository-controls and trusted-acceptance entries from ruleset 23998987. Keep evidence, every other context, strict mode, PR review, CODEOWNERS, environments and the empty bypass list unchanged.",
+    "Merge parent PR #18 through the normal human-reviewed path; the agent does not merge. Immediately restore repository-controls to Actions integration 15368 and trusted-acceptance to App 5075466, and verify all other settings are unchanged before running the audit.",
+    "After restoration, dispatch the protected publisher from main with the exact source run ID/attempt. Validate the merged parent PR and original source head/base/merge commit, run the online audit with App 5075466, and publish trusted-acceptance only if the fresh report is ready_for_acceptance. Target the original validated PR head.",
+    "Capture the status creator/context/source-run and final ruleset state. If the trusted audit or status fails, do not report acceptance; leave the restored required contexts intact, stop subsequent merges and record the exact blocker.",
+    "Add positive/negative tests for open/stacked and merged PR resolution, original base/head snapshots, merge ancestry, source run/attempt/task/plan/artifact binding, App status target and truthful ready_for_review behavior. Run focused tests, npm run agentic:compile, npm run agentic:zizmor, npm run validate, npm run test:acceptance and npm run validate:all; record exact outcomes, counts and candidate SHA."
   ],
   "requiredChecks": [
     "plan-contract",
@@ -229,34 +230,34 @@ Prohibited paths and operations:
     }
   ],
   "evidence": [
-    "Exact parent base SHA and plan approval; ruleset 23998987 before/during/after snapshots proving only the two named contexts were temporarily absent, all other rules unchanged, strict mode true and bypass actors empty.",
-    "Preflight record for parent PR #18: all remaining status checks pass, evidence is truthful, unrelated main merges are paused, and publisher/rollback are ready.",
-    "Resolver output binding source workflow/event/run/attempt, same-repository parent PR, original head/base, merge commit, task/plan, report digest and freshness.",
-    "Protected main workflow_dispatch run and commit status proving trusted-acceptance was created by App 5075466 on the exact original PR head only after ready_for_acceptance.",
-    "Post-window state proving repository-controls restored to integration 15368 and trusted-acceptance to integration 5075466; all other fields unchanged and no bypass actor.",
-    "Focused/full validation outputs, exact test counts, candidate SHA and hosted run URLs; if preflight fails, a blocked report and unchanged ruleset."
+    "Exact parent base, plan approval, and ruleset 23998987 before/during/after snapshots; prove only the two named contexts were absent during the bounded window, all other rules unchanged, strict mode true and bypass actors empty.",
+    "Preflight evidence that all remaining contexts pass, evidence is truthful, unrelated main merges are paused, and rollback is ready.",
+    "Resolver output binding source workflow/event/run/attempt, parent PR, original head/base, merge commit, task/plan, report digest and freshness.",
+    "Protected main publisher run and status API response proving `trusted-acceptance` came from App 5075466 and targets the original PR head only after ready_for_acceptance.",
+    "Final ruleset state showing repository-controls integration 15368 and trusted-acceptance integration 5075466 restored with all other fields unchanged.",
+    "Focused/full validation results and hosted workflow links; if trusted audit fails after restoration, a blocked report and no success status."
   ],
   "decisionsAndHandoffs": [
-    "The owner authorized the one-time maximum-60-minute removal of exactly repository-controls and trusted-acceptance for planning; this proposal is bound to the active parent branch at 2e3cd083399661947b98b420f66ce7a9523ca68b, and the setting window is only for parent PR #18 targeting main.",
-    "The issue #24 child implementation PR targets the parent task branch; a human integrates reviewed child changes into the parent PR. The agent does not merge.",
-    "Current main is b65c2de5c8224342c72c37eeed7ef9f965ad8a2c; parent PR #18 is based on main and currently at head 2e3cd083399661947b98b420f66ce7a9523ca68b. Any move of the parent base/head invalidates this proposal.",
-    "Current final ruleset identities for this task remain repository-controls 15368 and trusted-acceptance 5075466. Issue #22 owns the later repository-controls rebind.",
-    "Issue #24 is a prerequisite for #22, which is a prerequisite for #20; refresh dependent plans after shared-base changes."
+    "The owner authorized planning one maximum-60-minute removal of only repository-controls and trusted-acceptance; the setting change is performed only under this exact approved plan.",
+    "The child implementation PR targets the parent task branch at 2e3cd083399661947b98b420f66ce7a9523ca68b. A human integrates it into parent PR #18; the agent does not merge.",
+    "The main-target migration window applies only after parent PR #18 contains the approved child code and dependent updates, and its preflight has passed.",
+    "The issue24 publisher code restores original identities: repository-controls 15368 and trusted-acceptance 5075466. Issue #22 owns the later repository-controls rebind.",
+    "Issue #24 is a prerequisite for issue #22, which blocks issue #20. Refresh and re-approve dependent plans after shared-base changes."
   ],
   "risks": [
-    "Temporarily removing two required contexts reduces protection; retain every other context, pause unrelated main merges, cap the window at 60 minutes and restore immediately on deviation.",
-    "The parent PR #18 may not reach ready_for_review or may have unproven criteria; the preflight must fail closed and the window must not start.",
-    "The post-merge publisher may fail to validate the closed PR, source run or merge commit; no success status may be emitted on any mismatch.",
-    "A trusted status on the wrong head/run/plan could satisfy an unintended commit; bind and re-read all identities.",
-    "Concurrent ruleset edits or unrelated merges could invalidate rollback; abort on any drift."
+    "Temporarily removing two required contexts reduces protection; keep all remaining gates, pause unrelated main merges, cap at 60 minutes and restore before trusted audit.",
+    "The post-restore trusted audit may still fail because external controls are unavailable; if so, publish no success status and keep future merges blocked.",
+    "A wrong or stale source run, original base/head, merge commit, task/plan or status target could falsely satisfy a control; bind every identity.",
+    "The evidence job could claim ready_for_acceptance while statuses are absent; it must report at most ready_for_review during the window.",
+    "Concurrent main merges or ruleset edits can invalidate the rollback snapshot; abort on drift."
   ],
   "rollbackAndEscalation": [
-    "Never start the window unless the parent PR head/base, every remaining passing check, evidence behavior, pause on unrelated merges and rollback are confirmed.",
-    "On any failure, restore repository-controls integration 15368 and trusted-acceptance integration 5075466, verify all other protections and empty bypass list, and stop.",
-    "Never add a bypass actor, disable ruleset enforcement, lower strictness, remove evidence, expose credentials to PR code or exceed 60 minutes.",
-    "If exact restoration cannot be verified immediately, stop all other actions and escalate to the repository owner."
+    "Never start the window unless all remaining required checks, evidence readiness, unrelated-merge pause and rollback conditions are verified.",
+    "On any issue during the window, restore repository-controls integration 15368 and trusted-acceptance integration 5075466 immediately, verify all other protections and empty bypass list, and stop.",
+    "After restoration, if trusted publisher/audit/status does not pass, do not alter more settings, do not publish success, and keep later merges blocked pending a new human-approved decision.",
+    "Never add a bypass actor, disable enforcement, lower strictness, expose credentials to PR code, or exceed 60 minutes."
   ],
-  "planDigest": "dd74662a2151dbb66b5fe91c47b2d08145b2652c3812fa70a0fb11aabc4c71be"
+  "planDigest": "a2aece5b0f782c3461262a8646f91cc3a6e24af8dbf7d95859b6949861aab5bb"
 }
 ```
 <!-- northstar:plan-contract:end -->
