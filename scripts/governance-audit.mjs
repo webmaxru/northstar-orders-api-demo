@@ -241,16 +241,35 @@ export function governedAcceptanceDatabaseUrlIsSafe(workflow) {
   );
 }
 
+function workflowJobBlock(workflow, name) {
+  const source = String(workflow);
+  return new RegExp(
+    `^ {2}${name}:\\r?\\n([\\s\\S]*?)(?=^ {2}[a-z][a-z-]*:|$(?![\\s\\S]))`,
+    "m",
+  ).exec(source)?.[1] ?? "";
+}
+
 export function governedArtifactsTargetExpectedDirectory(workflow) {
+  const source = String(workflow);
   const downloadSteps =
-    String(workflow).match(
+    source.match(
       /^ {6}- uses: actions\/download-artifact@[^\r\n]+\r?\n(?: {8,}[^\r\n]*(?:\r?\n|$))*/gm,
     ) ?? [];
+  const evidenceJob = workflowJobBlock(source, "evidence");
+  const policyJobs = ["plan-approval", "scope-policy", "human-review"]
+    .map((name) => workflowJobBlock(source, name));
+  const planContract = workflowJobBlock(source, "plan-contract");
+  const planContext = /name: northstar-plan-context\r?\n[\s\S]*?\r?\n {10}retention-days: 90/
+    .exec(planContract)?.[0] ?? "";
   return (
-    downloadSteps.length === 4 &&
-    downloadSteps.every((step) =>
-      /^\s{10}path:\s*artifacts\s*$/m.test(step),
-    )
+    downloadSteps.length === 1 &&
+    evidenceJob.includes("pattern: northstar-check-*") &&
+    /^\s{10}path:\s*artifacts\s*$/m.test(downloadSteps[0]) &&
+    /^\s{10}merge-multiple:\s*true\s*$/m.test(downloadSteps[0]) &&
+    policyJobs.every((job) => job && !job.includes("actions/download-artifact@")) &&
+    planContext.includes("artifacts/plan.json") &&
+    !planContext.includes("artifacts/task-contract.json") &&
+    !planContext.includes("artifacts/checks/plan-contract.json")
   );
 }
 
@@ -287,9 +306,9 @@ export function governedEvidenceTaskLookupPermissionsAreSafe(workflow) {
 }
 
 export function governedScopeUsesPullRequestContext(workflow) {
-  const scopeJob = /^ {2}scope-policy:\r?\n([\s\S]*?)(?=^ {2}quality:\r?$)/m.exec(
-    String(workflow),
-  )?.[1];
+  const scopeJob = workflowJobBlock(workflow, "scope-policy");
+  const scopeStep = /^ {6}- id: scope\r?\n([\s\S]*?)(?=^ {6}- |$(?![\s\S]))/m
+    .exec(scopeJob)?.[1] ?? "";
   const permissionBlock = scopeJob
     ? /^ {4}permissions:\r?\n((?: {6}[^\r\n]+\r?\n)+)/m.exec(scopeJob)?.[1]
     : null;
@@ -300,8 +319,11 @@ export function governedScopeUsesPullRequestContext(workflow) {
     .map((line) => line.trim())
     .filter(Boolean);
   return (
-    exactStringSet(permissions, ["contents: read", "pull-requests: read"]) &&
-    /env:\r?\n {10}GH_TOKEN: \$\{\{ github\.token \}\}/m.test(scopeJob) &&
+    exactStringSet(permissions, ["contents: read", "issues: read", "pull-requests: read"]) &&
+    /env:\r?\n {10}GH_TOKEN: \$\{\{ github\.token \}\}/m.test(scopeStep) &&
+    scopeJob.includes('npm run contract:from-pr -- --pr "$PR_NUMBER"') &&
+    scopeJob.includes('npm run plan:gate -- --pr "$PR_NUMBER" --expected-head "$NORTHSTAR_HEAD_SHA"') &&
+    scopeJob.includes("node scripts/select-execution-plan.mjs") &&
     /npm run scope:check --\s+--pr "\$PR_NUMBER"\s+--expected-head "\$NORTHSTAR_HEAD_SHA"/m.test(
       scopeJob,
     )
@@ -309,8 +331,7 @@ export function governedScopeUsesPullRequestContext(workflow) {
 }
 
 export function governedRepositoryControlsHaveAppIdentity(workflow) {
-  const controlsJob = /^ {2}repository-controls:\r?\n([\s\S]*?)(?=^ {2}human-review:\r?$)/m
-    .exec(String(workflow))?.[1] ?? "";
+  const controlsJob = workflowJobBlock(workflow, "repository-controls");
   return [
     "NORTHSTAR_TRUSTED_PUBLISHER_APP_ID: ${{ vars.TRUSTED_PUBLISHER_APP_ID }}",
     "NORTHSTAR_TRUSTED_PUBLISHER_APP_LOGIN: ${{ vars.TRUSTED_PUBLISHER_APP_LOGIN }}",
@@ -495,7 +516,7 @@ export function auditSourceTree({ root = REPO_ROOT, policy = GOVERNANCE_POLICY, 
       check(
         governedArtifactsTargetExpectedDirectory(workflow),
         "workflow:artifact-handoff",
-        "Downloaded evidence is restored under the artifacts directory consumed by policy scripts.",
+        "Policy jobs resolve live task authority; evidence fan-in downloads check artifacts only.",
       ),
       check(
         governedSingleCheckArtifactsPreserveDirectory(workflow),
@@ -526,6 +547,11 @@ export function auditSourceTree({ root = REPO_ROOT, policy = GOVERNANCE_POLICY, 
         governedMergedArtifactsHaveUniquePaths(workflow),
         "workflow:merged-artifact-paths",
         "Independently generated reports use unique paths before artifact fan-in.",
+      ),
+      check(
+        governedRepositoryControlsHaveAppIdentity(workflow),
+        "workflow:repository-controls-app-identity",
+        "Online repository-control checks receive the configured publisher and dispatcher identities.",
       ),
     );
     for (const job of [

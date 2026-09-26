@@ -268,7 +268,7 @@ describe("source-controlled governance", () => {
     expect(
       governedArtifactsTargetExpectedDirectory(
         workflow.replace(
-          /(\s+name: northstar-plan-context\r?\n\s+)path: artifacts/,
+          /(pattern: northstar-check-\*\r?\n\s+)path: artifacts/,
           "$1path: .",
         ),
       ),
@@ -301,6 +301,7 @@ describe("source-controlled governance", () => {
     expect(governedEvidenceTaskLookupPermissionsAreSafe(workflow)).toBe(true);
     expect(governedMergedArtifactsHaveUniquePaths(workflow)).toBe(true);
     expect(governedScopeUsesPullRequestContext(workflow)).toBe(true);
+    expect(governedRepositoryControlsHaveAppIdentity(workflow)).toBe(true);
     expect(
       governedSingleCheckArtifactsPreserveDirectory(
         workflow.replace(
@@ -314,6 +315,14 @@ describe("source-controlled governance", () => {
         workflow.replaceAll(
           "quality-governance-report.json",
           "governance-report.json",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      governedRepositoryControlsHaveAppIdentity(
+        workflow.replace(
+          "NORTHSTAR_TRUSTED_PUBLISHER_APP_LOGIN: ${{ vars.TRUSTED_PUBLISHER_APP_LOGIN }}",
+          "",
         ),
       ),
     ).toBe(false);

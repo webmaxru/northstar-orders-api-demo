@@ -154,7 +154,7 @@ describe("the issue number is an argument, not a guess", () => {
       }
     });
 
-    it("preserves another session's task authority when no task is selected", async () => {
+    it("contains failure and cleanup within the owning task", async () => {
       const root = mkdtempSync(join(tmpdir(), "northstar-session-start-"));
       try {
         const fixture = contractFromFile("tests/fixtures/WI-1842.issue.md");
@@ -177,6 +177,16 @@ describe("the issue number is an argument, not a guess", () => {
           readApprovedPlan: () => null,
         });
         const contractBefore = readFileSync(join(root, "artifacts", "task-contract.json"));
+
+        expect(() => resolveTask(14, {
+          root,
+          cloud: false,
+          role: "plan",
+          sessionId: "other-session",
+          env: fixtureEnv,
+          readContract: () => { throw new Error("the conflicting session must not resolve a contract"); },
+        })).toThrow(/already owned/);
+        expect(readFileSync(join(root, "artifacts", "task-contract.json"))).toEqual(contractBefore);
 
         const result = await clearUnselectedTaskState({
           root,

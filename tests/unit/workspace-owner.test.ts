@@ -241,7 +241,7 @@ describe("task workspace ownership", () => {
     });
   });
 
-  it("preserves independent resolver state in simultaneous Git worktrees", async () => {
+  it("isolates simultaneous task state across Git worktrees", async () => {
     const root = tempRoot();
     const repository = createRepository(root);
     const firstRoot = addWorktree(repository, root, "task-one");
@@ -266,7 +266,7 @@ describe("task workspace ownership", () => {
       .toBe("fixture-two");
   }, 60_000);
 
-  it("rejects a second session before it can clear or overwrite the owner's state", async () => {
+  it("rejects a conflicting workspace owner without mutating its artifacts", async () => {
     const root = tempRoot();
     const repository = createRepository(root);
     const worktree = addWorktree(repository, root, "shared-task");

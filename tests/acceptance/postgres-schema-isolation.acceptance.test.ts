@@ -30,7 +30,7 @@ describe("PostgreSQL acceptance schema isolation", () => {
     }
   });
 
-  it("allocates independent schemas and data for concurrently started suites", async () => {
+  it("isolates PostgreSQL acceptance schemas per suite", async () => {
     const databaseUrl = process.env.DATABASE_URL;
     if (!databaseUrl) throw new Error("DATABASE_URL is required");
     const [first, second] = await Promise.all([

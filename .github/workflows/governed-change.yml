@@ -68,10 +68,15 @@ jobs:
         with:
           name: northstar-plan-context
           path: |
-            artifacts/task-contract.json
             artifacts/plan.json
-            artifacts/checks/plan-contract.json
           if-no-files-found: warn
+          retention-days: 90
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: northstar-check-plan-contract
+          path: artifacts/checks/plan-contract.json
+          if-no-files-found: error
           retention-days: 90
       - if: steps.plan.outcome != 'success'
         run: exit 1
@@ -95,17 +100,27 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - uses: actions/download-artifact@v7
-        with:
-          name: northstar-plan-context
-          path: artifacts
+      - name: Resolve the live task and candidate plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TASK_ISSUE: ${{ needs.plan-contract.outputs.issue }}
+        run: |
+          npm run contract:from-pr -- --pr "$PR_NUMBER"
+          npm run plan:gate -- --pr "$PR_NUMBER" --expected-head "$NORTHSTAR_HEAD_SHA"
+          node scripts/select-execution-plan.mjs \
+            --requirements-only \
+            --issue "$TASK_ISSUE" \
+            --pr "$PR_NUMBER" \
+            --expected-head "$NORTHSTAR_HEAD_SHA" \
+            --expected-plan artifacts/plan.json
       - id: approval
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
+          TASK_ISSUE: ${{ needs.plan-contract.outputs.issue }}
         run: >-
           node scripts/fetch-approved-plan.mjs
-          --issue "${{ needs.plan-contract.outputs.issue }}"
+          --issue "$TASK_ISSUE"
           --pr "$PR_NUMBER"
           --expected-head "$NORTHSTAR_HEAD_SHA"
           --expected-plan artifacts/plan.json
@@ -120,9 +135,7 @@ jobs:
         if: always()
         with:
           name: northstar-check-plan-approval
-          path: |
-            artifacts/approved-plan.json
-            artifacts/checks/plan-approval.json
+          path: artifacts/checks/plan-approval.json
           if-no-files-found: error
           retention-days: 90
       - if: steps.approval.outcome != 'success'
@@ -134,6 +147,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      issues: read
       pull-requests: read
     steps:
       - uses: actions/checkout@v7
@@ -145,10 +159,19 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - uses: actions/download-artifact@v7
-        with:
-          name: northstar-plan-context
-          path: artifacts
+      - name: Resolve the live task and candidate plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TASK_ISSUE: ${{ needs.plan-contract.outputs.issue }}
+        run: |
+          npm run contract:from-pr -- --pr "$PR_NUMBER"
+          npm run plan:gate -- --pr "$PR_NUMBER" --expected-head "$NORTHSTAR_HEAD_SHA"
+          node scripts/select-execution-plan.mjs \
+            --requirements-only \
+            --issue "$TASK_ISSUE" \
+            --pr "$PR_NUMBER" \
+            --expected-head "$NORTHSTAR_HEAD_SHA" \
+            --expected-plan artifacts/plan.json
       - id: scope
         continue-on-error: true
         env:
@@ -484,6 +507,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      issues: read
       pull-requests: read
     steps:
       - uses: actions/checkout@v7
@@ -492,10 +516,19 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
-      - uses: actions/download-artifact@v7
-        with:
-          name: northstar-plan-context
-          path: artifacts
+      - name: Resolve the live task and candidate plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TASK_ISSUE: ${{ needs.plan-contract.outputs.issue }}
+        run: |
+          npm run contract:from-pr -- --pr "$PR_NUMBER"
+          npm run plan:gate -- --pr "$PR_NUMBER" --expected-head "$NORTHSTAR_HEAD_SHA"
+          node scripts/select-execution-plan.mjs \
+            --requirements-only \
+            --issue "$TASK_ISSUE" \
+            --pr "$PR_NUMBER" \
+            --expected-head "$NORTHSTAR_HEAD_SHA" \
+            --expected-plan artifacts/plan.json
       - id: review
         continue-on-error: true
         env:
@@ -548,7 +581,7 @@ jobs:
       - run: npm ci
       - uses: actions/download-artifact@v7
         with:
-          pattern: northstar-*
+          pattern: northstar-check-*
           path: artifacts
           merge-multiple: true
       - env:
@@ -575,7 +608,7 @@ jobs:
             rm -f artifacts/plan.json artifacts/approved-plan.json artifacts/candidate-plan.json
             PLAN_PATH=artifacts/plan.json
           else
-            # Preserve the original plan-context artifact's digest during fan-in.
+            # Restore the candidate bytes referenced by the plan-contract producer record.
             cp artifacts/candidate-plan.json artifacts/plan.json
           fi
           node scripts/build-execution-report.mjs --hosted --plan "$PLAN_PATH"

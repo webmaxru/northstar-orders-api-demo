@@ -100,7 +100,7 @@ describe("explicit task worktree provisioning", () => {
     )).toThrow(/outside the current repository/);
   });
 
-  it("creates only the approved dedicated branch from the immutable base", () => {
+  it("provisions only the explicitly selected task workspace", () => {
     const tempRoot = temp();
     const repositoryRoot = join(tempRoot, "repo");
     const worktreePath = join(tempRoot, "task-worktree");

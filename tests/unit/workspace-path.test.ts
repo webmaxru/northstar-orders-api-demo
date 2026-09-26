@@ -17,10 +17,13 @@ afterEach(() => {
 });
 
 describe("workspace artifact paths", () => {
-  it("accepts a contained path and rejects parent traversal or an outside absolute path", () => {
+  it("confines artifact paths to their owning execution context", () => {
     const root = temp();
+    const otherRoot = temp();
     expect(workspacePath("artifacts/task-contract.json", root))
       .toBe(join(root, "artifacts", "task-contract.json"));
+    expect(workspacePath("artifacts/task-contract.json", otherRoot))
+      .toBe(join(otherRoot, "artifacts", "task-contract.json"));
     expect(() => workspacePath("../outside.json", root)).toThrow(/stay inside the repository/);
     expect(() => workspacePath(join(tmpdir(), "outside.json"), root))
       .toThrow(/stay inside the repository/);

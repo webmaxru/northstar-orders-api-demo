@@ -81,6 +81,9 @@ export declare function governedRepositoryControlsHaveAppIdentity(
 export declare function governedScopeUsesPullRequestContext(
   workflow: string,
 ): boolean;
+export declare function governedRepositoryControlsHaveAppIdentity(
+  workflow: string,
+): boolean;
 export declare function governedMergedArtifactsHaveUniquePaths(
   workflow: string,
 ): boolean;

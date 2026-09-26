@@ -71,7 +71,7 @@ async function placeOrder(server: Server, key?: string, quantity = 3) {
   return { status: response.status, replay: response.headers.get("x-idempotent-replay"), body };
 }
 
-it("proves replay through separate server processes", async () => {
+it("isolates concurrent local test resources", async () => {
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required for process acceptance.");
   const isolatedDatabase = await createIsolatedPostgresDatabase(process.env.DATABASE_URL);
   const pool = new Pool({
@@ -87,6 +87,7 @@ it("proves replay through separate server processes", async () => {
     const second = await startServer(isolatedDatabase.connectionString);
     servers.push(second);
     expect(first.pid).not.toBe(second.pid);
+    expect(first.url).not.toBe(second.url);
     const key = `process-${randomBytes(8).toString("hex")}`;
     const results = await Promise.all(Array.from({ length: 12 }, (_, index) =>
       placeOrder(index % 2 ? first : second, key),

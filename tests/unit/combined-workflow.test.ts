@@ -441,6 +441,36 @@ describe("combined-mode hosted workflow wiring", () => {
     expect(job(source, "plan-approval")).toContain('--expected-head "$NORTHSTAR_HEAD_SHA"');
   });
 
+  it("resolves live task authority in policy jobs and quarantines producer plan caches", () => {
+    const source = workflow("governed-change.yml");
+    for (const name of ["plan-approval", "scope-policy", "human-review"]) {
+      const policyJob = job(source, name);
+      expect(policyJob).not.toContain("actions/download-artifact@v7");
+      expect(policyJob).toContain("issues: read");
+      expect(policyJob).toContain('npm run contract:from-pr -- --pr "$PR_NUMBER"');
+      expect(policyJob).toContain('npm run plan:gate -- --pr "$PR_NUMBER" --expected-head "$NORTHSTAR_HEAD_SHA"');
+      expect(policyJob).toContain("node scripts/select-execution-plan.mjs");
+    }
+
+    const planContract = job(source, "plan-contract");
+    const planContextUpload = /name: northstar-plan-context\r?\n[\s\S]*?\r?\n {10}retention-days: 90/
+      .exec(planContract)?.[0] ?? "";
+    expect(planContextUpload).toContain("artifacts/plan.json");
+    expect(planContextUpload).not.toContain("artifacts/task-contract.json");
+    expect(planContextUpload).not.toContain("artifacts/checks/plan-contract.json");
+    expect(planContract).toContain("name: northstar-check-plan-contract");
+    expect(planContract).toContain("path: artifacts/checks/plan-contract.json");
+
+    const approvalUpload = /name: northstar-check-plan-approval\r?\n[\s\S]*?\r?\n {10}retention-days: 90/
+      .exec(job(source, "plan-approval"))?.[0] ?? "";
+    expect(approvalUpload).toContain("path: artifacts/checks/plan-approval.json");
+    expect(approvalUpload).not.toContain("artifacts/approved-plan.json");
+
+    const evidence = job(source, "evidence");
+    expect(evidence).toContain("pattern: northstar-check-*");
+    expect(evidence).not.toContain("pattern: northstar-*");
+  });
+
   it.each(["governed-change.yml", "publish-evidence.yml", "system-maintenance-approval.yml"])(
     "selects the right report plan and invalidates caches after failed selection in %s", (name) => {
       const source = workflow(name);

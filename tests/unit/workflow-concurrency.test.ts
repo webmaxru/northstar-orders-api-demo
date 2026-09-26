@@ -26,7 +26,7 @@ describe("independent workflow concurrency", () => {
     expect(publisher).toContain("cancel-in-progress: true");
   });
 
-  it("serializes shared production and maintenance targets without global task serialization", () => {
+  it("scopes workflow concurrency without globally serializing independent tasks", () => {
     const production = readWorkflow(".github/workflows/production-gate.yml");
     const maintenance = readWorkflow(".github/workflows/system-maintenance-approval.yml");
 
