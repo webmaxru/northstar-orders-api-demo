@@ -7,6 +7,7 @@ import {
   bindWorkspaceOwner,
   claimWorkspaceOwner,
   releaseWorkspaceClaim,
+  TASK_AUTHORITY_PATHS,
 } from "./workspace-owner.mjs";
 import { resolve } from "node:path";
 
@@ -29,6 +30,17 @@ export function linkedIssue(body) {
   const issues = [...new Set(matches.map((match) => Number(match[1])))];
   if (issues.length > 1) throw new Error("Multiple task issues are linked; select one explicit task.");
   return issues[0] ?? null;
+}
+
+/** Allow replacement of imported caches only in the exact isolated PR workflow run. */
+export function runScopedUnownedCachePaths(contract, env = process.env) {
+  const repository = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/issues\/\d+$/
+    .exec(contract?.source?.url ?? "")?.[1];
+  if (env.GITHUB_ACTIONS !== "true" ||
+      !repository || env.GITHUB_REPOSITORY !== repository ||
+      !/^[1-9]\d*$/.test(env.GITHUB_RUN_ID ?? "") ||
+      !/^[1-9]\d*$/.test(env.GITHUB_RUN_ATTEMPT ?? "")) return [];
+  return [...TASK_AUTHORITY_PATHS];
 }
 
 function main() {
@@ -56,6 +68,7 @@ function main() {
         process.env.COPILOT_SESSION_UUID ??
         process.env.COPILOT_AGENT_SESSION_ID ??
         null,
+      allowUnownedStatePaths: runScopedUnownedCachePaths(contract),
       contract,
     });
     clearTaskState(REPO_ROOT, owner);

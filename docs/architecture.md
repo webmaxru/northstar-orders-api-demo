@@ -242,6 +242,13 @@ owner or remove paths outside the known task-authority cache list.
 The orphan cleanup removes only the known task contract/plan/session cache files;
 other evidence remains untouched and is not adopted as authority.
 
+GitHub Actions runs use a separate ephemeral checkout per run. After
+`contract:from-pr` resolves a same-repository PR to its live issue, it may
+replace only the known orphaned task-authority caches in that run's workspace,
+bound to the exact repository, run ID, and attempt. It never imports a
+producer's cached task contract as authority. This exception does not apply to
+local sessions.
+
 Stop retry history is namespaced by repository, task, contract, plan, base, and
 session identity. The Stop gate verifies that the task-session record and
 workspace owner agree before writing check evidence or retry state. Audit
