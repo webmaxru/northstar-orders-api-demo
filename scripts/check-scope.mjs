@@ -8,9 +8,6 @@ import {
   splitProhibitions,
 } from "./task-contract.mjs";
 import { inferRisk, riskRank } from "./risk-policy.mjs";
-import { validateCloudExecution } from "./execution-context.mjs";
-import { canonicalPlan, extractPlanContract, validatePlanContract } from "./plan-contract.mjs";
-import { readPlanArtifact, validatePlanOnlyFiles } from "./plan-artifact.mjs";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 
@@ -71,12 +68,11 @@ export function evaluateExecutionContext({
   baseBranch,
   baseSha,
   descendsFromApprovedBase,
-  cloudAuthorized = false,
 }) {
   const expectedHeadBranch =
     `agent/implement/${String(taskId).toLowerCase()}`;
   const violations = [
-    ...(headBranch === expectedHeadBranch || cloudAuthorized
+    ...(headBranch === expectedHeadBranch
       ? []
       : [`head branch ${headBranch || "<detached>"} is not ${expectedHeadBranch}`]),
     ...(baseBranch === plan.baseBranch
@@ -139,8 +135,6 @@ function main() {
   let baseBranch;
   let headBranch;
   let descendsFromApprovedBase = true;
-  let cloudAuthorized = false;
-  let planOnly = false;
   if (pr) {
     const expectedHead = valueOf("--expected-head");
     const pull = JSON.parse(
@@ -184,24 +178,6 @@ function main() {
     descendsFromApprovedBase =
       comparison.merge_base_commit?.sha === plan.baseSha &&
       ["ahead", "identical"].includes(comparison.status);
-    const cloudPull = JSON.parse(gh(["api", `repos/{owner}/{repo}/pulls/${pr}`]));
-    const repository = JSON.parse(gh(["api", "repos/{owner}/{repo}"])).full_name;
-    cloudAuthorized = validateCloudExecution({
-      pull: cloudPull, repository, contract, plan, branch: headBranch, headSha,
-      descendsFromApprovedBase,
-    });
-    if (cloudPull.head.sha !== headSha || cloudPull.base.sha !== baseSha) {
-      throw new Error("Pull request identity changed during scope evaluation.");
-    }
-    if (headBranch === `plan/${contract.id.toLowerCase()}`) {
-      const artifact = readPlanArtifact(headSha, contract.id, { run: gh });
-      const committed = extractPlanContract(artifact.body);
-      const validation = validatePlanContract(committed, contract);
-      const shape = validatePlanOnlyFiles({ taskId: contract.id, files, entry: artifact.entry });
-      planOnly = validation.ok && shape.ok && baseSha === plan.baseSha &&
-        committed && canonicalPlan(committed) === canonicalPlan(plan) && descendsFromApprovedBase;
-      if (!planOnly) throw new Error("The plan-only PR does not contain exactly its validated task plan artifact.");
-    }
     paths = files.flatMap((file) =>
       [file.previous_filename, file.filename].filter(Boolean),
     );
@@ -231,13 +207,13 @@ function main() {
     } catch {
       descendsFromApprovedBase = false;
     }
-    const raw = git(["diff", "--name-status", "-M", `${baseSha}`]);
-    paths = [...parseNameStatus(raw), ...git(["ls-files", "--others", "--exclude-standard"]).split(/\r?\n/).filter(Boolean)];
+    const raw = git(["diff", "--name-status", "-M", `${baseSha}...${headSha}`]);
+    paths = parseNameStatus(raw);
   }
   const result = evaluateChangedPaths(
     paths,
-    planOnly ? { allowed: [`docs/plans/${contract.id.toLowerCase()}.md`], prohibited: [] } : contract.inputs.scope,
-    planOnly ? null : plan,
+    contract.inputs.scope,
+    plan,
   );
   const isolation = evaluateExecutionContext({
     taskId: contract.id,
@@ -246,7 +222,6 @@ function main() {
     baseBranch,
     baseSha,
     descendsFromApprovedBase,
-    cloudAuthorized: cloudAuthorized || planOnly,
   });
   const isolationViolations = isolation.violations;
   result.ok = result.ok && isolationViolations.length === 0;
@@ -261,7 +236,6 @@ function main() {
     expectedHeadBranch: isolation.expectedHeadBranch,
     isolationViolations,
     generatedAt: new Date().toISOString(),
-    planOnly,
     ...result,
   };
   const out = valueOf("--out") ?? "artifacts/scope-report.json";

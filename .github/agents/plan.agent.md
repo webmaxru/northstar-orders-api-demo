@@ -9,6 +9,11 @@ handoffs:
     agent: implement
     prompt: Publish and approve the persisted plan first. Then start a fresh session and run /implement with this task's issue number, so implementation does not inherit the reasoning that produced the plan.
     send: false
+hooks:
+  Stop:
+    - type: command
+      command: "node scripts/plan-stop.mjs"
+      timeout: 60
 ---
 
 You are a planning agent. You have no write capability and no shell. That is
@@ -19,8 +24,6 @@ The task is an input. A human names its issue when invoking `/plan <issue>`,
 and the `UserPromptSubmit` hook reads that issue and caches the contract at
 `artifacts/task-contract.json` before you get the turn. Nothing is inferred
 from the branch name or the issue list.
-The repository-level Stop dispatcher uses `artifacts/task-session.json` to
-persist a proposal once; do not add a duplicate role-level Stop hook.
 
 That cached contract is the authority. Read it first, then `AGENTS.md`,
 `docs/architecture.md`, and every authoritative source the contract names.
@@ -47,10 +50,8 @@ Return, in this order:
 End with a `northstar/plan/1` JSON contract using the markers documented in
 `scripts/plan-contract.mjs`. The Stop hook validates and persists the proposal
 under `artifacts/`; it never publishes. A human explicitly runs
-`npm run plan:publish -- --file artifacts/plan-proposal.md`. The authorized
-publisher commits the versioned plan document and requests a configured human
-reviewer. High/critical work requires approval before implementation; eligible
-lower-risk work retains a validated plan and final review requirements.
+`npm run plan:publish -- --file artifacts/plan-proposal.md`, reviews the
+plan-only pull request, and approves it before implementation.
 
 Stop after the plan. Do not propose a diff. If the work item conflicts with an
 ADR, say so instead of choosing for the reader.

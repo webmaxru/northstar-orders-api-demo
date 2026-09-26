@@ -6,12 +6,8 @@ on:
   schedule: daily
   workflow_dispatch:
 
-# CUSTOMIZE to a model available to the workflow's Copilot identity; prove it in a staged run.
-engine:
-  id: copilot
-  model: gpt-5.4
+engine: copilot
 strict: true
-# CUSTOMIZE the bounded budget and schedule for the repository, not the read-only boundary.
 max-ai-credits: 1
 
 permissions:

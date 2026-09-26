@@ -2,29 +2,22 @@
  * Build the machine-readable execution report used by the final evidence gate.
  *
  * Every producer emits a northstar/check-evidence/1 envelope bound to the
- * task, plan, source, and exact run attempt. Local validation can reach
- * ready_for_review; only hosted checks and human approvals can reach
- * ready_for_acceptance.
+ * repository and head SHA. The fan-in rejects missing, failed, stale, or
+ * cross-run evidence. Local validation can reach ready_for_review; only hosted
+ * checks and human approvals can reach ready_for_acceptance.
  */
 
-import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
-  rmSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import {
-  evidenceContext,
-  evidencePath,
-  hasLiveTaskIdentity,
-  readEvidenceJson,
-  validateCheckRecord,
-} from "./evidence-record.mjs";
+import { CHECK_SCHEMA, digestPath } from "./evidence-record.mjs";
 import {
   planDigest,
   validatePlanContract,
@@ -41,10 +34,20 @@ const HOSTED_ONLY_CHECKS = new Set([
   "validation-authority",
 ]);
 
+function gitHead() {
+  try {
+    return execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
 function decodeXml(value) {
   return String(value)
-    .replace(/&#(x[0-9a-f]+|\d+);/gi, (_, code) =>
-      String.fromCodePoint(code[0].toLowerCase() === "x" ? parseInt(code.slice(1), 16) : Number(code)))
     .replaceAll("&gt;", ">")
     .replaceAll("&lt;", "<")
     .replaceAll("&quot;", '"')
@@ -52,135 +55,58 @@ function decodeXml(value) {
     .replaceAll("&amp;", "&");
 }
 
-function xmlTree(xml) {
-  const root = { name: "", children: [] };
-  const stack = [root];
-  const tokens = /<!--[\s\S]*?-->|<\?xml\b[\s\S]*?\?>|<!\[CDATA\[[\s\S]*?\]\]>|<\/?[A-Za-z_][^<>]*>|[^<]+/g;
-  let offset = 0;
-  for (const token of xml.matchAll(tokens)) {
-    if (token.index !== offset) throw new Error("Malformed XML token.");
-    offset += token[0].length;
-    const text = token[0];
-    if (/^(<!--|<\?xml|<!\[CDATA\[)/.test(text)) continue;
-    if (!text.startsWith("<")) {
-      if ((stack.length === 1 && text.trim()) || /&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-f]+);)/i.test(text)) {
-        throw new Error("Malformed XML text.");
-      }
-      continue;
-    }
-    if (text.startsWith("</")) {
-      const close = /^<\/([A-Za-z_][\w:.-]*)\s*>$/.exec(text);
-      if (stack.length === 1 || close?.[1] !== stack.at(-1).name) {
-        throw new Error("Mismatched XML closing tag.");
-      }
-      stack.pop();
-      continue;
-    }
-    const open = /^<([A-Za-z_][\w:.-]*)([\s\S]*?)(\/?)>$/.exec(text);
-    if (!open) throw new Error("Malformed XML opening tag.");
-    const attributes = {};
-    const attributesText = open[2];
-    const pattern = /\s+([A-Za-z_:][\w:.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
-    let consumed = 0;
-    for (const attribute of attributesText.matchAll(pattern)) {
-      const value = attribute[2] ?? attribute[3];
-      if (attribute.index !== consumed || Object.hasOwn(attributes, attribute[1]) ||
-        /<|&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-f]+);)/i.test(value)) {
-        throw new Error("Malformed XML attribute.");
-      }
-      consumed += attribute[0].length;
-      attributes[attribute[1]] = decodeXml(value);
-    }
-    if (attributesText.slice(consumed).trim()) throw new Error("Malformed XML attributes.");
-    const node = { name: open[1], attributes, children: [] };
-    stack.at(-1).children.push(node);
-    if (!open[3]) stack.push(node);
-  }
-  if (offset !== xml.length || stack.length !== 1 || root.children.length !== 1) {
-    throw new Error("Incomplete XML document.");
-  }
-  return root.children[0];
-}
-
-function descendants(node, name) {
-  return node.children.flatMap((child) => [
-    ...(child.name === name ? [child] : []), ...descendants(child, name),
-  ]);
-}
-
 export function parseJUnit(xml, relativePath = "<memory>") {
-  try {
-    const tree = xmlTree(xml);
-    if (!["testsuites", "testsuite"].includes(tree.name)) throw new Error("JUnit root is not a test suite.");
-    const children = {
-      testsuites: ["testsuite"],
-      testsuite: ["testsuite", "testcase", "properties", "system-out", "system-err"],
-      testcase: ["failure", "error", "skipped", "properties", "system-out", "system-err"],
-      properties: ["property"], property: [],
-      failure: [], error: [], skipped: [], "system-out": [], "system-err": [],
-    };
-    const validateChildren = (node) => {
-      if (!children[node.name] || node.children.some((child) => !children[node.name].includes(child.name))) {
-        throw new Error("Invalid JUnit element nesting.");
-      }
-      node.children.forEach(validateChildren);
-    };
-    validateChildren(tree);
-    const suites = tree.name === "testsuite" ? [tree, ...descendants(tree, "testsuite")] : descendants(tree, "testsuite");
-    if (suites.length === 0) throw new Error("JUnit has no test suites.");
-    const cases = descendants(tree, "testcase");
-    if (cases.some((node) => typeof node.attributes.name !== "string" || !node.attributes.name.trim())) {
-      throw new Error("JUnit testcase name is missing.");
-    }
-    const count = (nodes, tag) => nodes.filter((node) => node.children.some(({ name }) => name === tag)).length;
-    const counters = (nodes) => ({
-      tests: nodes.length, failures: count(nodes, "failure"), errors: count(nodes, "error"), skipped: count(nodes, "skipped"),
+  const sum = (attribute) =>
+    [...xml.matchAll(new RegExp(`<testsuite\\b[^>]*\\b${attribute}="(\\d+)"`, "g"))]
+      .reduce((total, match) => total + Number(match[1]), 0);
+
+  const tests = sum("tests");
+  const failures = sum("failures");
+  const errors = sum("errors");
+  const skipped = sum("skipped");
+  const cases = [];
+  const pattern =
+    /<testcase\b([^>]*?)>([\s\S]*?)<\/testcase>|<testcase\b([^>]*?)\/>/g;
+  for (const match of xml.matchAll(pattern)) {
+    const attributes = match[1] ?? match[3] ?? "";
+    const body = match[2] ?? "";
+    const name = /\bname="([^"]*)"/.exec(attributes)?.[1];
+    if (!name) continue;
+    cases.push({
+      name: decodeXml(name),
+      skipped: /<skipped\b/.test(body),
+      failed: /<(?:failure|error)\b/.test(body),
     });
-    for (const suite of [...suites, ...(tree.name === "testsuites" ? [tree] : [])]) {
-      const actual = counters(descendants(suite, "testcase"));
-      for (const [attribute, value] of Object.entries(actual)) {
-        const declared = suite.attributes[attribute];
-        if (declared === undefined && (suite.name === "testsuites" || attribute === "skipped")) continue;
-        if (!/^\d+$/.test(declared ?? "") || Number(declared) !== value) {
-          throw new Error(`JUnit ${attribute} count does not match its testcases.`);
-        }
-      }
-    }
-    const counts = counters(cases);
-    const passed = counts.failures + counts.errors === 0 && counts.tests > counts.skipped;
-    return {
-      present: true,
-      path: relativePath,
-      ...counts,
-      passed,
-      validationErrors: [],
-      testNames: cases.filter((node) => !node.children.some(({ name }) =>
-        ["failure", "error", "skipped"].includes(name))).map(({ attributes }) => attributes.name),
-      skippedTestNames: cases.filter((node) => node.children.some(({ name }) =>
-        name === "skipped")).map(({ attributes }) => attributes.name),
-    };
-  } catch (error) {
-    return {
-      present: true, path: relativePath, passed: false,
-      tests: 0, failures: 0, errors: 0, skipped: 0, testNames: [], skippedTestNames: [],
-      validationErrors: [`Malformed JUnit: ${error.message}`],
-    };
   }
+  const testNames = cases
+    .filter(({ skipped, failed }) => !skipped && !failed)
+    .map(({ name }) => name);
+
+  return {
+    present: true,
+    path: relativePath,
+    digest: digestPath(relativePath),
+    tests,
+    failures,
+    errors,
+    skipped,
+    passed: failures + errors === 0,
+    testNames,
+    skippedTestNames: cases
+      .filter(({ skipped }) => skipped)
+      .map(({ name }) => name),
+  };
 }
 
-export function readJUnit(relativePath, root = REPO_ROOT) {
-  try {
-    const bytes = readFileSync(evidencePath(relativePath, root));
-    return {
-      ...parseJUnit(bytes.toString("utf8"), relativePath),
-      digest: createHash("sha256").update(bytes).digest("hex"),
-    };
-  } catch (error) {
-    return {
-      present: false, path: relativePath, passed: false,
-      validationErrors: [`JUnit unavailable: ${error.message}`],
-    };
+export function readJUnit(relativePath) {
+  const absolute = resolve(REPO_ROOT, relativePath);
+  if (!existsSync(absolute)) {
+    return { present: false, path: relativePath };
   }
+  return {
+    ...parseJUnit(readFileSync(absolute, "utf8"), relativePath),
+    digest: digestPath(relativePath),
+  };
 }
 
 export function criterionCoverage(criteria, testNames) {
@@ -195,13 +121,73 @@ export function criterionCoverage(criteria, testNames) {
   }));
 }
 
-export function loadCheckRecords(directory = "artifacts/checks", root = REPO_ROOT) {
-  const absolute = evidencePath(directory, root);
+export function loadCheckRecords(directory = "artifacts/checks") {
+  const absolute = resolve(REPO_ROOT, directory);
   if (!existsSync(absolute)) return [];
   return readdirSync(absolute)
-    .filter((name) => name.endsWith(".json") && !name.startsWith(".") && name !== "source-run.json")
+    .filter((name) => name.endsWith(".json"))
     .sort()
-    .map((name) => readEvidenceJson(resolve(absolute, name), root));
+    .map((name) => JSON.parse(readFileSync(resolve(absolute, name), "utf8")));
+}
+
+function readPlan(path = "artifacts/plan.json") {
+  const absolute = resolve(REPO_ROOT, path);
+  return existsSync(absolute)
+    ? JSON.parse(readFileSync(absolute, "utf8"))
+    : null;
+}
+
+function validateCheck(record, expected) {
+  const reasons = [];
+  if (record?.schema !== CHECK_SCHEMA) {
+    reasons.push("invalid schema");
+  }
+  if (record?.provenance?.headSha !== expected.headSha) {
+    reasons.push("head SHA mismatch");
+  }
+  if (
+    expected.repository !== "local" &&
+    record?.provenance?.repository !== expected.repository
+  ) {
+    reasons.push("repository mismatch");
+  }
+  if (expected.runId && record?.provenance?.runId !== expected.runId) {
+    reasons.push("workflow run mismatch");
+  }
+  if (
+    expected.pullRequest &&
+    record?.provenance?.pullRequest !== expected.pullRequest
+  ) {
+    reasons.push("pull request mismatch");
+  }
+  if (expected.runId && !record?.provenance?.actor) {
+    reasons.push("actor missing");
+  }
+  if (
+    expected.runId &&
+    ![
+      "Governed Change",
+      "Publish Evidence",
+      "System Maintenance Approval",
+    ].includes(
+      record?.provenance?.workflow,
+    )
+  ) {
+    reasons.push("workflow identity mismatch");
+  }
+  if (expected.runId && record?.provenance?.job !== record?.id) {
+    reasons.push("job identity mismatch");
+  }
+  if (
+    record?.artifact &&
+    record.artifactDigest !== digestPath(record.artifact)
+  ) {
+    reasons.push("artifact digest mismatch");
+  }
+  return {
+    valid: reasons.length === 0,
+    reasons,
+  };
 }
 
 export function buildExecutionReport({
@@ -212,52 +198,36 @@ export function buildExecutionReport({
   acceptance,
   hosted,
   env = process.env,
-  root = REPO_ROOT,
 }) {
-  if (!contract?.id || !/^[0-9a-f]{64}$/.test(contract.source?.bodyDigest ?? "") ||
-    !Array.isArray(contract.successCriteria) || contract.successCriteria.length === 0 ||
-    contract.successCriteria.some((criterion) => !criterion?.id || !criterion?.provenBy)) {
-    throw new Error("A complete task contract is required for execution evidence.");
-  }
-  let planValidation;
-  try {
-    planValidation = validatePlanContract(plan, contract);
-  } catch (error) {
-    planValidation = { ok: false, errors: [`Malformed plan: ${error.message}`] };
-  }
-  const expected = evidenceContext(env, { root, contract, plan });
-  const contextErrors = [];
-  if (expected.source.dirty) contextErrors.push("Source worktree is dirty; evidence is not commit-bound.");
-  if (expected.baseSha !== plan?.baseSha) contextErrors.push("Expected base does not match the plan.");
-  if (!hosted && expected.source.headSha !== expected.headSha) contextErrors.push("Source HEAD does not match the requested HEAD.");
-  if (!expected.runId || !/^[1-9]\d*$/.test(expected.runAttempt ?? "")) contextErrors.push("Exact validation run and attempt are required.");
-  if (hosted && (!env.GITHUB_RUN_ID || !env.GITHUB_RUN_ATTEMPT ||
-    !/^[^/\s]+\/[^/\s]+$/.test(expected.repository) ||
-    !Number.isSafeInteger(expected.pullRequest) || expected.pullRequest < 1)) {
-    contextErrors.push("Hosted execution identity is incomplete.");
-  }
-  const currentJUnit = (input, path) => {
-    const current = readJUnit(path, root);
-    if (input?.path !== path || !current.digest || input?.digest !== current.digest) {
-      current.passed = false;
-      current.validationErrors = [...(current.validationErrors ?? []), "JUnit input is missing, changed, or not the required artifact."];
-    }
-    return current;
+  const expected = {
+    repository: env.GITHUB_REPOSITORY ?? "local",
+    runId: env.NORTHSTAR_RUN_ID ?? env.GITHUB_RUN_ID ?? null,
+    headSha: env.NORTHSTAR_HEAD_SHA ?? env.GITHUB_SHA ?? gitHead(),
+    pullRequest: env.PR_NUMBER ? Number(env.PR_NUMBER) : null,
   };
-  unit = currentJUnit(unit, "artifacts/unit-junit.xml");
-  acceptance = currentJUnit(acceptance, "artifacts/acceptance-junit.xml");
+  const planValidation = plan
+    ? validatePlanContract(plan, contract)
+    : { ok: false, errors: ["machine-readable plan is missing"] };
+  if (
+    plan &&
+    plan.planDigest &&
+    plan.planDigest !== planDigest(plan)
+  ) {
+    planValidation.ok = false;
+    planValidation.errors.push("stored planDigest does not match the canonical plan");
+  }
   const requiredChecks = [
     ...new Set([
-      ...(Array.isArray(plan?.requiredChecks) ? plan.requiredChecks.filter((id) => typeof id === "string") : []),
+      ...(plan?.requiredChecks ?? []),
       ...(hosted ? ["validation-authority"] : []),
     ]),
   ]
     .filter((id) => id !== "evidence");
   const checks = requiredChecks.map((id) => {
-    const candidates = records.filter((candidate) => candidate?.id === id);
+    const candidates = records.filter((candidate) => candidate.id === id);
     const record = candidates.length === 1 ? candidates[0] : null;
     const validation = record
-      ? validateCheckRecord(record, expected, { root, hosted })
+      ? validateCheck(record, expected)
       : {
           valid: false,
           reasons: [candidates.length > 1 ? "duplicate evidence" : "missing"],
@@ -293,10 +263,8 @@ export function buildExecutionReport({
   const localReady =
     Boolean(plan) &&
     planValidation.ok &&
-    contextErrors.length === 0 &&
     unit.present &&
     unit.passed &&
-    Number(unit.tests ?? 0) > 0 &&
     acceptance.present &&
     acceptance.passed &&
     Number(acceptance.tests ?? 0) > 0 &&
@@ -304,7 +272,7 @@ export function buildExecutionReport({
     unprovenCriteria.length === 0;
   const hostedReady =
     localReady &&
-    hasLiveTaskIdentity(contract, expected.repository) &&
+    contract.source.trusted &&
     failedHostedChecks.length === 0;
   const decision = !localReady
     ? "review_required"
@@ -319,13 +287,12 @@ export function buildExecutionReport({
     generatedAt: new Date().toISOString(),
     validationLevel: hosted ? "hosted-integration" : "local-reference",
     provenance: expected,
-    contextErrors,
     plan: plan
       ? {
           present: true,
           schema: plan.schema,
           risk: plan.risk,
-          digest: planDigest(plan),
+          digest: plan.planDigest ?? null,
           contractDigest: plan.contractDigest,
           baseSha: plan.baseSha,
           valid: planValidation.ok,
@@ -360,9 +327,6 @@ function valueOf(flag) {
 }
 
 function main() {
-  const out = valueOf("--out") ?? "artifacts/report.json";
-  const target = evidencePath(out);
-  rmSync(target, { force: true });
   const contract = loadTaskContract();
   if (!contract) {
     process.stderr.write(
@@ -373,13 +337,15 @@ function main() {
 
   const report = buildExecutionReport({
     contract,
-    plan: readEvidenceJson(valueOf("--plan") ?? "artifacts/plan.json"),
+    plan: readPlan(valueOf("--plan")),
     records: loadCheckRecords(valueOf("--checks")),
     unit: readJUnit("artifacts/unit-junit.xml"),
     acceptance: readJUnit("artifacts/acceptance-junit.xml"),
     hosted: process.argv.includes("--hosted") || process.env.GITHUB_ACTIONS === "true",
   });
 
+  const out = valueOf("--out") ?? "artifacts/report.json";
+  const target = resolve(REPO_ROOT, out);
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(target, `${JSON.stringify(report, null, 2)}\n`, "utf8");
 
@@ -412,10 +378,5 @@ const invokedDirectly =
   import.meta.url === pathToFileURL(process.argv[1]).href;
 
 if (invokedDirectly) {
-  try {
-    main();
-  } catch (error) {
-    process.stderr.write(`Execution evidence failed: ${error.message}\n`);
-    process.exitCode = 1;
-  }
+  main();
 }

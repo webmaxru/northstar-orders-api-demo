@@ -17,7 +17,8 @@ describe.sequential("PostgreSQL idempotency privacy", () => {
   });
 
   afterAll(async () => {
-    await Promise.all([harness?.close(), pool?.end()]);
+    await harness.close();
+    await pool.end();
   });
 
   it("stores only fixed-length hashes", async () => {

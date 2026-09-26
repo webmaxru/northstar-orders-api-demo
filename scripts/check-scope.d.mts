@@ -25,7 +25,6 @@ export declare function evaluateExecutionContext(input: {
   baseBranch: string;
   baseSha: string;
   descendsFromApprovedBase: boolean;
-  cloudAuthorized?: boolean;
 }): {
   ok: boolean;
   expectedHeadBranch: string;

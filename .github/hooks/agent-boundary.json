@@ -1,5 +1,5 @@
 {
-  "$comment": "CUSTOMIZE the Node invocation only for your installed runtime. PascalCase event names select documented compatibility envelopes, not proof of host parity. Register each event once. Prompt hook output is not a universal stop control; cached authority is cleared on failure and PreToolUse denies writes. Stop dispatch uses the explicit task role. Local hook records are not hosted acceptance evidence.",
+  "$comment": "Use the PascalCase compatibility event names once. Copilot CLI and cloud agent accept these names and emit the VS Code-compatible payload shape; registering both cases would execute the same control twice. Commands invoke node directly so stdin reaches the policy unchanged. Post-tool and session-end records are payload-free and session-local; GitHub Actions remains the durable acceptance authority.",
   "version": 1,
   "hooks": {
     "SessionStart": [
@@ -35,13 +35,6 @@
         "type": "command",
         "command": "node scripts/audit-hook.mjs",
         "timeout": 10
-      }
-    ],
-    "Stop": [
-      {
-        "type": "command",
-        "command": "node scripts/stop-dispatch.mjs",
-        "timeout": 300
       }
     ],
     "SessionEnd": [

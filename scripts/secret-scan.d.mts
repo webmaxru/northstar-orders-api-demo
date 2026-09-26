@@ -9,7 +9,4 @@ export declare const SECRET_PATTERNS: ReadonlyArray<{
   pattern: RegExp;
 }>;
 export declare function scanText(text: string, file?: string): SecretFinding[];
-export declare function scanTrackedFiles(
-  files: string[],
-  options?: { root?: string; read?: (file: string) => string },
-): SecretFinding[];
+export declare function scanTrackedFiles(files: string[]): SecretFinding[];

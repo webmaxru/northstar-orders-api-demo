@@ -14,8 +14,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "npm run test:unit",
-    "test:unit": "vitest run --dir tests/unit --maxWorkers=2 --testTimeout=30000",
-    "test:unit:ci": "node -e \"require('node:fs').mkdirSync('artifacts',{recursive:true})\" && vitest run tests/unit --maxWorkers=2 --testTimeout=30000 --reporter=default --reporter=junit --outputFile.junit=artifacts/unit-junit.xml",
+    "test:unit": "vitest run tests/unit",
+    "test:unit:ci": "node -e \"require('node:fs').mkdirSync('artifacts',{recursive:true})\" && vitest run tests/unit --reporter=default --reporter=junit --outputFile.junit=artifacts/unit-junit.xml",
     "test:acceptance": "vitest run tests/acceptance",
     "test:acceptance:ci": "node -e \"require('node:fs').mkdirSync('artifacts',{recursive:true})\" && vitest run tests/acceptance --reporter=default --reporter=junit --outputFile.junit=artifacts/acceptance-junit.xml",
     "validate": "npm run instructions:check && npm run governance:check && npm run lint && npm run typecheck && npm run build && npm run test:unit",
@@ -37,7 +37,7 @@
     "evidence": "node scripts/build-execution-report.mjs",
     "repair:check": "node scripts/repair-budget.mjs",
     "hook:check": "node scripts/authorize-tool.mjs",
-    "agentic:compile": "node scripts/compile-agentic.mjs",
+    "agentic:compile": "gh aw compile daily-repository-status --validate --strict --action-mode release --action-tag eed4304d8740f0593f2797276cb8299d228ffd9b --poutine",
     "agentic:zizmor": "node scripts/run-zizmor.mjs",
     "agentic:validate": "npm run agentic:compile && npm run agentic:zizmor",
     "demo:system": "node scripts/system-demo.mjs",
@@ -65,6 +65,6 @@
     "tsx": "^4.23.12",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.67.0",
-    "vitest": "4.1.11"
+    "vitest": "4.1.6"
   }
 }

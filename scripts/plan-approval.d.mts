@@ -12,7 +12,8 @@ export interface Review {
   author?: { login?: string; __typename?: string };
 }
 
-interface ApprovalFields {
+export interface ApprovalRecord {
+  schema: "northstar/plan-approval/1";
   taskId: string;
   contractDigest: string;
   planDigest: string;
@@ -24,41 +25,29 @@ interface ApprovalFields {
   baseSha: string;
   approvedAt: string;
   planOnly: true;
-}
-export interface LegacyApprovalRecord extends ApprovalFields {
-  schema: "northstar/plan-approval/1";
   commentAuthor?: string;
 }
-export interface NativeApprovalRecord extends ApprovalFields {
-  schema: "northstar/plan-approval/2";
-  source: "github-review";
-  repository: string;
-  artifactPath: string;
-  artifactBlobSha: string;
-}
-export type ApprovalRecord = LegacyApprovalRecord | NativeApprovalRecord;
 
 export declare const APPROVAL_MARKER: string;
 export declare const APPROVAL_SCHEMA: "northstar/plan-approval/1";
-export declare const NATIVE_APPROVAL_SCHEMA: "northstar/plan-approval/2";
 export declare function latestReviewsByUser(reviews: Review[]): Review[];
 export declare function isHumanApproval(
   review: Review,
   context?: { prAuthor?: string; headSha?: string },
 ): boolean;
-export declare function parseApprovalRecord(body: unknown): LegacyApprovalRecord | null;
-export declare function renderApprovalRecord(record: LegacyApprovalRecord): string;
+export declare function parseApprovalRecord(body: unknown): ApprovalRecord | null;
+export declare function renderApprovalRecord(record: ApprovalRecord): string;
 export declare function evaluatePlanApproval(input: {
   plan: PlanContract;
   contract: TaskContract;
-  approvalRecords: LegacyApprovalRecord[];
+  approvalRecords: ApprovalRecord[];
   reviews: Review[];
   prAuthor: string;
   planHeadSha?: string;
   baseSha: string;
   planOnlyCommits?: string[];
 }):
-  | { ok: true; record: LegacyApprovalRecord; review: Review }
+  | { ok: true; record: ApprovalRecord; review: Review }
   | { ok: false; reason: string };
 export declare function evaluateFinalApproval(input: {
   reviews: Review[];
@@ -70,13 +59,3 @@ export declare function evaluateFinalApproval(input: {
   approvals: Review[];
   reason: string;
 };
-export declare function evaluateNativePlanApproval(input: {
-  plan: PlanContract;
-  contract: TaskContract;
-  pr: import("./publish-plan.d.mts").PlanPr;
-  reviews: Review[];
-  files: import("./plan-artifact.d.mts").PlanFileChange[];
-  entry: import("./plan-artifact.d.mts").PlanTreeEntry;
-  eligibleReviewers: string[];
-  repository: string;
-}): { ok: true; record: NativeApprovalRecord; review: Review } | { ok: false; reason: string };

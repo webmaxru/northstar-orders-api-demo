@@ -49,17 +49,11 @@ export function createAuditRecord(payload, now = new Date().toISOString()) {
   const toolName = payload.toolName ?? payload.tool_name ?? null;
   const command = args.command ?? args.commandLine ?? null;
   const result = payload.toolResult ?? payload.tool_result ?? payload.result ?? null;
-  const event = payload.hookEventName ?? payload.hook_event_name ?? "unknown";
-  const resultType = result?.resultType ?? result?.result_type;
-  const failed = /failure|error/i.test(event) || payload.parseError === true ||
-    payload.success === false || payload.tool_success === false ||
-    payload.error !== undefined || payload.tool_error !== undefined ||
-    (resultType !== undefined && resultType !== "success");
   return {
     schema: "northstar/agent-audit/1",
     id: randomUUID(),
     timestamp: payload.timestamp ?? now,
-    event,
+    event: payload.hookEventName ?? payload.hook_event_name ?? "unknown",
     sessionId: payload.sessionId ?? payload.session_id ?? null,
     taskId: contract?.id ?? null,
     contractDigest: contract?.source?.bodyDigest ?? null,
@@ -69,9 +63,10 @@ export function createAuditRecord(payload, now = new Date().toISOString()) {
     commandDigest: command ? hash(command) : null,
     argumentsDigest: hash(JSON.stringify(args)),
     resultDigest: result === null ? null : hash(JSON.stringify(result)),
-    success: failed ? false :
-      payload.success === true || payload.tool_success === true ||
-      resultType === "success" || /^(postToolUse|PostToolUse)$/.test(event) ? true : null,
+    success:
+      payload.success ??
+      payload.tool_success ??
+      (payload.error === undefined && payload.tool_error === undefined),
   };
 }
 
@@ -89,7 +84,6 @@ async function main() {
     payload = raw ? JSON.parse(raw) : {};
   } catch {
     payload = { parseError: true };
-    process.stderr.write("Audit hook received malformed JSON; recorded failure without retaining raw input.\n");
   }
   writeAuditRecord(createAuditRecord(payload));
   process.stdout.write(`${JSON.stringify({ continue: true })}\n`);

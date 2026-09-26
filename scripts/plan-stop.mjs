@@ -16,7 +16,7 @@
  * rather than reporting success and persisting nothing.
  */
 
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Buffer } from "node:buffer";
@@ -35,11 +35,8 @@ async function readStdin() {
   return Buffer.concat(chunks).toString("utf8");
 }
 
-function emit(systemMessage, failed = false, repeated = false) {
-  process.stdout.write(`${JSON.stringify({
-    systemMessage, additionalContext: systemMessage,
-    ...(failed && !repeated ? { decision: "block", reason: systemMessage } : {}),
-  }, null, 2)}\n`);
+function emit(systemMessage) {
+  process.stdout.write(`${JSON.stringify({ systemMessage }, null, 2)}\n`);
 }
 
 async function main() {
@@ -48,32 +45,27 @@ async function main() {
   try {
     input = raw ? JSON.parse(raw) : {};
   } catch {
-    emit("Plan not persisted: malformed Stop input. No publication or approval occurred.", true);
+    input = {};
+  }
+
+  if (input.stop_hook_active) {
     return;
   }
-  const proposalPath = resolve(REPO_ROOT, "artifacts/plan-proposal.md");
-  const planPath = resolve(REPO_ROOT, "artifacts/plan.json");
-  rmSync(proposalPath, { force: true });
-  rmSync(planPath, { force: true });
 
   const contract = loadTaskContract();
-  if (!contract?.source?.trusted) {
+  if (!contract) {
     emit(
       "Plan not persisted: no task contract is active, so there is nowhere durable to put it. " +
         "Run /plan <issue>, then node scripts/publish-plan.mjs --file <plan.md>.",
-      true, input.stop_hook_active === true);
+    );
     return;
   }
 
   let body = null;
-  const response = input.last_assistant_message ?? input.response;
-  const transcriptPath = input.transcript_path ?? input.transcriptPath;
-  if (typeof response === "string") body = response;
-  else if (transcriptPath) {
+  if (input.transcript_path) {
     try {
-      body = extractPlan(readFileSync(transcriptPath, "utf8"));
-    } catch (error) {
-      process.stderr.write(`The planner transcript could not be read (${error.code ?? "invalid content"}).\n`);
+      body = extractPlan(readFileSync(input.transcript_path, "utf8"));
+    } catch {
       body = null;
     }
   }
@@ -83,26 +75,22 @@ async function main() {
       "Plan not persisted: the session transcript could not be read, so no pull request was opened. " +
         "The plan currently exists only in this chat. Save it and run: " +
         "node scripts/publish-plan.mjs --file <plan.md>",
-      true, input.stop_hook_active === true);
+    );
     return;
   }
 
-  let plan;
-  try {
-    plan = extractPlanContract(body);
-  } catch {
-    emit("Plan not persisted: malformed machine-readable contract. Return a valid proposal.", true, input.stop_hook_active === true);
-    return;
-  }
+  const plan = extractPlanContract(body);
   const validation = validatePlanContract(plan, contract);
   if (!validation.ok) {
     emit(
       `Plan not persisted: ${validation.errors.join(" ")} ` +
         "Return a complete northstar/plan/1 contract and stop again.",
-      true, input.stop_hook_active === true);
+    );
     return;
   }
 
+  const proposalPath = resolve(REPO_ROOT, "artifacts/plan-proposal.md");
+  const planPath = resolve(REPO_ROOT, "artifacts/plan.json");
   mkdirSync(resolve(REPO_ROOT, "artifacts"), { recursive: true });
   writeFileSync(proposalPath, `${body.trim()}\n`, "utf8");
   writeFileSync(

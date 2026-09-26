@@ -61,16 +61,24 @@ export function validatePlan(prBody, contract = loadTaskContract()) {
     };
   }
 
-  const machinePlan = extractPlanContract(plan);
-  if (!machinePlan) {
-    const missing = REQUIRED_SECTIONS.filter(
-      ({ pattern }) => !pattern.test(plan),
-    ).map(({ label }) => label);
+  const missing = REQUIRED_SECTIONS.filter(
+    ({ pattern }) => !pattern.test(plan),
+  ).map(({ label }) => label);
+  if (missing.length > 0) {
     return {
       ok: false,
       reason:
-        "The plan has no northstar/plan/1 machine-readable contract. " +
-        (missing.length ? `The narrative also omits: ${missing.join(", ")}.` : "Risk routing cannot depend on narrative prose."),
+        `The plan does not state: ${missing.join(", ")}. ` +
+        "Learn: plans become reviewable when they include scope, success criteria, and a rollback or escalation path.",
+    };
+  }
+
+  const machinePlan = extractPlanContract(plan);
+  if (!machinePlan) {
+    return {
+      ok: false,
+      reason:
+        "The plan has no northstar/plan/1 machine-readable contract. Risk routing cannot depend on narrative prose.",
     };
   }
   const validation = validatePlanContract(machinePlan, contract);

@@ -36,17 +36,14 @@ function overlaps(left, right) {
   const leftPrefix = patternPrefix(left);
   const rightPrefix = patternPrefix(right);
   return Boolean(leftPrefix) && Boolean(rightPrefix) &&
-    (leftPrefix === rightPrefix || leftPrefix.startsWith(`${rightPrefix}/`) ||
-      rightPrefix.startsWith(`${leftPrefix}/`));
+    (leftPrefix.startsWith(rightPrefix) || rightPrefix.startsWith(leftPrefix));
 }
 
 export function inferRisk({ paths = [], operations = [] } = {}) {
   const pathMatches = paths.map((path) => {
-    const specific = GOVERNANCE_POLICY.pathRisk.filter(({ pattern }) =>
-      pattern !== "**" && overlaps(path, pattern),
+    const candidates = GOVERNANCE_POLICY.pathRisk.filter(({ pattern }) =>
+      overlaps(path, pattern),
     );
-    const candidates = specific.length > 0
-      ? specific : GOVERNANCE_POLICY.pathRisk.filter(({ pattern }) => pattern === "**");
     const rule = candidates.reduce(
       (highest, candidate) =>
         !highest || riskRank(candidate.risk) > riskRank(highest.risk)

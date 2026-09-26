@@ -34,9 +34,7 @@ jobs:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: northstar
         ports:
-          # CUSTOMIZE both this port and tests/setup/database-url.ts together.
-          # Match the local default; setup-step env does not imply agent-session env.
-          - 55432:5432
+          - 5432:5432
         options: >-
           --health-cmd "pg_isready -U postgres -d northstar"
           --health-interval 5s

@@ -6,11 +6,9 @@ import {
   validatePlanContract,
 } from "./plan-contract.mjs";
 import { loadTaskContract } from "./task-contract.mjs";
-import { validatePlanOnlyFiles } from "./plan-artifact.mjs";
 
 export const APPROVAL_MARKER = "<!-- northstar:plan-approval -->";
 export const APPROVAL_SCHEMA = "northstar/plan-approval/1";
-export const NATIVE_APPROVAL_SCHEMA = "northstar/plan-approval/2";
 
 function timestamp(value) {
   const parsed = Date.parse(String(value ?? ""));
@@ -55,8 +53,7 @@ export function parseApprovalRecord(body) {
   const fenced = /```json\s*([\s\S]*?)\s*```/i.exec(text.slice(marker));
   if (!fenced) return null;
   try {
-    const record = JSON.parse(fenced[1]);
-    return record?.schema === APPROVAL_SCHEMA ? record : null;
+    return JSON.parse(fenced[1]);
   } catch {
     return null;
   }
@@ -141,48 +138,6 @@ export function evaluateFinalApproval({ reviews, prAuthor, headSha, minimum = 1 
       approvals.length >= minimum
         ? `${approvals.length} human approval(s) target the current head.`
         : `Expected ${minimum} human approval(s) targeting ${headSha}; found ${approvals.length}.`,
-  };
-}
-
-export function evaluateNativePlanApproval({
-  plan, contract, pr, reviews, files, entry, eligibleReviewers, repository,
-}) {
-  const validation = validatePlanContract(plan, contract);
-  if (!validation.ok || pr.isDraft !== false || plan.baseSha !== pr.baseRefOid) {
-    return { ok: false, reason: "The committed plan does not match the current task and base." };
-  }
-  const artifact = validatePlanOnlyFiles({ taskId: contract.id, files, entry });
-  if (!artifact.ok) return artifact;
-  const review = latestReviewsByUser(reviews).find((candidate) =>
-    isHumanApproval(candidate, { prAuthor: pr.author.login, headSha: pr.headRefOid }) &&
-    eligibleReviewers.includes(candidate.user?.login ?? candidate.author?.login) &&
-    Number.isSafeInteger(candidate.id) && candidate.id > 0 &&
-    timestamp(candidate.submitted_at ?? candidate.submittedAt) > 0
-  );
-  if (!review) {
-    return { ok: false, reason: "No eligible current human review approves the immutable plan artifact." };
-  }
-  return {
-    ok: true,
-    review,
-    record: {
-      schema: NATIVE_APPROVAL_SCHEMA,
-      source: "github-review",
-      repository,
-      taskId: contract.id,
-      contractDigest: contract.source.bodyDigest,
-      planDigest: validation.planDigest,
-      planPr: pr.number,
-      planUrl: pr.url,
-      reviewId: review.id,
-      reviewer: review.user?.login ?? review.author?.login,
-      reviewedCommit: pr.headRefOid,
-      baseSha: pr.baseRefOid,
-      approvedAt: review.submitted_at ?? review.submittedAt,
-      artifactPath: artifact.path,
-      artifactBlobSha: artifact.blobSha,
-      planOnly: true,
-    },
   };
 }
 

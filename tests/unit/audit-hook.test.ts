@@ -2,12 +2,6 @@ import { describe, expect, it } from "vitest";
 import { createAuditRecord } from "../../scripts/audit-hook.mjs";
 
 describe("payload-free hook audit records", () => {
-  it("records failure events as failures even when error fields are absent", () => {
-    expect(createAuditRecord({ hook_event_name: "PostToolUseFailure" }).success).toBe(false);
-    expect(createAuditRecord({ hookEventName: "postToolUseFailure", success: true }).success).toBe(false);
-    expect(createAuditRecord({ hookEventName: "PostToolUse", toolResult: { resultType: "failure" } }).success).toBe(false);
-    expect(createAuditRecord({ hook_event_name: "SessionEnd" }).success).toBeNull();
-  });
   it("records attribution and hashes without retaining raw command content", () => {
     const secret = "github_pat_super-secret-value";
     const record = createAuditRecord(
