@@ -138,3 +138,80 @@ prove:
 
 See [`adr/007-durable-idempotency.md`](adr/007-durable-idempotency.md) for the
 decision record.
+
+## Repair of the agent control plane
+
+The `AES-SURFACE-EVIDENCE` repair is bound to task
+[issue 14](https://github.com/webmaxru/northstar-orders-api-demo/issues/14) and
+the approved bootstrap [plan PR 15](https://github.com/webmaxru/northstar-orders-api-demo/pull/15).
+These are fictional reference-system tasks, not production incidents.
+
+The guide's plan-first option requires a PR containing only the plan, not a
+zero-file diff. New publication therefore commits the task's regular Markdown
+artifact at `docs/plans/<task-id>.md`, using an isolated Git index. It does not
+stage or publish the caller's unrelated working-tree edits. Only the explicitly
+authorized publisher writes this artifact; the planner remains read-only.
+Configured eligible human reviewers are requested when the PR is published.
+Native review approval is derived from the committed artifact and its current
+task/base/head identities. A mutated PR-description mirror is rejected.
+The old zero-file approval record is accepted only for the pinned bootstrap.
+
+SessionStart accepts documented initial prompt fields and the cloud prompt
+environment variable in addition to an explicit issue variable. Prompt-hook
+failure clears cached authority. All edit paths, including supported absolute
+paths and patch moves, are checked against the repository, task and plan.
+Unknown payloads cannot widen scope. The cloud path requires a real matching
+PR and immutable plan/task/base/head identity, not just a `copilot/` prefix.
+One repository-level Stop dispatcher selects the explicit plan or implement
+role, preserving the host's session identity and stop-loop flag.
+
+Evidence must bind real artifacts and complete producer identity. Missing,
+modified, stale or mismatched task/plan/base/head/run/attempt evidence fails.
+Dirty local source cannot be represented solely by HEAD. Stop validates the
+current plan and evidence-command result rather than reusing an older passing
+report; bounded recovery escalates instead of reporting a successful fallback.
+Scanner invocation, parsing and input-read failures are validation failures.
+The compiler wrapper additionally rejects error diagnostics even when the
+compiler process exits zero.
+
+The new process acceptance test starts separate Node servers using the real
+application, shared PostgreSQL and actual HTTP. It uses a unique test schema,
+checks concurrent replay, conflicting payloads and process restart, and cleans
+up only that schema and those processes. This complements, rather than relabels,
+the earlier in-process acceptance tests.
+
+These source changes do not prove a deployed browser flow, host parity, or
+hosted acceptance. A new browser-only plan review and real CLI/VS Code/cloud
+canaries remain acceptance requirements after the changed controls are reviewed.
+Rules/branch protection, protected environments, App identities and secrets
+are external administrator settings, not established by repository files.
+
+The combined-mode controller now selects a lower-risk proposed plan from the
+same implementation PR, not a separate `plan/<task>` PR. It validates live task,
+base/head, repository and ancestry and creates no approval record. Local
+`/work` startup may prepare only a bounded proposal artifact, then activate it
+through the dedicated materialization command before any source edit.
+Resuming local proposals requires an explicit artifact selector and fresh
+validation; existing files are not default authority. Hosted workflows select
+the candidate or independently approved plan according to risk and retain
+security checks and final human acceptance for both modes.
+
+A real CodeQL run exposed valid informational SARIF notifications whose
+`message.text` is empty. The parser now accepts that valid message shape while
+still failing absent/wrong-typed diagnostics, error-level notifications,
+unsuccessful invocations and findings. The downloaded original CodeQL result
+was revalidated directly; this is distinct from claiming every hosted gate passed.
+
+### Adoption settings
+
+`CUSTOMIZE` comments mark runtime invocation, reviewer ownership, workflow
+model/budget/retention, scanner versions and test-database endpoints.
+Governance JSON uses `$comment` rather than invalid JSON comments. The
+`optionalCapabilities.mcp` and `optionalCapabilities.continuousAI` switches
+default to enabled when omitted; disabling one requires removing its active
+integration files too. Remove the Northstar-specific legacy-plan exception
+when adopting in another repository. Protocol schemas, approval identity and
+evidence requirements are not convenience switches.
+The unit commands cap workers at two to avoid saturating a shared development
+machine with the Git/process fixture tests. The 30-second test timeout permits
+process startup on Windows; individual behavior assertions remain unchanged.

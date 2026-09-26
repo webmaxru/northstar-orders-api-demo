@@ -39,7 +39,9 @@ jobs:
       # execute the pull-request branch in this write-capable job.
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          # CUSTOMIZE to the exact protected default branch; never a PR/event ref.
+          # A literal makes the trusted checkout boundary inspectable by scanners.
+          ref: main
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
@@ -90,29 +92,27 @@ jobs:
         run: |
           set +e
 
+          rm -f artifacts/candidate-plan.json artifacts/approved-plan.json artifacts/checks/plan-approval.json
           node scripts/check-plan.mjs --pr "$PR_NUMBER" --expected-head "$NORTHSTAR_HEAD_SHA"
           PLAN_STATUS=$?
-          if [ -f artifacts/plan.json ]; then
+          if [ "$PLAN_STATUS" -eq 0 ] && [ -f artifacts/plan.json ]; then
             cp artifacts/plan.json artifacts/candidate-plan.json
           fi
+
+          ISSUE=$(node -p "require('./artifacts/task-contract.json').source.issue")
+          node scripts/select-execution-plan.mjs \
+            --issue "$ISSUE" \
+            --pr "$PR_NUMBER" \
+            --expected-head "$NORTHSTAR_HEAD_SHA" \
+            --expected-plan artifacts/candidate-plan.json \
+            --record-approval
+          SELECTION_STATUS=$?
           node scripts/evidence-record.mjs \
             --id plan-contract \
             --job plan-contract \
             --category policy \
-            --status "$([ "$PLAN_STATUS" -eq 0 ] && echo pass || echo fail)" \
+            --status "$([ "$PLAN_STATUS" -eq 0 ] && [ "$SELECTION_STATUS" -eq 0 ] && echo pass || echo fail)" \
             --artifact artifacts/candidate-plan.json
-
-          ISSUE=$(node -p "require('./artifacts/task-contract.json').source.issue")
-          node scripts/fetch-approved-plan.mjs \
-            --issue "$ISSUE" \
-            --expected-plan artifacts/candidate-plan.json
-          APPROVAL_STATUS=$?
-          node scripts/evidence-record.mjs \
-            --id plan-approval \
-            --job plan-approval \
-            --category approval \
-            --status "$([ "$APPROVAL_STATUS" -eq 0 ] && echo pass || echo fail)" \
-            --artifact artifacts/approved-plan.json
 
           node scripts/check-scope.mjs --pr "$PR_NUMBER" --expected-head "$NORTHSTAR_HEAD_SHA"
           SCOPE_STATUS=$?
@@ -167,16 +167,31 @@ jobs:
             }
           ")
           echo "changed=$CHANGED" >> "$GITHUB_OUTPUT"
-      - name: Reassert immutable pull-request identity
+      - id: execution-plan
+        name: Reassert immutable pull-request identity
         env:
           GH_TOKEN: ${{ steps.publisher-token.outputs.token }}
         run: |
           node scripts/resolve-workflow-pr.mjs --sha "$NORTHSTAR_HEAD_SHA"
           npm run contract:from-pr -- --pr "$PR_NUMBER"
           node scripts/check-plan.mjs --pr "$PR_NUMBER" --expected-head "$NORTHSTAR_HEAD_SHA"
+          node scripts/select-execution-plan.mjs \
+            --pr "$PR_NUMBER" \
+            --expected-head "$NORTHSTAR_HEAD_SHA" \
+            --expected-plan artifacts/plan.json \
+            --record-approval
       - id: report
+        if: always()
         continue-on-error: true
-        run: node scripts/build-execution-report.mjs --hosted --plan artifacts/approved-plan.json
+        env:
+          SELECTION_OUTCOME: ${{ steps.execution-plan.outcome }}
+          PLAN_PATH: ${{ steps.execution-plan.outputs.plan_path }}
+        run: |
+          if [ "$SELECTION_OUTCOME" != "success" ]; then
+            rm -f artifacts/plan.json artifacts/approved-plan.json artifacts/candidate-plan.json
+            PLAN_PATH=artifacts/plan.json
+          fi
+          node scripts/build-execution-report.mjs --hosted --plan "$PLAN_PATH"
       - id: decision
         if: always() && hashFiles('artifacts/report.json') != ''
         run: |

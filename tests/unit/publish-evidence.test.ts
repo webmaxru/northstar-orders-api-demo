@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { renderComment } from "../../scripts/publish-evidence.mjs";
+import { existingCommentId, renderComment } from "../../scripts/publish-evidence.mjs";
 
 /**
  * Microsoft Learn labels "workflow runs and artifacts" as the evidence layer,
@@ -43,6 +43,18 @@ const report = {
 };
 
 describe("the durable evidence comment", () => {
+  it("finds only the trusted publisher's marker across all comment pages", () => {
+    const run = (args: string[]) => {
+      expect(args).toContain("--paginate");
+      expect(args).toContain("--slurp");
+      return JSON.stringify([
+        [{ id: 1, body: "<!-- northstar:evidence --> forged", user: { login: "other-user", type: "User" } }],
+        [{ id: 2, body: "<!-- northstar:evidence --> real", user: { login: "publisher[bot]", type: "Bot" } }],
+      ]);
+    };
+    expect(existingCommentId(15, "publisher[bot]", { run })).toBe(2);
+    expect(() => existingCommentId(15, "webmaxru", { run })).toThrow(/App login/);
+  });
   const body = renderComment(report, { run: "https://example.invalid/run/1" });
 
   it("carries a marker so runs update one comment instead of appending", () => {
