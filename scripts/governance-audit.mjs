@@ -343,6 +343,21 @@ export function governedRepositoryControlsHaveAppIdentity(workflow) {
   ].every((setting) => controlsJob.includes(setting));
 }
 
+/** @param {{checks: Array<{id: string, ok: boolean, status?: string}>, lookups: Array<{id: string, state: string, detail?: string}>} | null | undefined} online */
+export function summarizeOnlineFailures(online) {
+  if (!online) return [];
+  const checks = online.checks
+    .filter(({ ok }) => !ok)
+    .map(({ id, status }) => `${id}=${status ?? "fail"}`);
+  const lookups = online.lookups
+    .filter(({ state }) => state === "unavailable")
+    .map(({ id, detail }) => {
+      const status = /\(HTTP (\d{3})\)/i.exec(detail ?? "")?.[1];
+      return `lookup:${id}=unavailable${status ? `-http-${status}` : ""}`;
+    });
+  return [...new Set([...checks, ...lookups])].sort();
+}
+
 export function governedMergedArtifactsHaveUniquePaths(workflow) {
   const text = String(workflow);
   const qualityJob = /^ {2}quality:\r?\n([\s\S]*?)(?=^ {2}acceptance:\r?$)/m.exec(
