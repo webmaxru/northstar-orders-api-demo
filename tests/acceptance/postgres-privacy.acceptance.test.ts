@@ -1,15 +1,16 @@
-import { randomBytes } from "node:crypto";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createIdempotencyHarness, type IdempotencyHarness } from "../../src/services/idempotency-harness.js";
+import {
+  createIsolatedPostgresDatabase,
+  type IsolatedPostgresDatabase,
+} from "./postgres-test-database.js";
 
 describe.sequential("PostgreSQL idempotency privacy", () => {
   const databaseUrl = process.env.DATABASE_URL;
   let harness: IdempotencyHarness | undefined;
   let pool: Pool | undefined;
-  let controlPool: Pool | undefined;
-  let schemaCreated = false;
-  const schema = `northstar_privacy_${randomBytes(8).toString("hex")}`;
+  let isolatedDatabase: IsolatedPostgresDatabase | undefined;
 
   async function cleanup() {
     const errors: unknown[] = [];
@@ -25,20 +26,12 @@ describe.sequential("PostgreSQL idempotency privacy", () => {
       errors.push(error);
     }
     pool = undefined;
-    if (schemaCreated && controlPool) {
-      try {
-        await controlPool.query(`DROP SCHEMA "${schema}" CASCADE`);
-        schemaCreated = false;
-      } catch (error) {
-        errors.push(error);
-      }
-    }
     try {
-      await controlPool?.end();
+      await isolatedDatabase?.close();
     } catch (error) {
       errors.push(error);
     }
-    controlPool = undefined;
+    isolatedDatabase = undefined;
     if (errors.length > 0) {
       throw new AggregateError(errors, "PostgreSQL privacy acceptance cleanup failed.");
     }
@@ -48,18 +41,16 @@ describe.sequential("PostgreSQL idempotency privacy", () => {
     if (!databaseUrl) {
       throw new Error("DATABASE_URL is required");
     }
-    const database = new URL(databaseUrl);
-    const setupPool = new Pool({ connectionString: database.toString(), connectionTimeoutMillis: 10_000 });
-    controlPool = setupPool;
+    isolatedDatabase = await createIsolatedPostgresDatabase(databaseUrl);
     try {
-      await setupPool.query(`CREATE SCHEMA "${schema}"`);
-      schemaCreated = true;
-      database.searchParams.set("options", `-c search_path=${schema}`);
-      const isolatedUrl = database.toString();
-      const setupHarness = await createIdempotencyHarness({ databaseUrl: isolatedUrl });
-      harness = setupHarness;
-      pool = new Pool({ connectionString: isolatedUrl, connectionTimeoutMillis: 10_000 });
-      await setupHarness.reset();
+      harness = await createIdempotencyHarness({
+        databaseUrl: isolatedDatabase.connectionString,
+      });
+      pool = new Pool({
+        connectionString: isolatedDatabase.connectionString,
+        connectionTimeoutMillis: 10_000,
+      });
+      await harness.reset();
     } catch (error) {
       try {
         await cleanup();

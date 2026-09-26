@@ -31,6 +31,7 @@ import {
   taskInputs,
   renderResult,
 } from "./resolve-task.mjs";
+import { readWorkspaceOwner, releaseTaskWorkspace } from "./workspace-owner.mjs";
 
 export function resolveIssueNumber({ env = process.env, payload = {} } = {}) {
   const candidates = [];
@@ -118,8 +119,40 @@ function emit(additionalContext) {
   );
 }
 
+export async function clearUnselectedTaskState({
+  root = process.cwd(),
+  sessionId = null,
+  env = process.env,
+} = {}) {
+  const owner = readWorkspaceOwner(root);
+  if (!owner) {
+    clearTaskState(root);
+    return { status: "cleared" };
+  }
+  if (owner.issue === null || typeof sessionId !== "string" || !sessionId.trim()) {
+    return {
+      status: "preserved",
+      reason: "An active task workspace was preserved because this hook has no matching explicit session identity.",
+    };
+  }
+  try {
+    await releaseTaskWorkspace(
+      { root, issue: owner.issue, sessionId, env },
+      { clearTaskState },
+    );
+    return { status: "released" };
+  } catch (error) {
+    if (/^(?:Task workspace is already owned|Another resolver currently owns)/.test(error.message)) {
+      return {
+        status: "preserved",
+        reason: `An active task workspace was preserved: ${error.message}`,
+      };
+    }
+    throw error;
+  }
+}
+
 async function main() {
-  clearTaskState();
   try {
     const chunks = [];
     if (!process.stdin.isTTY) {
@@ -130,8 +163,14 @@ async function main() {
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("Invalid session hook envelope.");
     const resolution = resolveIssueNumber({ payload });
     if (!resolution.number) {
+      const sessionId = payload.session_id ?? payload.sessionId ?? null;
+      const cleanup = await clearUnselectedTaskState({
+        root: process.cwd(),
+        sessionId,
+      });
       emit("No explicit task issue was supplied. Reads remain available; writes are denied. " +
-        "Supply `/plan <issue>`, `/implement <issue>`, or AGENT_TASK_ISSUE. No cached task or fixture was adopted.");
+        "Supply `/plan <issue>`, `/implement <issue>`, or AGENT_TASK_ISSUE. No cached task or fixture was adopted." +
+        (cleanup.status === "preserved" ? ` ${cleanup.reason}` : ""));
       return;
     }
     const prompt = payload.initial_prompt ?? payload.initialPrompt ?? process.env.COPILOT_AGENT_PROMPT ?? "";
@@ -142,11 +181,16 @@ async function main() {
     });
     emit(summarize(contract, resolution.how, plan, approvalState));
   } catch (error) {
-    clearTaskState();
+    let preserved = "";
+    try {
+      clearTaskState();
+    } catch (cleanupError) {
+      preserved = ` Existing owned workspace state was preserved: ${/** @type {Error} */ (cleanupError).message}`;
+    }
     emit(
-      "Task resolution failed; cached authority was cleared and writes remain denied: " +
+      `Task resolution failed; writes remain denied: ` +
         `${/** @type {Error} */ (error).message.split("\n")[0]} ` +
-        "Fix the issue body to match .github/ISSUE_TEMPLATE/agent-task.yml.",
+        "Fix the issue body to match .github/ISSUE_TEMPLATE/agent-task.yml." + preserved,
     );
   }
 }

@@ -5,18 +5,44 @@ import {
   createIdempotencyHarness,
   type IdempotencyHarness,
 } from "../../src/services/idempotency-harness.js";
+import {
+  createIsolatedPostgresDatabase,
+  type IsolatedPostgresDatabase,
+} from "./postgres-test-database.js";
 
 describe.sequential("WI-1842 idempotency acceptance", () => {
   let harness: IdempotencyHarness;
+  let isolatedDatabase: IsolatedPostgresDatabase | undefined;
 
   beforeEach(async () => {
     const databaseUrl = process.env.DATABASE_URL;
-    harness = await createIdempotencyHarness(databaseUrl ? { databaseUrl } : {});
+    if (databaseUrl) {
+      isolatedDatabase = await createIsolatedPostgresDatabase(databaseUrl);
+      harness = await createIdempotencyHarness({
+        databaseUrl: isolatedDatabase.connectionString,
+      });
+    } else {
+      harness = await createIdempotencyHarness({});
+    }
     await harness.reset();
   });
 
   afterEach(async () => {
-    await harness?.close();
+    const errors: unknown[] = [];
+    try {
+      await harness?.close();
+    } catch (error) {
+      errors.push(error);
+    }
+    try {
+      await isolatedDatabase?.close();
+    } catch (error) {
+      errors.push(error);
+    }
+    isolatedDatabase = undefined;
+    if (errors.length > 0) {
+      throw new AggregateError(errors, "Idempotency acceptance cleanup failed.");
+    }
   });
 
   it("replays the original response on the same instance", async () => {

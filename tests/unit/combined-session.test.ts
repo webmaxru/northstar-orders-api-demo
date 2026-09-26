@@ -69,6 +69,7 @@ describe("single-PR proposed execution", () => {
     writeFileSync(join(root, "artifacts", "plan-proposal.md"), renderPlanContract(plan));
     const result = resolveTask(4, {
       root, cloud: false, role: "implement", combined: true, sessionId: "session-17",
+      env: { GITHUB_REPOSITORY: repository },
       proposalPath: "artifacts/plan-proposal.md",
       readContract: () => contract,
       readApprovedPlan: () => { throw new Error("Must not require a plan-first lookup."); },
@@ -86,6 +87,8 @@ describe("single-PR proposed execution", () => {
     const root = temp();
     const result = resolveTask(4, {
       root, cloud: true, role: "implement", combined: true, pullRequest: 19,
+      sessionId: "cloud-session-19",
+      env: { GITHUB_REPOSITORY: repository },
       readContract: () => contract,
       readProposedPlan: () => ({
         body: renderPlanContract(plan), plan, approval: null,
@@ -112,6 +115,8 @@ describe("single-PR proposed execution", () => {
     writeFileSync(join(root, "artifacts", "plan.json"), JSON.stringify({ ...plan, planDigest: planDigest(plan) }));
     const result = resolveTask(4, {
       root, cloud: false, role: "implement", combined: true,
+      sessionId: "session-selected-plan",
+      env: { GITHUB_REPOSITORY: repository },
       proposalPath: "artifacts/plan.json",
       readContract: () => contract,
       readWorkspace: () => ({ branch: pull.head.ref, headSha: plan.baseSha }),
@@ -123,12 +128,13 @@ describe("single-PR proposed execution", () => {
   it("lets a selected local combined session write only its proposal before validation", () => {
     const context = {
       taskId: contract.id, trustedContract: true, role: "implement" as const,
-      scope: contract.inputs.scope, canPropose: true,
+      scope: contract.inputs.scope, canPropose: true, sessionId: "session-17",
     };
     expect(evaluateToolCall({ toolName: "edit", toolArgs: { path: "artifacts/plan-proposal.md" } }, context).permissionDecision).toBe("allow");
     expect(evaluateToolCall({ toolName: "edit", toolArgs: { path: "src/app.ts" } }, context).permissionDecision).toBe("deny");
     expect(evaluateToolCall({ toolName: "edit", toolArgs: { path: "artifacts/approved-plan.json" } }, context).permissionDecision).toBe("deny");
-    expect(evaluateToolCall({ toolName: "bash", toolArgs: { command: "npm run plan:materialize -- --file artifacts/plan-proposal.md --execute-proposed" } }, context).permissionDecision).toBe("allow");
+    expect(evaluateToolCall({ toolName: "bash", toolArgs: { command: "npm run plan:materialize -- --file artifacts/plan-proposal.md --execute-proposed --session-id session-17" } }, context).permissionDecision).toBe("allow");
+    expect(evaluateToolCall({ toolName: "bash", toolArgs: { command: "npm run plan:materialize -- --file artifacts/plan-proposal.md --execute-proposed --session-id other-session" } }, context).permissionDecision).toBe("deny");
     expect(evaluateToolCall({ toolName: "edit", toolArgs: { path: "artifacts/plan-proposal.md" } }, { ...context, role: "plan" }).permissionDecision).toBe("deny");
   });
 

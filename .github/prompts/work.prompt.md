@@ -15,10 +15,11 @@ medium risk only; high/critical work must use the independent plan-first gate.
 In a new local task workspace, produce a `northstar/plan/1` proposal at exactly
 `artifacts/plan-proposal.md`. Before source edits, run:
 
-`npm run plan:materialize -- --file artifacts/plan-proposal.md --execute-proposed`
+`npm run plan:materialize -- --file artifacts/plan-proposal.md --execute-proposed --session-id <current-session-id>`
 
-The command validates scope, risk, task digest and the isolated base. It does
-not approve anything. Keep this plan and the implementation in the same PR.
+Use the exact `sessionId` from the active task session. The command validates
+workspace ownership, scope, risk, task digest and the isolated base. It does not
+approve anything. Keep this plan and the implementation in the same PR.
 Publishing remains an explicitly authorized action; final review and all
 applicable checks are still required.
 

@@ -7,6 +7,7 @@ export interface AuditRecord {
   taskId: string | null;
   contractDigest: string | null;
   planDigest: string | null;
+  workspaceOwnerVerified: boolean;
   tool: string | null;
   paths: string[];
   commandDigest: string | null;
@@ -18,5 +19,11 @@ export interface AuditRecord {
 export declare function createAuditRecord(
   payload: Record<string, unknown>,
   now?: string,
+  root?: string,
+  env?: Record<string, string | undefined>,
 ): AuditRecord;
-export declare function writeAuditRecord(record: AuditRecord, out?: string): string;
+export declare function writeAuditRecord(
+  record: AuditRecord,
+  out?: string | null,
+  root?: string,
+): string;

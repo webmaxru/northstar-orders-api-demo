@@ -234,6 +234,7 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: "${{ format('postgresql://{0}:{1}@localhost:5432/{2}', 'postgres', 'postgres', 'northstar') }}"
+      NORTHSTAR_ACCEPTANCE_DATABASE_DISPOSABLE: "true"
     steps:
       - uses: actions/checkout@v7
         with:

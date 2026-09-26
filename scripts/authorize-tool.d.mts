@@ -18,6 +18,9 @@ export interface TaskScope {
 export interface AuthorizationContext {
   scope?: TaskScope;
   taskId?: string;
+  issue?: number;
+  sessionId?: string;
+  workspaceOwnerMatches?: boolean;
   trustedContract?: boolean;
   approvedPlan?: boolean;
   branchAuthorized?: boolean;
