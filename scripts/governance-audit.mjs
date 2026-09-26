@@ -276,6 +276,9 @@ export function governedArtifactsTargetExpectedDirectory(workflow) {
 export function governedSingleCheckArtifactsPreserveDirectory(workflow) {
   const text = String(workflow);
   return [
+    ["northstar-check-plan-contract", "plan-contract"],
+    ["northstar-check-plan-approval", "plan-approval"],
+    ["northstar-check-scope", "scope-policy"],
     ["northstar-check-secret", "secret-scan"],
     ["northstar-check-review", "human-review"],
   ].every(([artifact, check]) =>

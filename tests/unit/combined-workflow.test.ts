@@ -459,12 +459,18 @@ describe("combined-mode hosted workflow wiring", () => {
     expect(planContextUpload).not.toContain("artifacts/task-contract.json");
     expect(planContextUpload).not.toContain("artifacts/checks/plan-contract.json");
     expect(planContract).toContain("name: northstar-check-plan-contract");
-    expect(planContract).toContain("path: artifacts/checks/plan-contract.json");
+    expect(planContract).toContain("path: artifacts/**/plan-contract.json");
 
     const approvalUpload = /name: northstar-check-plan-approval\r?\n[\s\S]*?\r?\n {10}retention-days: 90/
       .exec(job(source, "plan-approval"))?.[0] ?? "";
-    expect(approvalUpload).toContain("path: artifacts/checks/plan-approval.json");
+    expect(approvalUpload).toContain("path: artifacts/**/plan-approval.json");
     expect(approvalUpload).not.toContain("artifacts/approved-plan.json");
+
+    const scopePolicy = job(source, "scope-policy");
+    expect(scopePolicy).toContain("name: northstar-check-scope");
+    expect(scopePolicy).toContain("path: artifacts/**/scope-policy.json");
+    expect(scopePolicy).toContain("name: northstar-check-scope-report");
+    expect(scopePolicy).toContain("path: artifacts/scope-report.json");
 
     const evidence = job(source, "evidence");
     expect(evidence).toContain("pattern: northstar-check-*");
