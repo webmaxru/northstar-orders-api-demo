@@ -10,6 +10,11 @@ import type { ExecutionReport } from "../../scripts/build-execution-report.mjs";
 import { extractPlanContract, planDigest } from "../../scripts/plan-contract.mjs";
 import type { StopAttempt } from "../../scripts/repair-budget.mjs";
 import { contractFromFile } from "../../scripts/task-contract.mjs";
+import {
+  bindWorkspaceOwner,
+  claimWorkspaceOwner,
+  releaseWorkspaceClaim,
+} from "../../scripts/workspace-owner.mjs";
 
 const passing = {
   decision: "ready_for_review",
@@ -54,10 +59,12 @@ describe("the stop gate summary", () => {
     },
   };
   const calls: string[] = [];
-  const session = {
+  const sessionTemplate = {
     issue: contract.source.issue, taskId: contract.id, contractDigest: contract.source.bodyDigest,
     role: "implement", sessionId: "fixture-implementation-session",
+    workspaceOwner: "",
   };
+  let session = { ...sessionTemplate };
 
   function write(path: string, contents: string) {
     mkdirSync(dirname(join(root, path)), { recursive: true });
@@ -89,6 +96,18 @@ describe("the stop gate summary", () => {
     rmSync(join(root, "artifacts"), { recursive: true, force: true });
     write("source.txt", "committed\n");
     // Synthetic approval data is confined to this disposable test repository.
+    const owner = claimWorkspaceOwner({
+      root,
+      issue: contract.source.issue,
+      taskId: contract.id,
+      contractDigest: contract.source.bodyDigest,
+      sessionId: sessionTemplate.sessionId,
+      env: { GITHUB_REPOSITORY: repository },
+      contract,
+    });
+    bindWorkspaceOwner(owner, contract);
+    session = { ...sessionTemplate, workspaceOwner: owner.identity.ownerKey };
+    releaseWorkspaceClaim(owner);
     writeJson("artifacts/task-contract.json", contract);
     writeJson("artifacts/plan.json", plan);
     writeJson("artifacts/approved-plan.json", plan);
@@ -193,13 +212,15 @@ describe("the stop gate summary", () => {
       expect(calls).toEqual([]);
     });
 
-    it("preserves hosts that explicitly have no session ID without inventing one", () => {
+    it("fails closed when the host does not provide the session identity", () => {
       writeJson("artifacts/task-session.json", { ...session, sessionId: null });
       const result = runStopGate({ stop_hook_active: false }, {
         root, env: { GITHUB_REPOSITORY: repository }, run: simulate,
       });
-      expect(result.systemMessage).toContain("Evidence gate passed");
-      expect(state().attempts[0]?.sessionId).toBeNull();
+      expect(result.continue).toBe(false);
+      expect(result.stopReason).toContain("session identity is missing");
+      expect(calls).toEqual([]);
+      expect(existsSync(join(root, "artifacts/stop-recovery"))).toBe(false);
     });
 
     it("stops when resolution clears task authority during a running validation", () => {

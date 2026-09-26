@@ -7,9 +7,10 @@ import {
   readdirSync,
   writeFileSync,
 } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { extractPlanContract, planDigest } from "./plan-contract.mjs";
+import { workspacePath } from "./workspace-path.mjs";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 const LOCAL_RUN_ID = `local-${randomUUID()}`;
@@ -45,27 +46,7 @@ const REVALIDATED_CHECKS = new Set([
 ]);
 
 export function evidencePath(path, root = REPO_ROOT) {
-  if (typeof path !== "string" || !path.trim()) {
-    throw new Error("Evidence path must be a non-empty string.");
-  }
-  const absolute = resolve(root, path);
-  const within = relative(resolve(root), absolute);
-  if (!within || isAbsolute(within) || within === ".." || within.startsWith(`..${sep}`)) {
-    throw new Error("Evidence path must stay inside the repository.");
-  }
-  let cursor = resolve(root);
-  for (const segment of within.split(sep)) {
-    cursor = join(cursor, segment);
-    try {
-      if (lstatSync(cursor).isSymbolicLink()) {
-        throw new Error(`Evidence path contains a symbolic link: ${path}`);
-      }
-    } catch (error) {
-      if (error.code !== "ENOENT") throw error;
-      break;
-    }
-  }
-  return absolute;
+  return workspacePath(path, root);
 }
 
 export function readEvidenceJson(path, root = REPO_ROOT) {

@@ -1,23 +1,45 @@
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createIdempotencyHarness, type IdempotencyHarness } from "../../src/services/idempotency-harness.js";
+import {
+  createIsolatedPostgresDatabase,
+  type IsolatedPostgresDatabase,
+} from "./postgres-test-database.js";
 
 describe.sequential("PostgreSQL idempotency privacy", () => {
   const databaseUrl = process.env.DATABASE_URL;
   let harness: IdempotencyHarness;
   let pool: Pool;
+  let isolatedDatabase: IsolatedPostgresDatabase;
 
   beforeAll(async () => {
     if (!databaseUrl) {
       throw new Error("DATABASE_URL is required");
     }
-    harness = await createIdempotencyHarness({ databaseUrl });
-    pool = new Pool({ connectionString: databaseUrl });
+    isolatedDatabase = await createIsolatedPostgresDatabase(databaseUrl);
+    harness = await createIdempotencyHarness({
+      databaseUrl: isolatedDatabase.connectionString,
+    });
+    pool = new Pool({ connectionString: isolatedDatabase.connectionString });
     await harness.reset();
   });
 
   afterAll(async () => {
-    await Promise.all([harness?.close(), pool?.end()]);
+    const errors: unknown[] = [];
+    for (const close of [
+      () => harness?.close(),
+      () => pool?.end(),
+      () => isolatedDatabase?.close(),
+    ]) {
+      try {
+        await close();
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+    if (errors.length > 0) {
+      throw new AggregateError(errors, "Privacy acceptance cleanup failed.");
+    }
   });
 
   it("stores only fixed-length hashes", async () => {

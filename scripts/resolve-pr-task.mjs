@@ -3,6 +3,14 @@ import { appendFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { cacheContract, contractFromIssue } from "./task-contract.mjs";
 import { clearTaskState } from "./resolve-task.mjs";
+import {
+  bindWorkspaceOwner,
+  claimWorkspaceOwner,
+  releaseWorkspaceClaim,
+} from "./workspace-owner.mjs";
+import { resolve } from "node:path";
+
+const REPO_ROOT = resolve(import.meta.dirname, "..");
 
 function gh(args) {
   return execFileSync("gh", args, {
@@ -29,32 +37,56 @@ function main() {
     process.stderr.write("Pass --pr <number>.\n");
     process.exit(2);
   }
+  let owner = null;
   try {
-  clearTaskState();
-  const pull = JSON.parse(gh(["pr", "view", pr, "--json", "body"]));
-  const issue = linkedIssue(pull.body);
-  if (!issue) {
-    throw new Error(
-      "No task issue linked. Add `Closes #<number>` to the pull request body.",
+    const pull = JSON.parse(gh(["pr", "view", pr, "--json", "body"]));
+    const issue = linkedIssue(pull.body);
+    if (!issue) {
+      throw new Error(
+        "No task issue linked. Add `Closes #<number>` to the pull request body.",
+      );
+    }
+    const contract = contractFromIssue(issue);
+    owner = claimWorkspaceOwner({
+      root: REPO_ROOT,
+      issue,
+      taskId: contract.id,
+      contractDigest: contract.source.bodyDigest,
+      sessionId: process.env.COPILOT_SESSION_ID ??
+        process.env.COPILOT_SESSION_UUID ??
+        process.env.COPILOT_AGENT_SESSION_ID ??
+        null,
+      contract,
+    });
+    clearTaskState(REPO_ROOT, owner);
+    bindWorkspaceOwner(owner, contract);
+    const target = cacheContract(contract, undefined, owner);
+    if (process.env.GITHUB_OUTPUT) {
+      appendFileSync(
+        process.env.GITHUB_OUTPUT,
+        `issue=${issue}\ntask=${contract.id}\n`,
+        "utf8",
+      );
+    }
+    process.stdout.write(
+      `issue=${issue} task=${contract.id} digest=${contract.source.bodyDigest}\n${target}\n`,
     );
-  }
-  // Resolve task authority only. Plan selection is a distinct risk-aware gate.
-  const contract = contractFromIssue(issue);
-  const target = cacheContract(contract);
-  if (process.env.GITHUB_OUTPUT) {
-    appendFileSync(
-      process.env.GITHUB_OUTPUT,
-      `issue=${issue}\ntask=${contract.id}\n`,
-      "utf8",
-    );
-  }
-  process.stdout.write(
-    `issue=${issue} task=${contract.id} digest=${contract.source.bodyDigest}\n${target}\n`,
-  );
   } catch (error) {
-    clearTaskState();
+    if (owner) {
+      try {
+        clearTaskState(REPO_ROOT, owner);
+      } catch (cleanupError) {
+        process.stderr.write(
+          `Task resolution failed and owned-state cleanup also failed: ${error.message}; ${cleanupError.message}\n`,
+        );
+        process.exitCode = 1;
+        return;
+      }
+    }
     process.stderr.write(`${/** @type {Error} */ (error).message}\n`);
-    process.exit(1);
+    process.exitCode = 1;
+  } finally {
+    if (owner) releaseWorkspaceClaim(owner);
   }
 }
 

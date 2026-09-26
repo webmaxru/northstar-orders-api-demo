@@ -109,7 +109,7 @@ describe("repair budget", () => {
   const scope = {
     repository: "fixture/northstar", taskId: "RECOVERY",
     contractDigest: "a".repeat(64), planDigest: "b".repeat(64),
-    baseSha: "c".repeat(40), headSha: "d".repeat(40),
+    baseSha: "c".repeat(40), headSha: "d".repeat(40), sessionId: "fixture-session",
   };
 
   describe("durable actual Stop accounting", () => {
@@ -127,17 +127,27 @@ describe("repair budget", () => {
       expect(result.history).toHaveLength(2);
     });
 
-    it("persists repeats across invocations and changes of HEAD without resetting", () => {
+    it("keeps retry history isolated per session while preserving repeats across HEAD changes", () => {
       const root = temp();
       const evaluate = () => ({ failures: [failureEvidence({ check: "quality", message: CONCURRENCY_FAILURE })] });
       const first = runStopAttempt({ ...scope, sessionId: "first-session" }, evaluate, { root });
-      const second = runStopAttempt({ ...scope, sessionId: "second-session", headSha: "e".repeat(40) }, evaluate, { root });
+      const second = runStopAttempt({
+        ...scope, sessionId: "first-session", headSha: "e".repeat(40),
+      }, evaluate, { root });
       expect(first.decision).toBe("repair");
       expect(second).toMatchObject({ decision: "escalate", repeats: 2, reason: expect.stringContaining("same quality") });
       expect(second.path).toBe(first.path);
-      expect(second.attempts.map(({ sessionId }) => sessionId)).toEqual(["first-session", "second-session"]);
+      expect(second.attempts.map(({ sessionId }) => sessionId)).toEqual(["first-session", "first-session"]);
+      const isolated = runStopAttempt({
+        ...scope, sessionId: "second-session",
+      }, evaluate, { root });
+      expect(isolated.decision).toBe("repair");
+      expect(isolated.path).not.toBe(first.path);
+      expect(isolated.attempts).toHaveLength(1);
       let invoked = false;
-      const third = runStopAttempt(scope, () => { invoked = true; return { failures: [] }; }, { root });
+      const third = runStopAttempt({
+        ...scope, sessionId: "first-session",
+      }, () => { invoked = true; return { failures: [] }; }, { root });
       expect(invoked).toBe(false);
       expect(third.attempts).toHaveLength(2);
     });

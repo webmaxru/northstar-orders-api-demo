@@ -6,7 +6,10 @@ export declare const APPROVED_PLAN_CACHE: string;
 export declare const TASK_SESSION_CACHE: string;
 export declare const EXECUTION_CONTEXT_CACHE: string;
 export declare const PROPOSAL_PATH: string;
-export declare function clearTaskState(root?: string): void;
+export declare function clearTaskState(
+  root?: string,
+  ownerClaim?: import("./workspace-owner.d.mts").WorkspaceOwnerClaim | null,
+): void;
 export declare function taskRole(prompt: unknown): "plan" | "implement" | null;
 export declare function taskInputs(prompt: unknown): {
   pullRequest: number | null;
@@ -31,6 +34,7 @@ export declare function resolveTask(
     readProposedPlan?: typeof import("./publish-plan.d.mts").fetchProposedPlan;
     role?: "plan" | "implement" | null;
     sessionId?: string | null;
+    env?: Record<string, string | undefined>;
     cloud?: boolean;
     pullRequest?: number | null;
     expectedHead?: string;

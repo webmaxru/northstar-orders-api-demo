@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
 import { expect, it } from "vitest";
+import { createIsolatedPostgresDatabase } from "./postgres-test-database.js";
 
 interface Server {
   child: ChildProcess;
@@ -72,20 +73,18 @@ async function placeOrder(server: Server, key?: string, quantity = 3) {
 
 it("proves replay through separate server processes", async () => {
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required for process acceptance.");
-  const database = new URL(process.env.DATABASE_URL);
-  const schema = `northstar_acceptance_${randomBytes(8).toString("hex")}`;
-  const control = new Pool({ connectionString: database.toString(), connectionTimeoutMillis: 10_000 });
+  const isolatedDatabase = await createIsolatedPostgresDatabase(process.env.DATABASE_URL);
+  const pool = new Pool({
+    connectionString: isolatedDatabase.connectionString,
+    connectionTimeoutMillis: 10_000,
+  });
   const servers: Server[] = [];
-  let schemaCreated = false;
   let failure: unknown;
   const errors: unknown[] = [];
   try {
-    await control.query(`CREATE SCHEMA "${schema}"`);
-    schemaCreated = true;
-    database.searchParams.set("options", `-c search_path=${schema}`);
-    const first = await startServer(database.toString());
+    const first = await startServer(isolatedDatabase.connectionString);
     servers.push(first);
-    const second = await startServer(database.toString());
+    const second = await startServer(isolatedDatabase.connectionString);
     servers.push(second);
     expect(first.pid).not.toBe(second.pid);
     const key = `process-${randomBytes(8).toString("hex")}`;
@@ -103,24 +102,22 @@ it("proves replay through separate server processes", async () => {
     expect(new Set(ids).size).toBe(1);
     expect((await placeOrder(second, key, 4)).status).toBe(409);
     await stopServer(first);
-    const replacement = await startServer(database.toString());
+    const replacement = await startServer(isolatedDatabase.connectionString);
     servers.push(replacement);
     expect(replacement.pid).not.toBe(first.pid);
     const replay = await placeOrder(replacement, key);
     expect(replay).toMatchObject({ status: 200, replay: "true", body: { id: ids[0] } });
     const withoutKey = await Promise.all([placeOrder(second), placeOrder(replacement)]);
     expect(withoutKey.every(({ status }) => status === 201)).toBe(true);
-    const count = await control.query<{ count: number }>(`SELECT count(*)::int AS count FROM "${schema}".orders`);
+    const count = await pool.query<{ count: number }>("SELECT count(*)::int AS count FROM orders");
     expect(count.rows[0]?.count).toBe(3);
   } catch (error) {
     failure = error;
   } finally {
     const stopped = await Promise.allSettled(servers.map(stopServer));
     for (const result of stopped) if (result.status === "rejected") errors.push(result.reason);
-    if (schemaCreated) {
-      try { await control.query(`DROP SCHEMA "${schema}" CASCADE`); } catch (error) { errors.push(error); }
-    }
-    try { await control.end(); } catch (error) { errors.push(error); }
+    try { await pool.end(); } catch (error) { errors.push(error); }
+    try { await isolatedDatabase.close(); } catch (error) { errors.push(error); }
   }
   if (failure && errors.length) throw new AggregateError([failure, ...errors], "Process acceptance and cleanup failed.");
   if (failure) throw failure;

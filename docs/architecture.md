@@ -136,6 +136,17 @@ prove:
 - HTTP behavior across two Fastify instances;
 - fixed-length hashes instead of raw sensitive values.
 
+Each acceptance suite that uses PostgreSQL receives a cryptographically unique
+temporary schema and a schema-scoped connection string. The test-owned control
+connection drops only that schema after application pools and child processes
+close. This lets Vitest run the idempotency, privacy, and process suites in
+parallel without sharing `orders` types, table resets, or rows.
+The helper rejects remote database hosts and requires
+`NORTHSTAR_ACCEPTANCE_DATABASE_DISPOSABLE=true` as an explicit acknowledgement.
+The governed-change workflow sets that value only for its ephemeral PostgreSQL
+service. For local runs, set it only after confirming `DATABASE_URL` names a
+disposable local test database.
+
 See [`adr/007-durable-idempotency.md`](adr/007-durable-idempotency.md) for the
 decision record.
 
@@ -158,8 +169,10 @@ The old zero-file approval record is accepted only for the pinned bootstrap.
 
 SessionStart accepts documented initial prompt fields and the cloud prompt
 environment variable in addition to an explicit issue variable. Prompt-hook
-failure clears cached authority. All edit paths, including supported absolute
-paths and patch moves, are checked against the repository, task and plan.
+failure clears only cached authority owned by that session. Foreign-owner
+conflicts and ownerless legacy task caches are preserved and fail closed. All
+edit paths, including supported absolute paths and patch moves, are checked
+against the repository, task and plan.
 Unknown payloads cannot widen scope. The cloud path requires a real matching
 PR and immutable plan/task/base/head identity, not just a `copilot/` prefix.
 One repository-level Stop dispatcher selects the explicit plan or implement
@@ -195,6 +208,53 @@ Resuming local proposals requires an explicit artifact selector and fresh
 validation; existing files are not default authority. Hosted workflows select
 the candidate or independently approved plan according to risk and retain
 security checks and final human acceptance for both modes.
+
+### Parallel task workspaces
+
+Copilot CLI and cloud-agent task sessions may proceed in parallel only when
+each writer has an isolated task worktree. The repository's Local agent mode
+remains serial. `npm run workspace:prepare -- --issue <number> --path
+<absolute-path> --session-id <session-id>` resolves the live issue and current
+approved plan, verifies the immutable base, and creates a dedicated
+`agent/implement/<task-id>` worktree without switching the caller's checkout.
+It refuses an existing path, stale base, unapproved plan, or branch already
+owned by another worktree.
+
+Within a worktree, `artifacts/task-workspace-owner.json` binds the task issue,
+contract digest, repository, worktree, and session/run identity. Resolver state
+is protected by an atomic short-lived lock. The owner key hashes the canonical
+worktree path and explicit session/run identity; the raw session ID is not
+stored in the owner record. An interrupted lock is reclaimed only by the same
+owner on the same host after its recorded process has exited. Malformed,
+foreign-owner, or cross-host locks fail closed.
+
+A conflicting session fails before task caches, evidence, or retry state are
+cleared or overwritten. Ownerless legacy task authority is never adopted or
+deleted by normal task startup. After the owning session has ended, release
+only its own workspace with
+`npm run workspace:release -- --issue <number> --session-id <session-id>`;
+the command validates the exact owner before clearing task state. If no owner
+exists but legacy task authority files remain, a human may explicitly confirm
+the bounded cleanup command
+`npm run workspace:release -- --issue <number> --session-id <session-id> --clear-unowned`.
+The pre-tool policy asks before this operation; it cannot release an active
+owner or remove paths outside the known task-authority cache list.
+The orphan cleanup removes only the known task contract/plan/session cache files;
+other evidence remains untouched and is not adopted as authority.
+
+Stop retry history is namespaced by repository, task, contract, plan, base, and
+session identity. The Stop gate verifies that the task-session record and
+workspace owner agree before writing check evidence or retry state. Audit
+attribution includes a task and plan only when the hook session matches that
+same owner.
+
+Local audit JSONL files are separated by a hash of the explicit session ID.
+Workflow concurrency remains keyed by branch or exact shared target: independent
+branches are not globally serialized, while production and other privileged
+targets remain serialized. A worktree/schema fixture proves the mechanism but
+does not substitute for the issue-required live CLI and cloud canaries; those
+surfaces remain unverified until actual task sessions produce inspectable
+evidence.
 
 A real CodeQL run exposed valid informational SARIF notifications whose
 `message.text` is empty. The parser now accepts that valid message shape while

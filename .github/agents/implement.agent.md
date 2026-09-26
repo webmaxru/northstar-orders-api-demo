@@ -40,8 +40,9 @@ not use.
 
 If no plan is resolved, do not edit source. A fresh local `/work` session may
 write only `artifacts/plan-proposal.md` and invoke the explicitly scoped
-`plan:materialize --execute-proposed` command. High-risk work cannot use this
-bootstrap. In cloud, the plan must resolve from the actual task-bound
+`plan:materialize --execute-proposed --session-id <current-session-id>` command.
+Use the exact session ID in `artifacts/task-session.json`; never invent one.
+High-risk work cannot use this bootstrap. In cloud, the plan must resolve from the actual task-bound
 implementation PR. Missing or conflicting authority is a stop, not a fallback.
 
 Your scope is not fixed by this file. It comes from the issue that defines the
@@ -56,7 +57,16 @@ issue.
 If no contract is active, stop and say so rather than working against the
 repository-wide default. You can resolve one explicitly with
 `npm run contract:fetch -- --issue <n>`, which is on the allowlist so the
-boundary can bootstrap itself.
+boundary can bootstrap itself. The host session identity must be available to
+the resolver; when invoking the command manually, pass
+`--session-id <current-session-id>` and never invent an ID.
+
+If startup reports unowned task authority artifacts, stop and preserve them.
+Do not inspect them as current authority or delete them. A human must confirm
+they are obsolete before invoking
+`npm run workspace:release -- --issue <n> --session-id <current-session-id> --clear-unowned`;
+the pre-tool policy asks before this bounded cleanup. For an active owner, use
+only the matching `workspace:release` command without `--clear-unowned`.
 
 Stop and escalate when the contract's stop conditions are met, or when any of
 these is true:

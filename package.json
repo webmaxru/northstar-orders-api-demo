@@ -21,6 +21,8 @@
     "validate": "npm run instructions:check && npm run governance:check && npm run lint && npm run typecheck && npm run build && npm run test:unit",
     "contract:fetch": "node scripts/fetch-task-contract.mjs",
     "contract:from-pr": "node scripts/resolve-pr-task.mjs",
+    "workspace:prepare": "node scripts/provision-task-worktree.mjs",
+    "workspace:release": "node scripts/release-task-workspace.mjs",
     "plan:show": "node scripts/publish-plan.mjs --show",
     "plan:gate": "node scripts/check-plan.mjs",
     "plan:materialize": "node scripts/plan-contract.mjs",

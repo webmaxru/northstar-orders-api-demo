@@ -88,7 +88,7 @@ export declare function runStopAttempt(
     planDigest: string | null;
     baseSha: string | null;
     headSha: string;
-    sessionId?: string | null;
+    sessionId: string;
   },
   evaluate: (attempt: StopAttempt) => StopOutcome,
   options?: { root?: string },
