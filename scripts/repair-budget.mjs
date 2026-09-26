@@ -201,11 +201,11 @@ function validAttempts(attempts) {
 
 export function runStopAttempt(scope, evaluate, { root = REPO_ROOT } = {}) {
   const identity = Object.fromEntries(
-    ["repository", "taskId", "contractDigest", "planDigest", "baseSha"].map((field) => [field, scope[field]]),
+    ["repository", "taskId", "contractDigest", "planDigest", "baseSha", "sessionId"]
+      .map((field) => [field, scope[field]]),
   );
   if (Object.values(identity).some((value) => typeof value !== "string" || !value) ||
-    (scope.sessionId !== undefined && scope.sessionId !== null &&
-      (typeof scope.sessionId !== "string" || !scope.sessionId.trim())) ||
+    typeof scope.sessionId !== "string" || !scope.sessionId.trim() ||
     !/^[0-9a-f]{40}$/.test(scope.headSha ?? "")) {
     throw new Error("Stop recovery requires a complete task, plan, base, and source identity.");
   }

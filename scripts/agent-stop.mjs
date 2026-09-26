@@ -19,6 +19,11 @@ import { failureEvidence, runStopAttempt } from "./repair-budget.mjs";
 import { planDigest, validatePlanContract } from "./plan-contract.mjs";
 import { planArtifactPath } from "./plan-artifact.mjs";
 import { approvalPolicyForRisk, GOVERNANCE_POLICY } from "./risk-policy.mjs";
+import {
+  assertWorkspaceOwner,
+  readWorkspaceOwner,
+  workspaceOwnerIdentity,
+} from "./workspace-owner.mjs";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 
@@ -90,7 +95,7 @@ function escalation(reason) {
   };
 }
 
-function readStopSession(input, contract, root) {
+function readStopSession(input, contract, root, env) {
   const session = readEvidenceJson("artifacts/task-session.json", root);
   if (!session || !["plan", "implement", null].includes(session.role)) {
     throw new Error("Explicit task-session role metadata is missing or invalid; resolve the task again.");
@@ -103,10 +108,31 @@ function readStopSession(input, contract, root) {
   const ids = [input.session_id, input.sessionId].filter((id) => id !== undefined);
   if (ids.some((id) => typeof id !== "string" || !id.trim()) ||
     new Set(ids).size > 1 ||
-    (session.sessionId !== null && (typeof session.sessionId !== "string" || !session.sessionId.trim())) ||
-    session.sessionId !== (ids[0] ?? null)) {
+    typeof session.sessionId !== "string" || !session.sessionId.trim() ||
+    session.sessionId !== ids[0]) {
     throw new Error("Stop session identity is missing, invalid, or different from the resolved task session.");
   }
+  const repository = env.GITHUB_REPOSITORY ??
+    /^https:\/\/github\.com\/([^/]+\/[^/]+)\/issues\/\d+$/.exec(contract?.source?.url ?? "")?.[1];
+  const owner = readWorkspaceOwner(root);
+  if (!repository || !owner ||
+      session.workspaceOwner !== owner.ownerKey ||
+      owner.repository !== repository ||
+      owner.issue !== session.issue ||
+      owner.taskId !== session.taskId ||
+      owner.contractDigest !== session.contractDigest) {
+    throw new Error("Stop requires a matching task, session, and repository workspace owner.");
+  }
+  const expectedOwner = workspaceOwnerIdentity({
+    root,
+    issue: session.issue,
+    taskId: session.taskId,
+    contractDigest: session.contractDigest,
+    sessionId: session.sessionId,
+    env: { ...env, GITHUB_REPOSITORY: repository },
+    contract,
+  });
+  assertWorkspaceOwner(root, expectedOwner);
   return session;
 }
 
@@ -125,7 +151,7 @@ export function runStopGate(input, { root = REPO_ROOT, env = process.env, run: e
   };
   try {
     const contract = readEvidenceJson("artifacts/task-contract.json", root);
-    session = readStopSession(input, contract, root);
+    session = readStopSession(input, contract, root, env);
     if (session.role !== "implement") {
       return {
         systemMessage: `Implementation evidence gate did not run for ${session.role ?? "unassigned"} role. No completion was verified and no Stop attempt was spent.`,
@@ -146,7 +172,7 @@ export function runStopGate(input, { root = REPO_ROOT, env = process.env, run: e
     }
     const assertCurrentAuthority = () => {
       const currentContract = readEvidenceJson("artifacts/task-contract.json", root);
-      const currentSession = readStopSession(input, currentContract, root);
+      const currentSession = readStopSession(input, currentContract, root, env);
       const currentPlan = readEvidenceJson("artifacts/plan.json", root);
       const currentApproved = readEvidenceJson("artifacts/approved-plan.json", root);
       if (!isDeepStrictEqual(currentSession, session) ||

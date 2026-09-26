@@ -10,6 +10,7 @@ import { extractPlanSection, fetchApprovedPlan, fetchProposedPlan } from "./publ
 import { linkedIssue } from "./resolve-pr-task.mjs";
 import { approvalPolicyForRisk } from "./risk-policy.mjs";
 import { cacheContract, contractFromIssue, loadTaskContract } from "./task-contract.mjs";
+import { claimWorkspaceOwner, releaseWorkspaceClaim } from "./workspace-owner.mjs";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 const SHA = /^[0-9a-f]{40}$/;
@@ -151,6 +152,14 @@ export function approvalEvidenceInput(selection) {
 export function cacheExecutionPlan(input, {
   root = REPO_ROOT, env = process.env, recordApproval = false, ...selectionOptions
 } = {}) {
+  const claim = claimWorkspaceOwner({
+    root,
+    issue: input.contract.source.issue,
+    taskId: input.contract.id,
+    contractDigest: input.contract.source.bodyDigest,
+    env,
+    contract: input.contract,
+  });
   const clear = () => {
     for (const path of CACHE_PATHS) rmSync(evidencePath(path, root), { force: true });
     if (recordApproval) rmSync(evidencePath("artifacts/checks/plan-approval.json", root), { force: true });
@@ -163,37 +172,41 @@ export function cacheExecutionPlan(input, {
   const record = (data, plan) => writeCheckRecord(createCheckRecord(data, {
     ...env, NORTHSTAR_JOB_ID: "plan-approval",
   }, { root, contract: input.contract, plan }), undefined, root);
-  clear();
   try {
-    if ((env.PR_NUMBER && input.pullRequest !== undefined && Number(env.PR_NUMBER) !== input.pullRequest) ||
-      (env.NORTHSTAR_HEAD_SHA && input.expectedHead && env.NORTHSTAR_HEAD_SHA !== input.expectedHead) ||
-      (env.BASE_SHA && input.candidate && env.BASE_SHA !== input.candidate.baseSha) ||
-      (env.GITHUB_REPOSITORY && !hasLiveTaskIdentity(input.contract, env.GITHUB_REPOSITORY))) {
-      throw new Error("The workflow execution context differs from the selected task, repository, PR, base, or head.");
-    }
-    const selected = selectExecutionPlan(input, selectionOptions);
-    const candidate = JSON.parse(canonicalPlan(input.candidate ?? selected.plan));
-    write("artifacts/candidate-plan.json", { ...candidate, planDigest: selected.planDigest });
-    write("artifacts/plan.json", selected.plan);
-    if (selected.approvalState === "approved") write("artifacts/approved-plan.json", selected.plan);
-    if (recordApproval) record(approvalEvidenceInput(selected), selected.plan);
-    return selected;
-  } catch (error) {
     clear();
-    if (recordApproval) {
-      try {
-        record({
-          id: "plan-approval", category: "approval", required: true, status: "fail",
-          summary: "Execution-plan selection failed; approval was not established.",
-          artifact: "artifacts/approved-plan.json",
-        }, input.candidate ?? null);
-      } catch (recordError) {
-        throw new AggregateError([error, recordError],
-          `Plan selection failed: ${error.message}; failure evidence could not be written: ${recordError.message}`,
-          { cause: recordError });
+    try {
+      if ((env.PR_NUMBER && input.pullRequest !== undefined && Number(env.PR_NUMBER) !== input.pullRequest) ||
+        (env.NORTHSTAR_HEAD_SHA && input.expectedHead && env.NORTHSTAR_HEAD_SHA !== input.expectedHead) ||
+        (env.BASE_SHA && input.candidate && env.BASE_SHA !== input.candidate.baseSha) ||
+        (env.GITHUB_REPOSITORY && !hasLiveTaskIdentity(input.contract, env.GITHUB_REPOSITORY))) {
+        throw new Error("The workflow execution context differs from the selected task, repository, PR, base, or head.");
       }
+      const selected = selectExecutionPlan(input, selectionOptions);
+      const candidate = JSON.parse(canonicalPlan(input.candidate ?? selected.plan));
+      write("artifacts/candidate-plan.json", { ...candidate, planDigest: selected.planDigest });
+      write("artifacts/plan.json", selected.plan);
+      if (selected.approvalState === "approved") write("artifacts/approved-plan.json", selected.plan);
+      if (recordApproval) record(approvalEvidenceInput(selected), selected.plan);
+      return selected;
+    } catch (error) {
+      clear();
+      if (recordApproval) {
+        try {
+          record({
+            id: "plan-approval", category: "approval", required: true, status: "fail",
+            summary: "Execution-plan selection failed; approval was not established.",
+            artifact: "artifacts/approved-plan.json",
+          }, input.candidate ?? null);
+        } catch (recordError) {
+          throw new AggregateError([error, recordError],
+            `Plan selection failed: ${error.message}; failure evidence could not be written: ${recordError.message}`,
+            { cause: recordError });
+        }
+      }
+      throw error;
     }
-    throw error;
+  } finally {
+    releaseWorkspaceClaim(claim);
   }
 }
 
@@ -227,7 +240,6 @@ export function executionPlanMain({ approvalOnly = false } = {}) {
     }
     process.stdout.write(`plan=${contract.id} risk=${selected.risk} approval=${selected.approvalState} selected=${selected.planPath}\n`);
   } catch (error) {
-    for (const path of CACHE_PATHS) rmSync(evidencePath(path), { force: true });
     process.stderr.write(`Execution-plan selection failed: ${error.message}\n`);
     process.exitCode = 1;
   }

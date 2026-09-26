@@ -16,6 +16,7 @@ import { renderPlan } from "../../scripts/publish-plan.mjs";
 import { requiredChecksForRisk } from "../../scripts/risk-policy.mjs";
 import type { Risk } from "../../scripts/risk-policy.mjs";
 import { parseIssueBody } from "../../scripts/task-contract.mjs";
+import { claimWorkspaceOwner, releaseWorkspaceClaim } from "../../scripts/workspace-owner.mjs";
 
 const root = mkdtempSync(join(tmpdir(), "northstar-combined-workflow-"));
 const repository = "fixture/northstar";
@@ -65,7 +66,17 @@ beforeAll(() => {
     "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "Offline combined-workflow fixture"]);
   headSha = git(["rev-parse", "HEAD"]);
 }, 60000);
-beforeEach(() => rmSync(join(root, "artifacts"), { recursive: true, force: true }), 60000);
+beforeEach(() => {
+  rmSync(join(root, "artifacts"), { recursive: true, force: true });
+  const owner = claimWorkspaceOwner({
+    root,
+    issue,
+    taskId: contract.id,
+    contractDigest: contract.source.bodyDigest,
+    env: hostedEnv(),
+  });
+  releaseWorkspaceClaim(owner);
+}, 60000);
 afterAll(() => rmSync(root, { recursive: true, force: true }), 60000);
 
 function fixture(risk: Risk = "medium") {
@@ -261,9 +272,9 @@ describe("risk-aware hosted execution-plan selection", { timeout: 90000 }, () =>
 
   it("keeps candidate bytes stable when a later source fan-in selects the approved plan", () => {
     const f = fixture("high");
-    cacheExecutionPlan(f.input, { root, env: {}, run: f.run, requirementsOnly: true });
+    cacheExecutionPlan(f.input, { root, env: hostedEnv(), run: f.run, requirementsOnly: true });
     const producerBytes = readFileSync(join(root, "artifacts", "plan.json"), "utf8");
-    cacheExecutionPlan(f.input, { root, env: {}, run: f.run, readApprovedPlan: () => f.approved });
+    cacheExecutionPlan(f.input, { root, env: hostedEnv(), run: f.run, readApprovedPlan: () => f.approved });
     expect(readFileSync(join(root, "artifacts", "candidate-plan.json"), "utf8")).toBe(producerBytes);
     expect(readJson("artifacts/approved-plan.json")).toMatchObject({ approval: f.approved.approval });
   });
@@ -289,7 +300,9 @@ describe("risk-aware hosted execution-plan selection", { timeout: 90000 }, () =>
     const f = fixture();
     expect(() => cacheExecutionPlan(f.input, {
       root, run: f.run, env: { ...hostedEnv(), [key]: value },
-    })).toThrow(/workflow execution context differs/);
+    })).toThrow(key === "GITHUB_REPOSITORY"
+      ? /already owned/
+      : /workflow execution context differs/);
     expect(existsSync(join(root, "artifacts", "plan.json"))).toBe(false);
     expect(existsSync(join(root, "artifacts", "approved-plan.json"))).toBe(false);
   });

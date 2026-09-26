@@ -31,6 +31,15 @@ import { extractPlanContract, planDigest, validatePlanContract } from "./plan-co
 import { resolveCloudExecution } from "./execution-context.mjs";
 import { approvalPolicyForRisk, inferRisk } from "./risk-policy.mjs";
 import { localProposalPath } from "./plan-artifact.mjs";
+import {
+  assertWorkspaceOwner,
+  bindWorkspaceOwner,
+  claimWorkspaceOwner,
+  releaseWorkspaceClaim,
+  TASK_AUTHORITY_PATHS,
+  unownedTaskAuthorityPaths,
+} from "./workspace-owner.mjs";
+import { workspacePath } from "./workspace-path.mjs";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 
@@ -41,11 +50,16 @@ export const TASK_SESSION_CACHE = "artifacts/task-session.json";
 export const EXECUTION_CONTEXT_CACHE = "artifacts/execution-context.json";
 export const PROPOSAL_PATH = "artifacts/plan-proposal.md";
 
-export function clearTaskState(root = REPO_ROOT) {
-  for (const file of [
-    CONTRACT_CACHE, PLAN_CACHE, PLAN_CONTRACT_CACHE, APPROVED_PLAN_CACHE,
-    TASK_SESSION_CACHE, EXECUTION_CONTEXT_CACHE,
-  ]) {
+export function clearTaskState(root = REPO_ROOT, ownerClaim = null) {
+  const owner = assertWorkspaceOwner(root, ownerClaim?.identity ?? ownerClaim);
+  const unownedState = owner ? [] : unownedTaskAuthorityPaths(root);
+  if (unownedState.length > 0) {
+    throw new Error(
+      `Unowned task authority artifacts were preserved (${unownedState.join(", ")}). ` +
+      "Use workspace release with --clear-unowned only after confirming they are obsolete.",
+    );
+  }
+  for (const file of TASK_AUTHORITY_PATHS) {
     rmSync(resolve(root, file), { force: true });
   }
 }
@@ -140,8 +154,9 @@ export function decide(prompt) {
   return { action: "resolve", issue };
 }
 
-function writeArtifact(relativePath, body, root = REPO_ROOT) {
-  const target = resolve(root, relativePath);
+function writeArtifact(relativePath, body, root = REPO_ROOT, ownerClaim = null) {
+  assertWorkspaceOwner(root, ownerClaim?.identity ?? ownerClaim);
+  const target = workspacePath(relativePath, root);
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(target, body, "utf8");
   return target;
@@ -155,7 +170,8 @@ export function resolveTask(issue, {
   readProposedPlan = fetchProposedPlan,
   role = null,
   sessionId = null,
-  cloud = Boolean(process.env.COPILOT_AGENT_PROMPT),
+  env = process.env,
+  cloud = Boolean(env.COPILOT_AGENT_PROMPT),
   pullRequest = null,
   expectedHead,
   proposalPath = null,
@@ -168,23 +184,33 @@ export function resolveTask(issue, {
   },
   readCloudContext = resolveCloudExecution,
 } = {}) {
+  const owner = claimWorkspaceOwner({
+    root,
+    issue,
+    sessionId,
+    env,
+    allowUnownedStatePaths: [PROPOSAL_PATH, PLAN_CONTRACT_CACHE].includes(proposalPath)
+      ? [proposalPath]
+      : [],
+  });
   let localBody = null;
   let localReadError = null;
-  if (proposalPath && [PROPOSAL_PATH, PLAN_CONTRACT_CACHE].includes(proposalPath)) {
-    try {
-      localBody = readFileSync(localProposalPath(proposalPath, root), "utf8");
-    } catch (error) {
-      localReadError = error;
-    }
-  }
-  clearTaskState(root);
   try {
+    if (proposalPath && [PROPOSAL_PATH, PLAN_CONTRACT_CACHE].includes(proposalPath)) {
+      try {
+        localBody = readFileSync(localProposalPath(proposalPath, root), "utf8");
+      } catch (error) {
+        localReadError = error;
+      }
+    }
     if (localReadError) throw localReadError;
     if (!Number.isSafeInteger(issue) || issue < 1) throw new Error("A positive explicit task issue is required.");
     const contract = readContract(issue);
     if (!contract.source?.trusted || contract.source.issue !== issue) {
       throw new Error("The resolver did not return the requested trusted task.");
     }
+    bindWorkspaceOwner(owner, contract);
+    clearTaskState(root, owner);
     const workspace = role === "implement" ? readWorkspace() : null;
     let approved = null;
     let selected = null;
@@ -229,30 +255,41 @@ export function resolveTask(issue, {
         ...selected.plan, planDigest: planDigest(selected.plan),
         ...(approved ? { approval: approved.approval } : {}),
       }, null, 2)}\n`;
-      writeArtifact(PLAN_CACHE, `${plan}\n`, root);
-      writeArtifact(PLAN_CONTRACT_CACHE, content, root);
-      if (approved) writeArtifact(APPROVED_PLAN_CACHE, content, root);
+      writeArtifact(PLAN_CACHE, `${plan}\n`, root, owner);
+      writeArtifact(PLAN_CONTRACT_CACHE, content, root, owner);
+      if (approved) writeArtifact(APPROVED_PLAN_CACHE, content, root, owner);
     }
-    cacheContract(contract, resolve(root, CONTRACT_CACHE));
+    cacheContract(contract, resolve(root, CONTRACT_CACHE), owner);
     writeArtifact(TASK_SESSION_CACHE, `${JSON.stringify({
       issue, taskId: contract.id, contractDigest: contract.source.bodyDigest,
       role, sessionId, approvalState, pullRequest,
+      workspaceOwner: owner.identity.ownerKey,
       workflow: combined ? "plan-and-execute" : approved ? "plan-first" : null,
       canPropose: combined && !cloud && role === "implement" &&
         workspace.branch === `agent/implement/${contract.id.toLowerCase()}` &&
         !approvalPolicyForRisk(inferRisk({ paths: contract.inputs.scope.allowed }).risk).requirePlanOnlyApproval,
       workspaceHead: workspace?.headSha ?? null,
-    })}\n`, root);
+    })}\n`, root, owner);
     if (cloud && role === "implement" && selected) {
       const context = readCloudContext(contract, {
         ...selected.plan, planDigest: planDigest(selected.plan),
       });
-      writeArtifact(EXECUTION_CONTEXT_CACHE, `${JSON.stringify(context, null, 2)}\n`, root);
+      writeArtifact(EXECUTION_CONTEXT_CACHE, `${JSON.stringify(context, null, 2)}\n`, root, owner);
     }
     return { contract, plan, approvalState };
   } catch (error) {
-    clearTaskState(root);
+    try {
+      clearTaskState(root, owner);
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        `Task resolution failed: ${error.message}; owned state cleanup failed: ${cleanupError.message}`,
+        { cause: cleanupError },
+      );
+    }
     throw error;
+  } finally {
+    releaseWorkspaceClaim(owner);
   }
 }
 
@@ -274,6 +311,15 @@ async function readStdin() {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+function clearUnownedState() {
+  try {
+    clearTaskState();
+    return null;
+  } catch (error) {
+    return error;
+  }
+}
+
 function emit(payload) {
   process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
 }
@@ -287,8 +333,13 @@ async function main() {
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("Invalid hook envelope.");
     prompt = payload.prompt ?? payload.userPrompt ?? "";
   } catch {
-    clearTaskState();
-    emit({ continue: false, stopReason: "Task prompt hook received invalid input; cached authority was cleared." });
+    const cleanup = clearUnownedState();
+    emit({
+      continue: false,
+      stopReason: cleanup
+        ? `Task prompt hook received invalid input; existing owned workspace state was preserved: ${cleanup.message}`
+        : "Task prompt hook received invalid input; unowned cached authority was cleared.",
+    });
     return;
   }
 
@@ -298,8 +349,13 @@ async function main() {
     return;
   }
   if (decision.action === "stop") {
-    clearTaskState();
-    emit({ continue: false, stopReason: decision.reason });
+    const cleanup = clearUnownedState();
+    emit({
+      continue: false,
+      stopReason: cleanup
+        ? `${decision.reason} Existing owned workspace state was preserved: ${cleanup.message}`
+        : decision.reason,
+    });
     return;
   }
 

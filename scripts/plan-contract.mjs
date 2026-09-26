@@ -15,6 +15,14 @@ import {
   matchesPattern,
 } from "./task-contract.mjs";
 import { localProposalPath } from "./plan-artifact.mjs";
+import {
+  assertWorkspaceOwner,
+  claimWorkspaceOwner,
+  readWorkspaceOwner,
+  releaseWorkspaceClaim,
+  workspaceOwnerIdentity,
+} from "./workspace-owner.mjs";
+import { workspacePath } from "./workspace-path.mjs";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 
@@ -217,60 +225,105 @@ function main() {
     process.stderr.write("Pass --file <plan.md|plan.json>.\n");
     process.exit(2);
   }
-  const absolute = process.argv.includes("--execute-proposed")
-    ? localProposalPath(file, REPO_ROOT) : resolve(REPO_ROOT, file);
-  const raw = readFileSync(absolute, "utf8");
-  const plan = file.endsWith(".json") ? JSON.parse(raw) : extractPlanContract(raw);
-  if (!plan) {
-    process.stderr.write("No machine-readable plan contract was found.\n");
-    process.exit(1);
+  const sessionId = valueOf("--session-id");
+  if (!sessionId) throw new Error("Plan materialization requires the current explicit session ID.");
+  const owner = readWorkspaceOwner(REPO_ROOT);
+  if (!owner || owner.issue === null || !owner.taskId || !owner.contractDigest) {
+    throw new Error("Plan materialization requires a complete owned task workspace.");
   }
-  const result = validatePlanContract(plan, loadTaskContract());
-  if (!result.ok) {
-    process.stderr.write(`${result.errors.join("\n")}\n`);
-    process.exit(1);
-  }
-  const out = valueOf("--out") ?? "artifacts/plan.json";
-  if (process.argv.includes("--execute-proposed") && out !== "artifacts/plan.json") {
-    throw new Error("Proposed execution must materialize the canonical local plan path.");
-  }
-  const target = resolve(REPO_ROOT, out);
-  let activatedSession = null;
-  if (process.argv.includes("--execute-proposed")) {
-    const contract = loadTaskContract();
-    const session = JSON.parse(readFileSync(resolve(REPO_ROOT, "artifacts/task-session.json"), "utf8"));
-    if (session.role !== "implement" || session.workflow !== "plan-and-execute" ||
-        session.canPropose !== true || session.taskId !== contract?.id ||
-        session.contractDigest !== contract?.source?.bodyDigest ||
-        approvalPolicyForRisk(plan.risk).requirePlanOnlyApproval ||
-        Object.hasOwn(plan, "approval") ||
-        resolve(REPO_ROOT, file) !== resolve(REPO_ROOT, "artifacts/plan-proposal.md")) {
-      throw new Error("Only the selected lower-risk session may activate this proposed plan.");
+  const ownerEnv = { ...process.env, GITHUB_REPOSITORY: owner.repository };
+  const identity = workspaceOwnerIdentity({
+    root: REPO_ROOT,
+    issue: owner.issue,
+    taskId: owner.taskId,
+    contractDigest: owner.contractDigest,
+    sessionId,
+    env: ownerEnv,
+  });
+  assertWorkspaceOwner(REPO_ROOT, identity);
+  const claim = claimWorkspaceOwner({
+    root: REPO_ROOT,
+    issue: owner.issue,
+    taskId: owner.taskId,
+    contractDigest: owner.contractDigest,
+    sessionId,
+    env: ownerEnv,
+  });
+  try {
+    const contract = loadTaskContract(undefined, REPO_ROOT);
+    const session = JSON.parse(readFileSync(
+      workspacePath("artifacts/task-session.json", REPO_ROOT),
+      "utf8",
+    ));
+    if (!contract?.source?.trusted || contract.source.issue !== owner.issue ||
+        contract.id !== owner.taskId || contract.source.bodyDigest !== owner.contractDigest ||
+        session.issue !== owner.issue || session.taskId !== owner.taskId ||
+        session.contractDigest !== owner.contractDigest || session.sessionId !== sessionId ||
+        session.workspaceOwner !== owner.ownerKey || session.role !== "implement") {
+      throw new Error("Plan materialization session does not match the active workspace owner.");
     }
-    const git = (args) => execFileSync("git", args, {
-      cwd: REPO_ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
-    }).trim();
-    if (git(["branch", "--show-current"]) !== `agent/implement/${contract.id.toLowerCase()}` ||
-        git(["rev-parse", "HEAD"]) !== plan.baseSha || session.workspaceHead !== plan.baseSha) {
-      throw new Error("The proposed plan must start from the session's exact isolated base.");
+    const absolute = process.argv.includes("--execute-proposed")
+      ? localProposalPath(file, REPO_ROOT) : workspacePath(file, REPO_ROOT);
+    const raw = readFileSync(absolute, "utf8");
+    const plan = file.endsWith(".json") ? JSON.parse(raw) : extractPlanContract(raw);
+    if (!plan) {
+      process.stderr.write("No machine-readable plan contract was found.\n");
+      process.exitCode = 1;
+      return;
     }
-    writeFileSync(resolve(REPO_ROOT, "artifacts/task-plan.md"), `${raw.trim()}\n`, "utf8");
-    activatedSession = {
-      ...session, approvalState: "proposed", canPropose: false,
-    };
+    const result = validatePlanContract(plan, contract);
+    if (!result.ok) {
+      process.stderr.write(`${result.errors.join("\n")}\n`);
+      process.exitCode = 1;
+      return;
+    }
+    const out = valueOf("--out") ?? "artifacts/plan.json";
+    if (process.argv.includes("--execute-proposed") && out !== "artifacts/plan.json") {
+      throw new Error("Proposed execution must materialize the canonical local plan path.");
+    }
+    const target = workspacePath(out, REPO_ROOT);
+    let activatedSession = null;
+    if (process.argv.includes("--execute-proposed")) {
+      if (session.workflow !== "plan-and-execute" ||
+          session.canPropose !== true ||
+          session.taskId !== contract.id ||
+          session.contractDigest !== contract.source.bodyDigest ||
+          approvalPolicyForRisk(plan.risk).requirePlanOnlyApproval ||
+          Object.hasOwn(plan, "approval") ||
+          absolute !== workspacePath("artifacts/plan-proposal.md", REPO_ROOT)) {
+        throw new Error("Only the selected lower-risk session may activate this proposed plan.");
+      }
+      const git = (args) => execFileSync("git", args, {
+        cwd: REPO_ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+      }).trim();
+      if (git(["branch", "--show-current"]) !== `agent/implement/${contract.id.toLowerCase()}` ||
+          git(["rev-parse", "HEAD"]) !== plan.baseSha || session.workspaceHead !== plan.baseSha) {
+        throw new Error("The proposed plan must start from the session's exact isolated base.");
+      }
+      writeFileSync(workspacePath("artifacts/task-plan.md", REPO_ROOT), `${raw.trim()}\n`, "utf8");
+      activatedSession = {
+        ...session, approvalState: "proposed", canPropose: false,
+      };
+    }
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(
+      target,
+      `${JSON.stringify({ ...plan, planDigest: result.planDigest }, null, 2)}\n`,
+      "utf8",
+    );
+    if (activatedSession) {
+      writeFileSync(
+        workspacePath("artifacts/task-session.json", REPO_ROOT),
+        `${JSON.stringify(activatedSession)}\n`,
+        "utf8",
+      );
+    }
+    process.stdout.write(
+      `plan=${plan.taskId} risk=${plan.risk} digest=${result.planDigest}\n${target}\n`,
+    );
+  } finally {
+    releaseWorkspaceClaim(claim);
   }
-  mkdirSync(dirname(target), { recursive: true });
-  writeFileSync(
-    target,
-    `${JSON.stringify({ ...plan, planDigest: result.planDigest }, null, 2)}\n`,
-    "utf8",
-  );
-  if (activatedSession) {
-    writeFileSync(resolve(REPO_ROOT, "artifacts/task-session.json"), `${JSON.stringify(activatedSession)}\n`, "utf8");
-  }
-  process.stdout.write(
-    `plan=${plan.taskId} risk=${plan.risk} digest=${result.planDigest}\n${target}\n`,
-  );
 }
 
 const invokedDirectly =
