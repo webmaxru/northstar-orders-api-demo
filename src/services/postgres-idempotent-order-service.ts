@@ -4,6 +4,7 @@ import {
   IdempotencyConflictError,
   OrderValidationError,
   newOrder,
+  parseOrderId,
   type Order,
   type PlaceOrderInput,
 } from "../domain/order.js";
@@ -13,6 +14,13 @@ import type { OrderService, PlaceOrderResult } from "./order-service.js";
 interface IdempotencyRow {
   request_hash: string;
   response_body: unknown;
+}
+
+interface OrderRow {
+  id: string;
+  sku: string;
+  quantity: number;
+  created_at: Date;
 }
 
 export interface PostgresIdempotentOrderServiceOptions {
@@ -58,6 +66,18 @@ export class PostgresIdempotentOrderService implements OrderService {
   constructor(options: PostgresIdempotentOrderServiceOptions) {
     this.#pool = options.pool;
     this.#metrics = options.metrics;
+  }
+
+  async getOrder(id: string): Promise<Order | undefined> {
+    const result = await this.#pool.query<OrderRow>(
+      "SELECT id, sku, quantity, created_at FROM orders WHERE id = $1",
+      [parseOrderId(id)],
+    );
+    const row = result.rows[0];
+    return row ? {
+      id: row.id, sku: row.sku, quantity: row.quantity,
+      createdAt: row.created_at.toISOString(),
+    } : undefined;
   }
 
   async placeOrder(input: PlaceOrderInput, idempotencyKey?: string): Promise<PlaceOrderResult> {

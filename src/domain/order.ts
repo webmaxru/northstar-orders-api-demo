@@ -12,6 +12,14 @@ export interface Order {
   createdAt: string;
 }
 
+export function parseOrderId(value: unknown): string {
+  if (typeof value !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
+    throw new OrderIdValidationError("Order id must be a UUID");
+  }
+  return value.toLowerCase();
+}
+
 export function parsePlaceOrderInput(value: unknown): PlaceOrderInput {
   if (!value || typeof value !== "object") {
     throw new OrderValidationError("Request body must be an object");
@@ -44,7 +52,10 @@ export class OrderValidationError extends Error {
   override readonly name = "OrderValidationError";
 }
 
+export class OrderIdValidationError extends Error {
+  override readonly name = "OrderIdValidationError";
+}
+
 export class IdempotencyConflictError extends Error {
   override readonly name = "IdempotencyConflictError";
 }
-

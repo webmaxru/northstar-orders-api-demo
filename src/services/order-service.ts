@@ -1,4 +1,4 @@
-import type { Order, PlaceOrderInput } from "../domain/order.js";
+import { parseOrderId, type Order, type PlaceOrderInput } from "../domain/order.js";
 import type { OrderRepository } from "../repositories/order-repository.js";
 
 export interface PlaceOrderResult {
@@ -9,6 +9,7 @@ export interface PlaceOrderResult {
 
 export interface OrderService {
   placeOrder(input: PlaceOrderInput, idempotencyKey?: string): Promise<PlaceOrderResult>;
+  getOrder(id: string): Promise<Order | undefined>;
 }
 
 export class BasicOrderService implements OrderService {
@@ -21,5 +22,8 @@ export class BasicOrderService implements OrderService {
       replayed: false,
     };
   }
-}
 
+  async getOrder(id: string): Promise<Order | undefined> {
+    return this.orders.getById(parseOrderId(id));
+  }
+}
