@@ -199,6 +199,47 @@ describe("fail-closed execution evidence", () => {
     }
   });
 
+  it("accepts current PR plan and scope producers for review but requires trusted revalidation for acceptance", () => {
+    const candidateEnv = {
+      ...hostedEnv,
+      NORTHSTAR_RUN_ID: "42",
+      NORTHSTAR_RUN_ATTEMPT: "2",
+      GITHUB_RUN_ID: "42",
+      GITHUB_RUN_ATTEMPT: "2",
+      GITHUB_WORKFLOW: "Governed Change",
+      GITHUB_EVENT_NAME: "pull_request",
+      GITHUB_ACTOR: "fixture-producer",
+    };
+    const candidateRecords = records(true).map((record) => {
+      if (!["plan-contract", "scope-policy"].includes(record.id)) return record;
+      return createCheckRecord({
+        id: record.id,
+        status: "pass",
+        category: "policy",
+        artifact: record.artifact,
+      }, { ...candidateEnv, NORTHSTAR_JOB_ID: record.id }, {
+        root, contract: trustedContract, plan,
+      });
+    });
+    const result = report({
+      records: candidateRecords,
+      hosted: true,
+      env: candidateEnv,
+    });
+    expect(result.failedLocalChecks).not.toContain("plan-contract");
+    expect(result.failedLocalChecks).not.toContain("scope-policy");
+    expect(result.decision).toBe("ready_for_review");
+    expect(result.pendingHostedEvidence).toContain("human-review");
+
+    const publisherContext = report({
+      records: candidateRecords,
+      hosted: true,
+      env: hostedEnv,
+    });
+    expect(publisherContext.checks.find(({ id }) => id === "plan-contract")?.reasons)
+      .toContain("trusted current-run revalidation missing");
+  });
+
   it("matches proving tests by stable leaf name, not substring", () => {
     const criterion = contract.successCriteria[0]!;
     expect(criterionCoverage([criterion], [`suite > ${criterion.provenBy} extra`])[0]?.proven).toBe(false);

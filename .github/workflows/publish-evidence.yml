@@ -60,6 +60,19 @@ jobs:
           permission-organization-secrets: ${{ github.event.repository.owner.type == 'Organization' && 'read' || '' }}
           permission-secrets: read
           permission-statuses: write
+      # This token is restricted to read-only hosted-control metadata queries.
+      - id: controls-token
+        name: Mint a read-only repository-controls token
+        continue-on-error: true
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ vars.TRUSTED_PUBLISHER_APP_ID }}
+          private-key: ${{ secrets.TRUSTED_PUBLISHER_APP_PRIVATE_KEY }}
+          permission-actions: read
+          permission-administration: read
+          permission-environments: read
+          permission-organization-secrets: ${{ github.event.repository.owner.type == 'Organization' && 'read' || '' }}
+          permission-secrets: read
       - id: dispatcher-token
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
         with:
@@ -86,7 +99,7 @@ jobs:
       - env:
           GH_TOKEN: ${{ steps.publisher-token.outputs.token }}
         run: node scripts/import-workflow-results.mjs --run "$NORTHSTAR_RUN_ID"
-      - name: Re-evaluate trusted plan, approval, scope, review, and repository controls
+      - name: Re-evaluate trusted plan, approval, scope, review, and validation authority
         env:
           GH_TOKEN: ${{ steps.publisher-token.outputs.token }}
         run: |
@@ -139,16 +152,6 @@ jobs:
             --category policy \
             --status "$([ "$AUTHORITY_STATUS" -eq 0 ] && echo pass || echo fail)" \
             --artifact artifacts/validation-authority-report.json
-
-          npm run governance:online
-          CONTROLS_STATUS=$?
-          node scripts/evidence-record.mjs \
-            --id repository-controls \
-            --job repository-controls \
-            --category policy \
-            --status "$([ "$CONTROLS_STATUS" -eq 0 ] && echo pass || echo fail)" \
-            --artifact artifacts/repository-controls-report.json
-
           exit 0
       - id: authority
         if: always()
@@ -180,6 +183,28 @@ jobs:
             --expected-head "$NORTHSTAR_HEAD_SHA" \
             --expected-plan artifacts/plan.json \
             --record-approval
+      - id: controls-audit
+        if: always()
+        name: Revalidate repository controls with read-only App token
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.controls-token.outputs.token }}
+        run: |
+          set +e
+          npm run governance:online
+          CONTROLS_STATUS=$?
+          node scripts/evidence-record.mjs \
+            --id repository-controls \
+            --job repository-controls \
+            --category policy \
+            --status "$([ "$CONTROLS_STATUS" -eq 0 ] && echo pass || echo fail)" \
+            --artifact artifacts/repository-controls-report.json
+          RECORD_STATUS=$?
+          if [ "$RECORD_STATUS" -ne 0 ]; then
+            echo "Unable to record trusted repository-controls evidence."
+            exit "$RECORD_STATUS"
+          fi
+          exit "$CONTROLS_STATUS"
       - id: report
         if: always()
         continue-on-error: true

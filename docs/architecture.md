@@ -167,6 +167,20 @@ role, preserving the host's session identity and stop-loop flag.
 
 Evidence must bind real artifacts and complete producer identity. Missing,
 modified, stale or mismatched task/plan/base/head/run/attempt evidence fails.
+The preliminary Governed Change report may consume only its current-run
+`plan-contract` and `scope-policy` producer records after validating their
+task, plan, source, run, attempt, job and artifact identities. The trusted
+Publish Evidence workflow recomputes these controls before publishing
+`trusted-acceptance`; producer records alone cannot establish acceptance.
+The trusted Publish Evidence workflow uses a separate short-lived App token
+limited to read permissions for repository-control metadata; its
+write-capable publisher token remains separate. The protected System
+Maintenance workflow independently revalidates controls after its environment
+approval. Pull-request jobs never receive protected App private keys. If token
+creation or a metadata lookup is unavailable, the control remains blocking. A
+404 from legacy branch protection is treated as absence only after the trusted
+ruleset lookup succeeds and the active ruleset satisfies the policy
+alternative.
 Dirty local source cannot be represented solely by HEAD. Stop validates the
 current plan and evidence-command result rather than reusing an older passing
 report; bounded recovery escalates instead of reporting a successful fallback.

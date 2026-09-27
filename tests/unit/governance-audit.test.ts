@@ -11,6 +11,7 @@ import {
   governedArtifactsTargetExpectedDirectory,
   governedEvidenceTaskLookupPermissionsAreSafe,
   governedMergedArtifactsHaveUniquePaths,
+  governedRepositoryControlsHaveAppIdentity,
   governedScopeUsesPullRequestContext,
   governedSingleCheckArtifactsPreserveDirectory,
   hasRulesetBypass,
@@ -18,8 +19,10 @@ import {
   optionalCapabilities,
   publisherUsesTrustedDefaultBranch,
   rulesetAppliesToDefaultBranch,
+  summarizeOnlineFailures,
   strictRequiredContexts,
   strictStatusChecksEnabled,
+  trustedControlsUseReadOnlyToken,
 } from "../../scripts/governance-audit.mjs";
 import { GOVERNANCE_POLICY } from "../../scripts/risk-policy.mjs";
 
@@ -171,6 +174,53 @@ describe("source-controlled governance", () => {
     const failures = report.checks.filter(({ ok }) => !ok);
     expect(failures, JSON.stringify(failures, null, 2)).toEqual([]);
     expect(report.sourceControlsReady).toBe(true);
+  });
+
+  it("identifies reviewed customization seams", () => {
+    const policy = readFileSync(".github/governance/policy.json", "utf8");
+    const workflow = readFileSync(".github/workflows/governed-change.yml", "utf8");
+    const audit = readFileSync("scripts/governance-audit.mjs", "utf8");
+    const compiler = readFileSync("scripts/compile-agentic.mjs", "utf8");
+
+    expect(policy).toContain('"$comment": "CUSTOMIZE');
+    expect(workflow).toContain("CUSTOMIZE for a new repository");
+    expect(audit).toContain("CUSTOMIZE");
+    expect(compiler).toContain("CUSTOMIZE");
+  });
+
+  it("routes repository-control App identities through configured variables", () => {
+    const workflow = readFileSync(".github/workflows/governed-change.yml", "utf8");
+    expect(governedRepositoryControlsHaveAppIdentity(workflow)).toBe(true);
+    expect(governedRepositoryControlsHaveAppIdentity(
+      workflow.replace("NORTHSTAR_TRUSTED_PUBLISHER_APP_ID: ${{ vars.TRUSTED_PUBLISHER_APP_ID }}", ""),
+    )).toBe(false);
+    expect(workflow).not.toMatch(
+      /TRUSTED_PUBLISHER_APP_PRIVATE_KEY|SYSTEM_MAINTENANCE_DISPATCH_APP_PRIVATE_KEY/,
+    );
+  });
+
+  it("uses a distinct read-only App token for trusted repository-control queries", () => {
+    const workflow = readFileSync(
+      ".github/workflows/publish-evidence.yml",
+      "utf8",
+    );
+    expect(trustedControlsUseReadOnlyToken(workflow)).toBe(true);
+    expect(
+      trustedControlsUseReadOnlyToken(
+        workflow.replace(
+          /(^ {6}- id: controls-token[\s\S]*?^ {10}permission-administration:) read(?=\r?$)/m,
+          "$1 write",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      trustedControlsUseReadOnlyToken(
+        workflow.replace(
+          "GH_TOKEN: ${{ steps.controls-token.outputs.token }}",
+          "GH_TOKEN: ${{ steps.publisher-token.outputs.token }}",
+        ),
+      ),
+    ).toBe(false);
   });
 
   it("labels hosted repository controls as unverified rather than pretending", () => {
@@ -518,6 +568,22 @@ describe("explicit optional capability adoption", { timeout: 20000 }, () => {
 });
 
 describe("authenticated hosted governance", () => {
+  it("summarizes unavailable hosted-control lookups without exposing response text", () => {
+    expect(summarizeOnlineFailures({
+      checks: [
+        { id: "hosted:branch-controls", ok: false, status: "unavailable" },
+        { id: "hosted:repository", ok: true, status: "pass" },
+      ],
+      lookups: [
+        { id: "publisher-app", state: "unavailable", detail: "Authenticated lookup failed (HTTP 404). Sensitive body omitted." },
+        { id: "repository", state: "available" },
+      ],
+    })).toEqual([
+      "hosted:branch-controls=unavailable",
+      "lookup:publisher-app=unavailable-http-404",
+    ]);
+  });
+
   it("reports authenticated governance lookup failures explicitly", () => {
     const f = apiFixture();
     expect(onlineControls(f).ready).toBe(true);

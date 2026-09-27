@@ -157,6 +157,51 @@ export function exactStringSet(actual, expected) {
   );
 }
 
+function workflowStepBlock(workflow, id) {
+  const text = String(workflow);
+  const start = new RegExp(`^ {6}- id: ${id}[ \\t]*$`, "m").exec(text);
+  if (!start) return null;
+  const contentStart = start.index + start[0].length;
+  const next = /(?:\r?\n) {6}- /.exec(text.slice(contentStart));
+  const end = next ? contentStart + next.index : text.length;
+  return text.slice(start.index, end);
+}
+
+export function trustedControlsUseReadOnlyToken(workflow) {
+  const text = String(workflow);
+  const tokenStep = workflowStepBlock(text, "controls-token");
+  const auditStep = workflowStepBlock(text, "controls-audit");
+  if (!tokenStep || !auditStep) return false;
+
+  const permissions = (tokenStep.match(/^[ \t]+permission-[^:\r\n]+:[^\r\n]*$/gm) ?? [])
+    .map((line) => line.trim());
+  const requiredPermissions = [
+    "permission-actions: read",
+    "permission-administration: read",
+    "permission-environments: read",
+    "permission-organization-secrets: ${{ github.event.repository.owner.type == 'Organization' && 'read' || '' }}",
+    "permission-secrets: read",
+  ];
+  const tokenReferences = text.match(/steps\.controls-token\.outputs\.token/g) ?? [];
+  const governanceInvocations = text.match(/npm run governance:online/g) ?? [];
+
+  return (
+    /uses:\s*actions\/create-github-app-token@[0-9a-f]{40}/.test(tokenStep) &&
+    /app-id:\s*\$\{\{\s*vars\.TRUSTED_PUBLISHER_APP_ID\s*\}\}/.test(tokenStep) &&
+    /private-key:\s*\$\{\{\s*secrets\.TRUSTED_PUBLISHER_APP_PRIVATE_KEY\s*\}\}/.test(tokenStep) &&
+    /continue-on-error:\s*true/.test(tokenStep) &&
+    exactStringSet(permissions, requiredPermissions) &&
+    tokenReferences.length === 1 &&
+    governanceInvocations.length === 1 &&
+    /if:\s*always\(\)/.test(auditStep) &&
+    /continue-on-error:\s*true/.test(auditStep) &&
+    /GH_TOKEN:\s*\$\{\{\s*steps\.controls-token\.outputs\.token\s*\}\}/.test(auditStep) &&
+    /npm run governance:online/.test(auditStep) &&
+    /--id repository-controls/.test(auditStep) &&
+    /--status "\$\(\[ "\$CONTROLS_STATUS" -eq 0 \] && echo pass \|\| echo fail\)"/.test(auditStep)
+  );
+}
+
 export function strictRequiredContexts(protection, rulesets) {
   const contexts = new Set();
   if (protection.required_status_checks?.strict === true) {
@@ -261,6 +306,17 @@ export function governedScopeUsesPullRequestContext(workflow) {
       scopeJob,
     )
   );
+}
+
+export function governedRepositoryControlsHaveAppIdentity(workflow) {
+  const controlsJob = /^ {2}repository-controls:\r?\n([\s\S]*?)(?=^ {2}human-review:\r?$)/m
+    .exec(String(workflow))?.[1] ?? "";
+  return [
+    "NORTHSTAR_TRUSTED_PUBLISHER_APP_ID: ${{ vars.TRUSTED_PUBLISHER_APP_ID }}",
+    "NORTHSTAR_TRUSTED_PUBLISHER_APP_LOGIN: ${{ vars.TRUSTED_PUBLISHER_APP_LOGIN }}",
+    "NORTHSTAR_DISPATCH_APP_ID: ${{ vars.SYSTEM_MAINTENANCE_DISPATCH_APP_ID }}",
+    "NORTHSTAR_DISPATCH_APP_LOGIN: ${{ vars.SYSTEM_MAINTENANCE_DISPATCH_APP_LOGIN }}",
+  ].every((setting) => controlsJob.includes(setting));
 }
 
 export function governedMergedArtifactsHaveUniquePaths(workflow) {
@@ -452,6 +508,16 @@ export function auditSourceTree({ root = REPO_ROOT, policy = GOVERNANCE_POLICY, 
         "The evidence job has only the read permissions needed to resolve the pull request and linked issue.",
       ),
       check(
+        governedRepositoryControlsHaveAppIdentity(workflow),
+        "workflow:repository-controls-app-identity",
+        "Online repository-control checks receive the configured publisher and dispatcher identities.",
+      ),
+      check(
+        !/TRUSTED_PUBLISHER_APP_PRIVATE_KEY|SYSTEM_MAINTENANCE_DISPATCH_APP_PRIVATE_KEY/.test(workflow),
+        "workflow:pull-request-no-app-private-keys",
+        "Pull-request jobs never receive protected App private keys.",
+      ),
+      check(
         governedScopeUsesPullRequestContext(workflow),
         "workflow:scope-pull-request-context",
         "Hosted scope validation uses immutable pull-request metadata instead of a detached checkout branch.",
@@ -542,6 +608,11 @@ export function auditSourceTree({ root = REPO_ROOT, policy = GOVERNANCE_POLICY, 
             /permission-statuses:\s*write/.test(publisher),
           "workflow:trusted-acceptance-status",
           "Hosted acceptance is exposed as a dedicated GitHub App commit status.",
+        ),
+        check(
+          trustedControlsUseReadOnlyToken(publisher),
+          "workflow:publisher-controls-read-token",
+          "Trusted Publisher repository-control queries use a separate read-only App token.",
         ),
       );
     }
@@ -857,6 +928,21 @@ export function onlineControls({ env = process.env, run = runGitHub, policy = GO
   };
 }
 
+/** @param {{checks: Array<{id: string, ok: boolean, status?: string}>, lookups: Array<{id: string, state: string, detail?: string}>} | null | undefined} online */
+export function summarizeOnlineFailures(online) {
+  if (!online) return [];
+  const checks = online.checks
+    .filter(({ ok }) => !ok)
+    .map(({ id, status }) => `${id}=${status ?? "fail"}`);
+  const lookups = online.lookups
+    .filter(({ state }) => state === "unavailable")
+    .map(({ id, detail }) => {
+      const status = /\(HTTP (\d{3})\)/i.exec(detail ?? "")?.[1];
+      return `lookup:${id}=unavailable${status ? `-http-${status}` : ""}`;
+    });
+  return [...new Set([...checks, ...lookups])].sort();
+}
+
 function valueOf(flag) {
   const index = process.argv.indexOf(flag);
   return index === -1 ? undefined : process.argv[index + 1];
@@ -876,6 +962,12 @@ function main() {
     `governance=${ready ? "pass" : "fail"} checks=${report.checks.length}\n${target}\n`,
   );
   if (!ready) {
+    const sourceFailures = report.checks.filter(({ ok }) => !ok).map(({ id }) => id);
+    const onlineFailures = summarizeOnlineFailures(report.online);
+    process.stdout.write(
+      `failed source checks: ${sourceFailures.join(", ") || "none"}; ` +
+      `failed online controls: ${onlineFailures.join(", ") || "none"}\n`,
+    );
     process.exitCode = 1;
   }
 }

@@ -38,6 +38,12 @@ export declare function onlineControls(options?: {
   ready: boolean;
   note: string;
 };
+export declare function summarizeOnlineFailures(
+  online: {
+    checks: Array<{ id: string; ok: boolean; status?: string }>;
+    lookups: Array<{ id: string; state: string; detail?: string }>;
+  } | null | undefined,
+): string[];
 export declare function rulesetAppliesToDefaultBranch(
   ruleset: Record<string, unknown>,
   defaultBranch: string,
@@ -69,6 +75,9 @@ export declare function governedSingleCheckArtifactsPreserveDirectory(
 export declare function governedEvidenceTaskLookupPermissionsAreSafe(
   workflow: string,
 ): boolean;
+export declare function governedRepositoryControlsHaveAppIdentity(
+  workflow: string,
+): boolean;
 export declare function governedScopeUsesPullRequestContext(
   workflow: string,
 ): boolean;
@@ -78,6 +87,9 @@ export declare function governedMergedArtifactsHaveUniquePaths(
 export declare function publisherUsesTrustedDefaultBranch(
   workflow: string,
   defaultBranch?: string,
+): boolean;
+export declare function trustedControlsUseReadOnlyToken(
+  workflow: string,
 ): boolean;
 export declare function environmentAllowsOnlyDefaultBranch(
   environment: Record<string, unknown>,
