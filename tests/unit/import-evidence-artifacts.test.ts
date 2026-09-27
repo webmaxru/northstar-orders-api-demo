@@ -21,6 +21,7 @@ import type { TaskContract } from "../../scripts/task-contract.mjs";
 import { requiredChecksForRisk } from "../../scripts/risk-policy.mjs";
 import { renderPlan } from "../../scripts/publish-plan.mjs";
 import { loadCheckRecords } from "../../scripts/build-execution-report.mjs";
+import { validateRestoredBootstrapRuleset } from "../../scripts/resolve-workflow-run.mjs";
 
 const temporary: string[] = [];
 
@@ -138,6 +139,7 @@ function fixture(options: {
   merged?: boolean;
   mergeCommitSha?: string;
   currentBaseSha?: string;
+  repository?: string;
 } = {}) {
   const root = temp();
   const write = (path: string, content: string) => {
@@ -151,7 +153,7 @@ function fixture(options: {
   git(["add", ".gitignore"]);
   git(["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "core.hooksPath=.git/hooks",
     "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "Offline importer fixture"]);
-  const repository = "fixture/northstar";
+  const repository = options.repository ?? "fixture/northstar";
   const pullRequest = options.pullRequest ?? 17;
   const sourceHead = "a".repeat(40);
   const task = options.task ?? contractFromFile("tests/fixtures/WI-1842.issue.md");
@@ -302,7 +304,7 @@ function migrationPlan(task: TaskContract, baseSha: string): PlanContract {
 }
 
 function resolvedMigrationContext(f: ReturnType<typeof fixture>) {
-  const contextIntegrations = [
+  const statusContexts: Array<[string, number]> = [
     ["acceptance", 15368],
     ["codeql", 15368],
     ["dependency-review", 15368],
@@ -317,7 +319,48 @@ function resolvedMigrationContext(f: ReturnType<typeof fixture>) {
     ["scope-policy", 15368],
     ["secret-scan", 15368],
     ["trusted-acceptance", 5075466],
-  ].map(([context, integrationId]) => ({ context, integrationId }));
+  ];
+  const ruleset = {
+    id: 23998987,
+    name: "AIES - Main branch protection",
+    target: "branch",
+    source_type: "Repository",
+    source: f.env.GITHUB_REPOSITORY,
+    enforcement: "active",
+    conditions: { ref_name: { exclude: [], include: ["~DEFAULT_BRANCH"] } },
+    bypass_actors: [],
+    current_user_can_bypass: "never",
+    rules: [
+      { type: "deletion" },
+      { type: "non_fast_forward" },
+      {
+        type: "pull_request",
+        parameters: {
+          required_approving_review_count: 1,
+          dismiss_stale_reviews_on_push: true,
+          required_reviewers: [],
+          require_code_owner_review: true,
+          require_last_push_approval: true,
+          required_review_thread_resolution: false,
+          require_extra_approval_for_unattributed_changes: true,
+          allowed_merge_methods: ["merge", "squash", "rebase"],
+        },
+      },
+      {
+        type: "required_status_checks",
+        parameters: {
+          strict_required_status_checks_policy: true,
+          do_not_enforce_on_create: false,
+          required_status_checks: statusContexts.map(([context, integration_id]) => ({
+            context,
+            integration_id,
+          })),
+        },
+      },
+    ],
+  };
+  const rulesetCheck = validateRestoredBootstrapRuleset(ruleset);
+  if (!rulesetCheck.ok) throw new Error(rulesetCheck.errors.join("; "));
   const artifactPairs = [
     ["northstar-plan-context", "plan-contract"],
     ["northstar-check-quality", "quality"],
@@ -337,7 +380,7 @@ function resolvedMigrationContext(f: ReturnType<typeof fixture>) {
   return {
     schema: "northstar/resolved-workflow-run/1",
     mode: "bootstrap-migration",
-    repository: "fixture/northstar",
+    repository: f.env.GITHUB_REPOSITORY!,
     defaultBranch: "main",
     sourceRunId: "42",
     sourceRunAttempt: "2",
@@ -354,8 +397,9 @@ function resolvedMigrationContext(f: ReturnType<typeof fixture>) {
     sourceRunCompletedAt: "2026-09-27T10:02:00Z",
     restoredRuleset: {
       id: 23998987,
-      snapshotDigest: "9".repeat(64),
-      contextIntegrations,
+      snapshot: rulesetCheck.snapshot,
+      snapshotDigest: rulesetCheck.snapshotDigest,
+      contextIntegrations: rulesetCheck.contextIntegrations,
       strict: true,
       bypassActorCount: 0,
     },
@@ -488,6 +532,7 @@ describe("producer-preserving workflow fan-in", { timeout: 60000 }, () => {
       merged: true,
       mergeCommitSha: "e".repeat(40),
       currentBaseSha: "f".repeat(40),
+      repository: "webmaxru/northstar-orders-api-demo",
     });
     f.env.NORTHSTAR_MIGRATION_MODE = "bootstrap-migration";
     f.env.BASE_SHA = plan.baseSha;
@@ -497,14 +542,14 @@ describe("producer-preserving workflow fan-in", { timeout: 60000 }, () => {
     expect(imported).toHaveLength(7);
     expect(f.calls).toContainEqual([
       "api",
-      "repos/fixture/northstar/actions/runs/42/attempts/2",
+      `repos/${f.env.GITHUB_REPOSITORY}/actions/runs/42/attempts/2`,
     ]);
     expect(JSON.parse(readFileSync(join(f.root, SOURCE_RUN_PATH), "utf8"))).toMatchObject({
       mode: "bootstrap-migration",
       runAttempt: "2",
       baseSha: plan.baseSha,
       mergeCommitSha: "e".repeat(40),
-      rulesetSnapshotDigest: "9".repeat(64),
+      rulesetSnapshotDigest: resolvedMigrationContext(f).restoredRuleset.snapshotDigest,
       artifactIds: "800,801,802,803,804,805,806,807",
     });
   });
@@ -520,6 +565,7 @@ describe("producer-preserving workflow fan-in", { timeout: 60000 }, () => {
       merged: true,
       mergeCommitSha: "e".repeat(40),
       currentBaseSha: "f".repeat(40),
+      repository: "webmaxru/northstar-orders-api-demo",
     });
     f.env.NORTHSTAR_MIGRATION_MODE = "bootstrap-migration";
     f.env.BASE_SHA = plan.baseSha;

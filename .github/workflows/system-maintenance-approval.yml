@@ -115,12 +115,14 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.publisher-token.outputs.token }}
         run: node scripts/resolve-workflow-run.mjs
-      - uses: actions/download-artifact@v7
+      - name: Download the resolved northstar-system-maintenance-evidence artifact
+        uses: actions/download-artifact@v7
         with:
-          name: northstar-system-maintenance-evidence
+          artifact-ids: ${{ steps.resolve.outputs.maintenance_artifact_id }}
           path: incoming-maintenance-evidence
           run-id: ${{ inputs.evidence-run-id }}
           github-token: ${{ github.token }}
+          merge-multiple: true
       - run: >-
           node scripts/import-evidence-artifacts.mjs
           --from incoming-maintenance-evidence

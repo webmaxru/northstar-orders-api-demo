@@ -266,8 +266,10 @@ review, verifies its task/digest/base and eligible reviewer, and requires that
 review to predate the source implementation run. It does not treat the plan
 PR's now-advanced live base SHA as a new approval or silently rebase the plan.
 After the restored-controls audit, a protected system-maintenance continuation
-re-resolves both the source run and its exact successful publisher run before
-it can issue a ready-for-acceptance report for a control-plane change.
+re-resolves both the source run and its exact publisher attempt, selects the
+maintenance bundle by its run/job artifact ID before download, and waits for
+that publisher attempt to complete successfully before it can issue a
+ready-for-acceptance report for a control-plane change.
 
 The trusted publisher never checks out or executes PR code. A fresh report and
 the current PR/source-attempt identities are checked again immediately before

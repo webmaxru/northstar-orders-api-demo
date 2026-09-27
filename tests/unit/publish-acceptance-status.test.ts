@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { planDigest, renderPlanContract } from "../../scripts/plan-contract.mjs";
 import { renderPlan } from "../../scripts/publish-plan.mjs";
 import type { ResolvedWorkflowRun } from "../../scripts/resolve-workflow-run.mjs";
+import { validateRestoredBootstrapRuleset } from "../../scripts/resolve-workflow-run.mjs";
 
 const repository = "webmaxru/northstar-orders-api-demo";
 const headSha = "a".repeat(40);
@@ -53,6 +54,58 @@ const contextIntegrations: Array<{ context: string; integrationId: number }> = [
   { context: "trusted-acceptance", integrationId: 5075466 },
 ];
 
+function restoredRuleset() {
+  const raw = {
+    id: 23998987 as const,
+    name: "AIES - Main branch protection",
+    target: "branch",
+    source_type: "Repository",
+    source: repository,
+    enforcement: "active",
+    conditions: { ref_name: { exclude: [], include: ["~DEFAULT_BRANCH"] } },
+    bypass_actors: [],
+    current_user_can_bypass: "never",
+    rules: [
+      { type: "deletion" },
+      { type: "non_fast_forward" },
+      {
+        type: "pull_request",
+        parameters: {
+          required_approving_review_count: 1,
+          dismiss_stale_reviews_on_push: true,
+          required_reviewers: [],
+          require_code_owner_review: true,
+          require_last_push_approval: true,
+          required_review_thread_resolution: false,
+          require_extra_approval_for_unattributed_changes: true,
+          allowed_merge_methods: ["merge", "squash", "rebase"],
+        },
+      },
+      {
+        type: "required_status_checks",
+        parameters: {
+          strict_required_status_checks_policy: true,
+          do_not_enforce_on_create: false,
+          required_status_checks: contextIntegrations.map(({ context, integrationId }) => ({
+            context,
+            integration_id: integrationId,
+          })),
+        },
+      },
+    ],
+  };
+  const validated = validateRestoredBootstrapRuleset(raw);
+  if (!validated.ok) throw new Error(validated.errors.join("; "));
+  return {
+    id: 23998987 as const,
+    snapshot: validated.snapshot,
+    snapshotDigest: validated.snapshotDigest,
+    contextIntegrations: validated.contextIntegrations,
+    strict: true as const,
+    bypassActorCount: 0 as const,
+  };
+}
+
 function resolution(
   mode: "open-pr" | "bootstrap-migration" = "open-pr",
 ): ResolvedWorkflowRun {
@@ -80,13 +133,7 @@ function resolution(
     mergeAncestryVerified: mode === "bootstrap-migration",
     sourceRunStartedAt: "2026-09-27T10:00:00Z",
     sourceRunCompletedAt: "2026-09-27T10:02:00Z",
-    restoredRuleset: mode === "bootstrap-migration" ? {
-      id: 23998987,
-      snapshotDigest: "9".repeat(64),
-      contextIntegrations,
-      strict: true,
-      bypassActorCount: 0,
-    } : null,
+    restoredRuleset: mode === "bootstrap-migration" ? restoredRuleset() : null,
     taskIssue: 14,
     taskId: "AES-SURFACE-EVIDENCE",
     contractDigest,
@@ -155,8 +202,13 @@ function maintenanceResolution(
       workflow: ".github/workflows/publish-evidence.yml",
       event: mode === "bootstrap-migration" ? "workflow_dispatch" as const : "workflow_run" as const,
       headSha: "9".repeat(40),
+      status: "completed" as const,
       conclusion: "success",
       headBranch: "main",
+      artifactId: 1200,
+      artifactName: "northstar-system-maintenance-evidence" as const,
+      artifactCreatedAt: "2026-09-27T10:04:00Z",
+      jobId: 770,
     },
     dispatcherLogin: "dispatcher[bot]",
     dispatchActor: "dispatcher[bot]",
@@ -349,7 +401,7 @@ describe("trusted acceptance status publication", () => {
       state: "success",
       sha: headSha,
       baseSha,
-      rulesetSnapshotDigest: "9".repeat(64),
+      rulesetSnapshotDigest: resolution("bootstrap-migration").restoredRuleset?.snapshotDigest,
       sourceRunId: "42",
       sourceRunAttempt: "2",
     });
@@ -385,7 +437,7 @@ describe("trusted acceptance status publication", () => {
       sourceRunId: "42",
       sourceRunAttempt: "2",
       publisherAppId: "5075466",
-      rulesetSnapshotDigest: "9".repeat(64),
+      rulesetSnapshotDigest: resolution("bootstrap-migration").restoredRuleset?.snapshotDigest,
     });
   });
 

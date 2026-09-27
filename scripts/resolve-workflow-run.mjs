@@ -114,6 +114,10 @@ export function validateRestoredBootstrapRuleset(ruleset) {
     "ruleset bypass actors are not empty",
   );
   check(
+    ruleset?.current_user_can_bypass === "never",
+    "current identity has a bypass path",
+  );
+  check(
     rules.map(({ type }) => type).sort().join(",") ===
       "deletion,non_fast_forward,pull_request,required_status_checks",
     "ruleset contains a missing, duplicate, or unexpected rule",
@@ -138,6 +142,14 @@ export function validateRestoredBootstrapRuleset(ruleset) {
   check(review?.require_code_owner_review === true, "CODEOWNERS review requirement changed");
   check(review?.require_last_push_approval === true, "last-push approval requirement changed");
   check(
+    Array.isArray(review?.required_reviewers) && review.required_reviewers.length === 0,
+    "required reviewer list changed",
+  );
+  check(
+    review?.required_review_thread_resolution === false,
+    "review-thread resolution requirement changed",
+  );
+  check(
     review?.require_extra_approval_for_unattributed_changes === true,
     "unattributed-change approval requirement changed",
   );
@@ -151,11 +163,12 @@ export function validateRestoredBootstrapRuleset(ruleset) {
     id: ruleset?.id,
     name: ruleset?.name,
     target: ruleset?.target,
-    sourceType: ruleset?.source_type,
+    source_type: ruleset?.source_type,
     source: ruleset?.source,
     enforcement: ruleset?.enforcement,
     conditions: ruleset?.conditions,
-    bypassActors: ruleset?.bypass_actors,
+    bypass_actors: ruleset?.bypass_actors,
+    current_user_can_bypass: ruleset?.current_user_can_bypass,
     rules,
   };
   const snapshotDigest = createHash("sha256")
@@ -166,6 +179,7 @@ export function validateRestoredBootstrapRuleset(ruleset) {
     errors,
     snapshotDigest,
     id: BOOTSTRAP_RULESET_ID,
+    snapshot,
     contextIntegrations: integrations,
     strict: statusRules[0]?.parameters?.strict_required_status_checks_policy === true,
     bypassActorCount: Array.isArray(ruleset?.bypass_actors)
@@ -259,6 +273,7 @@ export function validateHistoricalPlanApproval({
   const validation = validatePlanContract(committedPlan, contract);
   if (
     !validation.ok ||
+    !approvalPolicyForRisk(committedPlan.risk).requirePlanOnlyApproval ||
     !plan ||
     canonicalPlan(committedPlan) !== canonicalPlan(plan) ||
     committedPlan.baseSha !== plan.baseSha ||
@@ -354,8 +369,8 @@ export function fetchHistoricalPlanApproval({
   const candidates = pages.flat().filter((pull) =>
     pull.head?.ref === branch &&
     pull.head?.repo?.full_name === repository &&
-    pull.base?.ref === plan.baseBranch &&
     pull.base?.repo?.full_name === repository &&
+    (!plan || pull.base?.ref === plan.baseBranch) &&
     linkedIssue(pull.body) === contract.source.issue,
   );
   if (candidates.length !== 1) {
@@ -368,6 +383,15 @@ export function fetchHistoricalPlanApproval({
     throw new Error("The original plan PR has no committed machine-readable plan.");
   }
   const expectedPlan = plan ?? committedPlan;
+  compareResult(
+    githubJson(
+      `repos/${repository}/compare/${expectedPlan.baseSha}...${planPull.head.sha}`,
+      { run },
+    ),
+    expectedPlan.baseSha,
+    planPull.head.sha,
+    "Original plan PR base/head",
+  );
   const reviews = githubPages(
     `repos/${repository}/pulls/${planPull.number}/reviews?per_page=100`,
     { run },
@@ -465,27 +489,44 @@ function validateMaintenancePublisher({
     String(latestRun.id) !== id ||
     Number(latestRun.run_attempt) !== attemptNumber ||
     latestRun.head_sha !== attempt.head_sha ||
-    latestRun.status !== "completed" ||
-    latestRun.conclusion !== "success" ||
+    latestRun.status !== attempt.status ||
+    (latestRun.status === "completed" && latestRun.conclusion !== "success") ||
+    (latestRun.status === "in_progress" && latestRun.conclusion != null) ||
     attempt.path !== ".github/workflows/publish-evidence.yml" ||
     attempt.name !== "Publish Evidence" ||
     attempt.event !== expectedEvent ||
-    attempt.status !== "completed" ||
-    attempt.conclusion !== "success" ||
+    !["in_progress", "completed"].includes(attempt.status) ||
+    (attempt.status === "completed" && attempt.conclusion !== "success") ||
+    (attempt.status === "in_progress" && attempt.conclusion != null) ||
     attempt.repository?.full_name !== repository ||
     Number(attempt.repository?.id) !== repositoryId ||
     attempt.head_branch !== defaultBranch
   ) {
     throw new Error("The maintenance continuation is not bound to the exact successful trusted publisher run.");
   }
+  const jobs = allJobs(repository, id, attemptNumber, run);
+  const artifacts = allArtifacts(repository, id, run);
+  const maintenanceArtifact = selectMaintenanceArtifactId({
+    artifacts,
+    jobs,
+    runId: id,
+    repositoryId,
+    headSha: attempt.head_sha,
+    headBranch: attempt.head_branch,
+  });
   return {
     runId: id,
     runAttempt: String(attemptNumber),
     workflow: attempt.path,
     event: attempt.event,
     headSha: attempt.head_sha,
-    conclusion: attempt.conclusion,
+    status: attempt.status,
+    conclusion: attempt.conclusion ?? null,
     headBranch: attempt.head_branch,
+    artifactId: maintenanceArtifact.id,
+    artifactName: maintenanceArtifact.name,
+    artifactCreatedAt: maintenanceArtifact.createdAt,
+    jobId: maintenanceArtifact.jobId,
   };
 }
 
@@ -745,6 +786,69 @@ export function selectAttemptArtifactIds({
   return selected;
 }
 
+export function selectMaintenanceArtifactId({
+  artifacts,
+  jobs,
+  runId,
+  repositoryId,
+  headSha,
+  headBranch,
+  now = Date.now(),
+}) {
+  const publisherJobs = jobs.filter((job) =>
+    job.name === "publish" &&
+    String(job.run_id) === String(runId) &&
+    job.head_sha === headSha &&
+    isPositiveInteger(job.id) &&
+    ["in_progress", "completed"].includes(job.status),
+  );
+  if (publisherJobs.length !== 1) {
+    throw new Error("Expected exactly one trusted Publish Evidence publisher job.");
+  }
+  const job = publisherJobs[0];
+  if (
+    (job.status === "completed" && job.conclusion !== "success") ||
+    (job.status === "in_progress" && job.conclusion != null)
+  ) {
+    throw new Error("The trusted publisher job is not active or successfully completed.");
+  }
+  const jobStart = parseTime(job.started_at, "Trusted publisher job start time");
+  const jobEnd = job.status === "completed"
+    ? parseTime(job.completed_at, "Trusted publisher job completion time")
+    : now;
+  if (jobStart > jobEnd) throw new Error("The trusted publisher job interval is invalid.");
+  const matches = artifacts.filter((artifact) => {
+    if (
+      artifact.name !== "northstar-system-maintenance-evidence" ||
+      artifact.expired !== false ||
+      !isPositiveInteger(artifact.id) ||
+      !Number.isSafeInteger(artifact.size_in_bytes) ||
+      artifact.size_in_bytes < 1 ||
+      Number(artifact.workflow_run?.id) !== Number(runId) ||
+      Number(artifact.workflow_run?.repository_id) !== repositoryId ||
+      Number(artifact.workflow_run?.head_repository_id) !== repositoryId ||
+      artifact.workflow_run?.head_sha !== headSha ||
+      artifact.workflow_run?.head_branch !== headBranch
+    ) {
+      return false;
+    }
+    const created = Date.parse(String(artifact.created_at ?? ""));
+    return Number.isFinite(created) && created >= jobStart && created <= jobEnd;
+  });
+  if (matches.length !== 1) {
+    throw new Error(
+      "Expected exactly one maintenance evidence artifact from the validated publisher attempt.",
+    );
+  }
+  return {
+    id: Number(matches[0].id),
+    name: matches[0].name,
+    job: job.name,
+    jobId: job.id,
+    createdAt: matches[0].created_at,
+  };
+}
+
 function compareResult(result, baseSha, expectedHead, label) {
   if (
     result?.merge_base_commit?.sha !== baseSha ||
@@ -803,7 +907,20 @@ function sameResolution(left, right) {
     dispatchActor: value.dispatchActor ?? null,
     dispatchRef: value.dispatchRef ?? null,
     maintenanceContinuation: value.maintenanceContinuation,
-    maintenancePublisher: value.maintenancePublisher ?? null,
+    maintenancePublisher: value.maintenancePublisher
+      ? {
+          runId: value.maintenancePublisher.runId,
+          runAttempt: value.maintenancePublisher.runAttempt,
+          workflow: value.maintenancePublisher.workflow,
+          event: value.maintenancePublisher.event,
+          headSha: value.maintenancePublisher.headSha,
+          headBranch: value.maintenancePublisher.headBranch,
+          artifactId: value.maintenancePublisher.artifactId,
+          artifactName: value.maintenancePublisher.artifactName,
+          artifactCreatedAt: value.maintenancePublisher.artifactCreatedAt,
+          jobId: value.maintenancePublisher.jobId,
+        }
+      : null,
     artifacts: value.artifacts,
   });
   return JSON.stringify(identity(left)) === JSON.stringify(identity(right));
@@ -1101,6 +1218,7 @@ export function resolveWorkflowRun(input, {
     restoredRuleset: restoredRuleset
       ? {
           id: restoredRuleset.id,
+          snapshot: restoredRuleset.snapshot,
           snapshotDigest: restoredRuleset.snapshotDigest,
           contextIntegrations: restoredRuleset.contextIntegrations,
           strict: restoredRuleset.strict,
@@ -1138,6 +1256,10 @@ export function validateResolvedWorkflowRunContext(context) {
   const artifactNames = Array.isArray(context?.artifacts)
     ? context.artifacts.map(({ name }) => name)
     : [];
+  const rulesetValidation =
+    context?.mode === "bootstrap-migration" && context.restoredRuleset?.snapshot
+      ? validateRestoredBootstrapRuleset(context.restoredRuleset.snapshot)
+      : null;
   const artifactsComplete =
     artifactNames.length === ARTIFACT_JOBS.length &&
     new Set(artifactNames).size === ARTIFACT_JOBS.length &&
@@ -1151,6 +1273,7 @@ export function validateResolvedWorkflowRunContext(context) {
     !isPositiveInteger(context.sourceRunId) ||
     !isPositiveInteger(context.sourceRunAttempt) ||
     !isPositiveInteger(context.pullRequest) ||
+    (!context.maintenanceContinuation && context.maintenancePublisher !== null) ||
     !isPositiveInteger(context.taskIssue) ||
     !SHA.test(context.headSha ?? "") ||
     !SHA.test(context.baseSha ?? "") ||
@@ -1169,6 +1292,9 @@ export function validateResolvedWorkflowRunContext(context) {
     (context.mode === "open-pr" && context.restoredRuleset !== null) ||
     (context.mode === "bootstrap-migration" &&
       (context.restoredRuleset?.id !== BOOTSTRAP_RULESET_ID ||
+        context.restoredRuleset?.snapshot?.source !== context.repository ||
+        !rulesetValidation?.ok ||
+        rulesetValidation.snapshotDigest !== context.restoredRuleset?.snapshotDigest ||
         !/^[0-9a-f]{64}$/.test(context.restoredRuleset?.snapshotDigest ?? "") ||
         context.restoredRuleset?.strict !== true ||
         context.restoredRuleset?.bypassActorCount !== 0 ||
@@ -1218,9 +1344,16 @@ export function validateResolvedWorkflowRunContext(context) {
         context.maintenancePublisher.event !==
           (context.mode === "bootstrap-migration" ? "workflow_dispatch" : "workflow_run") ||
         !SHA.test(context.maintenancePublisher.headSha ?? "") ||
-        context.maintenancePublisher.conclusion !== "success" ||
-        context.maintenancePublisher.headBranch !== context.defaultBranch)) ||
-    (!context.maintenanceContinuation && context.maintenancePublisher !== null) ||
+        context.maintenancePublisher.headBranch !== context.defaultBranch ||
+        !isPositiveInteger(context.maintenancePublisher.artifactId) ||
+        context.maintenancePublisher.artifactName !== "northstar-system-maintenance-evidence" ||
+        !Number.isFinite(Date.parse(context.maintenancePublisher.artifactCreatedAt ?? "")) ||
+        !isPositiveInteger(context.maintenancePublisher.jobId) ||
+        (context.maintenancePublisher.status === "completed" &&
+          context.maintenancePublisher.conclusion !== "success") ||
+        (context.maintenancePublisher.status === "in_progress" &&
+          context.maintenancePublisher.conclusion !== null) ||
+        !["completed", "in_progress"].includes(context.maintenancePublisher.status))) ||
     (context.mode === "open-pr" &&
       (context.mergeAncestryVerified !== false || context.mergeCommitSha !== null)) ||
     (context.mode === "bootstrap-migration" &&
@@ -1334,6 +1467,13 @@ export function revalidateWorkflowRun(context, options = {}) {
   if (!sameResolution(context, refreshed)) {
     throw new Error("The trusted workflow-run resolution changed before publication.");
   }
+  if (
+    refreshed.maintenanceContinuation &&
+    (refreshed.maintenancePublisher?.status !== "completed" ||
+      refreshed.maintenancePublisher?.conclusion !== "success")
+  ) {
+    throw new Error("The protected publisher attempt has not completed successfully.");
+  }
   return refreshed;
 }
 
@@ -1390,6 +1530,7 @@ function appendEnvironment(context) {
       `source_run_id=${context.sourceRunId}`,
       `source_run_attempt=${context.sourceRunAttempt}`,
       `artifact_ids=${context.artifactIds}`,
+      `maintenance_artifact_id=${context.maintenancePublisher?.artifactId ?? ""}`,
     ];
     writeFileSync(process.env.GITHUB_OUTPUT, `${outputs.join("\n")}\n`, {
       encoding: "utf8",

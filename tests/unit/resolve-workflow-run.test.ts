@@ -3,6 +3,7 @@ import {
   isResolvedPullRequest,
   fetchHistoricalPlanApproval,
   resolveWorkflowRun,
+  revalidateWorkflowRun,
   selectAttemptArtifactIds,
   validateHistoricalPlanApproval,
   validateRestoredBootstrapRuleset,
@@ -53,6 +54,7 @@ type TestRuleset = {
   enforcement: string;
   conditions: { ref_name: { exclude: string[]; include: string[] } };
   bypass_actors: Array<Record<string, unknown>>;
+  current_user_can_bypass: string;
   rules: Array<
     | { type: "deletion" }
     | { type: "non_fast_forward" }
@@ -61,8 +63,10 @@ type TestRuleset = {
         parameters: {
           required_approving_review_count: number;
           dismiss_stale_reviews_on_push: boolean;
+          required_reviewers: string[];
           require_code_owner_review: boolean;
           require_last_push_approval: boolean;
+          required_review_thread_resolution: boolean;
           require_extra_approval_for_unattributed_changes: boolean;
           allowed_merge_methods: string[];
         };
@@ -88,6 +92,7 @@ function restoredRuleset(): TestRuleset {
     enforcement: "active",
     conditions: { ref_name: { exclude: [], include: ["~DEFAULT_BRANCH"] } },
     bypass_actors: [],
+    current_user_can_bypass: "never",
     rules: [
       { type: "deletion" },
       { type: "non_fast_forward" },
@@ -96,8 +101,10 @@ function restoredRuleset(): TestRuleset {
         parameters: {
           required_approving_review_count: 1,
           dismiss_stale_reviews_on_push: true,
+          required_reviewers: [],
           require_code_owner_review: true,
           require_last_push_approval: true,
+          required_review_thread_resolution: false,
           require_extra_approval_for_unattributed_changes: true,
           allowed_merge_methods: ["merge", "squash", "rebase"],
         },
@@ -347,7 +354,18 @@ function fixture(
     updated_at: finishedAt,
     pull_requests: [association],
   };
-  const publisherRun = {
+  const publisherRun: {
+    id: number;
+    run_attempt: number;
+    name: string;
+    path: string;
+    event: string;
+    status: "in_progress" | "completed";
+    conclusion: string | null;
+    repository: { id: number; full_name: string };
+    head_branch: string;
+    head_sha: string;
+  } = {
     id: 77,
     run_attempt: 1,
     name: "Publish Evidence",
@@ -358,6 +376,39 @@ function fixture(
     repository: { id: repositoryId, full_name: repository },
     head_branch: "main",
     head_sha: "9".repeat(40),
+  };
+  const publisherJob: {
+    id: number;
+    name: string;
+    run_id: number;
+    head_sha: string;
+    status: "in_progress" | "completed";
+    conclusion: string | null;
+    started_at: string;
+    completed_at: string | null;
+  } = {
+    id: 770,
+    name: "publish",
+    run_id: publisherRun.id,
+    head_sha: publisherRun.head_sha,
+    status: "completed",
+    conclusion: "success",
+    started_at: "2026-09-27T10:03:00Z",
+    completed_at: "2026-09-27T10:05:00Z",
+  };
+  const publisherArtifact = {
+    id: 1200,
+    name: "northstar-system-maintenance-evidence",
+    expired: false,
+    size_in_bytes: 2048,
+    created_at: "2026-09-27T10:04:00Z",
+    workflow_run: {
+      id: publisherRun.id,
+      repository_id: repositoryId,
+      head_repository_id: repositoryId,
+      head_sha: publisherRun.head_sha,
+      head_branch: "main",
+    },
   };
   const jobNames = [
     "plan-contract",
@@ -413,11 +464,17 @@ function fixture(
   const run = (args: string[]) => {
     calls.push(args);
     const route = args.at(-1)!;
-    if (/\/actions\/runs\/77\/attempts\/1$/.test(route)) {
+    if (/\/actions\/runs\/77\/attempts\/\d+$/.test(route)) {
       return JSON.stringify(publisherRun);
     }
     if (route === `repos/${repository}/actions/runs/77`) {
       return JSON.stringify(publisherRun);
+    }
+    if (route === `repos/${repository}/actions/runs/77/attempts/1/jobs?per_page=100`) {
+      return JSON.stringify([{ total_count: 1, jobs: [publisherJob] }]);
+    }
+    if (route === `repos/${repository}/actions/runs/77/artifacts?per_page=100`) {
+      return JSON.stringify([{ total_count: 1, artifacts: [publisherArtifact] }]);
     }
     if (route === `repos/${repository}`) {
       return JSON.stringify({
@@ -495,6 +552,8 @@ function fixture(
     bootstrapApproval,
     sourceRun,
     publisherRun,
+    publisherJob,
+    publisherArtifact,
     pull,
     jobs,
     artifacts,
@@ -641,6 +700,12 @@ describe("attempt-bound workflow resolution", () => {
     const run = (args: string[]) => {
       const route = args.at(-1)!;
       if (route.includes("/pulls?state=all&head=")) return JSON.stringify([[planPull]]);
+      if (route === `repos/${repository}/compare/${baseSha}...${planHeadSha}`) {
+        return JSON.stringify({
+          status: "ahead",
+          merge_base_commit: { sha: baseSha },
+        });
+      }
       if (route === `repos/{owner}/{repo}/git/commits/${planHeadSha}`) {
         return JSON.stringify({ tree: { sha: "1".repeat(40) } });
       }
@@ -724,6 +789,17 @@ describe("attempt-bound workflow resolution", () => {
       pr: { number: 15, headRefOid: planHeadSha, baseRefOid: baseSha },
     });
     expect(planPull.base.sha).toBe(changedMainBaseSha);
+    const fromCommittedArtifact = fetchHistoricalPlanApproval({
+      contract: sourceContract,
+      repository,
+      sourceRunStartedAt: "2026-09-27T10:00:00Z",
+      run,
+    });
+    expect(fromCommittedArtifact.plan).toMatchObject({
+      taskId: sourceContract.id,
+      baseSha,
+      baseBranch: "main",
+    });
     reviewRead = 0;
     revokeApproval = true;
     expect(() => fetchHistoricalPlanApproval({
@@ -948,6 +1024,7 @@ describe("attempt-bound workflow resolution", () => {
         runAttempt: "1",
         event: "workflow_run",
         conclusion: "success",
+        artifactId: 1200,
       },
       eventRun: null,
     });
@@ -963,8 +1040,41 @@ describe("attempt-bound workflow resolution", () => {
         runAttempt: "1",
         event: "workflow_dispatch",
         conclusion: "success",
+        artifactId: 1200,
       },
       mergeCommitSha: mergeSha,
+    });
+  });
+
+  it("requires the maintenance publisher attempt and its artifact to complete before status revalidation", () => {
+    const f = fixture("bootstrap-migration", true);
+    f.publisherRun.status = "in_progress";
+    f.publisherRun.conclusion = null;
+    f.publisherJob.status = "in_progress";
+    f.publisherJob.conclusion = null;
+    f.publisherJob.completed_at = null;
+    const pending = resolve(f);
+    expect(pending.maintenancePublisher).toMatchObject({
+      status: "in_progress",
+      conclusion: null,
+      artifactId: 1200,
+    });
+
+    f.publisherRun.status = "completed";
+    f.publisherRun.conclusion = "success";
+    f.publisherJob.status = "completed";
+    f.publisherJob.conclusion = "success";
+    f.publisherJob.completed_at = "2026-09-27T10:05:00Z";
+    const completed = revalidateWorkflowRun(pending, {
+      run: f.run,
+      readTask: f.readTask,
+      readApproved: f.readApproved,
+      readHistoricalApproval: f.readHistoricalApproval,
+    });
+    expect(completed.maintenancePublisher).toMatchObject({
+      status: "completed",
+      conclusion: "success",
+      artifactId: 1200,
     });
   });
 

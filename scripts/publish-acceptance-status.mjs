@@ -300,6 +300,9 @@ function validateMaintenanceManifest(
     String(manifest.evidenceRunId) !== resolution.maintenancePublisher?.runId ||
     String(resolution.maintenancePublisher?.runAttempt) !==
       String(process.env.EVIDENCE_RUN_ATTEMPT ?? "") ||
+    resolution.maintenancePublisher?.status !== "completed" ||
+    resolution.maintenancePublisher?.conclusion !== "success" ||
+    !Number.isSafeInteger(resolution.maintenancePublisher?.artifactId) ||
     manifest.sourceWorkflow !== ".github/workflows/governed-change.yml" ||
     manifest.evidenceWorkflow !== ".github/workflows/publish-evidence.yml"
   ) {

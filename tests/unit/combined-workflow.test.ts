@@ -505,6 +505,7 @@ describe("combined-mode hosted workflow wiring", () => {
     expect(maintenance).toContain("source-run-attempt:");
     expect(maintenance).toContain("evidence-run-attempt:");
     expect(maintenance).toContain("bootstrap-plan-pr-number:");
+    expect(maintenance).toContain("artifact-ids: ${{ steps.resolve.outputs.maintenance_artifact_id }}");
     expect(maintenanceResolver).toBeGreaterThanOrEqual(0);
     expect(maintenanceDownload).toBeGreaterThan(maintenanceResolver);
 

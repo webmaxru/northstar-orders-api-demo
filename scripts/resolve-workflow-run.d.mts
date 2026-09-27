@@ -18,12 +18,18 @@ export interface MaintenancePublisherIdentity {
   workflow: string;
   event: "workflow_run" | "workflow_dispatch";
   headSha: string;
-  conclusion: string;
+  status: "in_progress" | "completed";
+  conclusion: string | null;
   headBranch: string;
+  artifactId: number;
+  artifactName: "northstar-system-maintenance-evidence";
+  artifactCreatedAt: string;
+  jobId: number;
 }
 
 export interface RestoredBootstrapRuleset {
   id: 23998987;
+  snapshot: Record<string, unknown>;
   snapshotDigest: string;
   contextIntegrations: Array<{ context: string; integrationId: number }>;
   strict: true;
@@ -156,6 +162,22 @@ export declare function selectAttemptArtifactIds(input: {
   headSha: string;
 }): ResolvedWorkflowArtifact[];
 
+export declare function selectMaintenanceArtifactId(input: {
+  artifacts: Array<Record<string, unknown>>;
+  jobs: Array<Record<string, unknown>>;
+  runId: string | number;
+  repositoryId: number;
+  headSha: string;
+  headBranch: string;
+  now?: number;
+}): {
+  id: number;
+  name: "northstar-system-maintenance-evidence";
+  job: "publish";
+  jobId: number;
+  createdAt: string;
+};
+
 export declare function validateHistoricalPlanApproval(input: {
   plan: PlanContract;
   committedPlan: PlanContract;
@@ -185,6 +207,7 @@ export declare function validateRestoredBootstrapRuleset(
   ok: boolean;
   errors: string[];
   snapshotDigest: string;
+  snapshot: Record<string, unknown>;
   id: 23998987;
   contextIntegrations: Array<{ context: string; integrationId: number }>;
   strict: boolean;
