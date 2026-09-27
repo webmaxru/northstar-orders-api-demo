@@ -293,7 +293,7 @@ async function statusModule(): Promise<StatusModule> {
 }
 
 describe("trusted acceptance status publication", () => {
-  it("allows success only for a complete report on the exact open source PR", async () => {
+  it("publishes trusted acceptance only for validated head", async () => {
     const { acceptanceStatusExpectation } = await statusModule();
     const expected = acceptanceStatusExpectation({
       report: report(),
@@ -424,7 +424,7 @@ describe("trusted acceptance status publication", () => {
     ).toThrow(/claims ready_for_acceptance/);
   });
 
-  it("records the actual status creator, App, context, and run provenance", async () => {
+  it("records complete trusted-acceptance validation", async () => {
     const { acceptanceStatusExpectation, verifyPublishedStatus } = await statusModule();
     const expected = acceptanceStatusExpectation({
       report: report(),

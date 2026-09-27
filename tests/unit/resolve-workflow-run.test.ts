@@ -560,7 +560,7 @@ function resolve(f: ReturnType<typeof fixture>) {
 }
 
 describe("attempt-bound workflow resolution", () => {
-  it("requires the complete original ruleset and status integration identities to be restored", () => {
+  it("preserves hosted-control and approval boundaries", () => {
     expect(validateRestoredBootstrapRuleset(restoredRuleset())).toMatchObject({
       ok: true,
       id: 23998987,
@@ -894,6 +894,26 @@ describe("attempt-bound workflow resolution", () => {
     )).toBe(true);
   });
 
+  it("resolves stacked and merged same-repository PR bases", () => {
+    const stacked = resolve(fixture("open-pr"));
+    expect(stacked).toMatchObject({
+      mode: "open-pr",
+      pullRequest: 34,
+      baseRef: "agent/implement/parent-task",
+      baseSha,
+      mergeCommitSha: null,
+    });
+    const merged = resolve(fixture("bootstrap-migration"));
+    expect(merged).toMatchObject({
+      mode: "bootstrap-migration",
+      pullRequest: 18,
+      baseRef: "main",
+      baseSha,
+      mergeCommitSha: mergeSha,
+      mergeAncestryVerified: true,
+    });
+  });
+
   it("resolves only the approved merged bootstrap while preserving the source base SHA", () => {
     const f = fixture("bootstrap-migration");
     const result = resolve(f);
@@ -998,7 +1018,7 @@ describe("attempt-bound workflow resolution", () => {
     })).toThrow(/source run pull-request snapshot/);
   });
 
-  it("rejects stale attempts, source-event mismatches, and a rerun during resolution", () => {
+  it("rejects stale publisher run provenance", () => {
     const f = fixture("open-pr");
     expect(() => resolveWorkflowRun({
       ...f.input,

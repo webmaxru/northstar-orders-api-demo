@@ -466,7 +466,7 @@ describe("combined-mode hosted workflow wiring", () => {
     }
   });
 
-  it("validates the source attempt and approved migration plan before downloading exact artifact IDs", () => {
+  it("publisher never executes pull request code", () => {
     const source = workflow("publish-evidence.yml");
     const resolver = source.indexOf("node scripts/resolve-workflow-run.mjs");
     const download = source.indexOf("uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131");
