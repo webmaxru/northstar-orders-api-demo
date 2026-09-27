@@ -14,8 +14,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import { importEvidenceArtifacts, importWorkflowResults } from "../../scripts/import-evidence-artifacts.mjs";
 import { CHECK_ARTIFACTS, SOURCE_RUN_PATH, digestPath } from "../../scripts/evidence-record.mjs";
 import type { CheckRecord } from "../../scripts/evidence-record.mjs";
-import { extractPlanContract, planDigest } from "../../scripts/plan-contract.mjs";
-import { contractFromFile } from "../../scripts/task-contract.mjs";
+import { extractPlanContract, planDigest, renderPlanContract } from "../../scripts/plan-contract.mjs";
+import type { PlanContract } from "../../scripts/plan-contract.mjs";
+import { contractFromFile, parseIssueBody } from "../../scripts/task-contract.mjs";
+import type { TaskContract } from "../../scripts/task-contract.mjs";
+import { requiredChecksForRisk } from "../../scripts/risk-policy.mjs";
+import { renderPlan } from "../../scripts/publish-plan.mjs";
 import { loadCheckRecords } from "../../scripts/build-execution-report.mjs";
 
 const temporary: string[] = [];
@@ -126,7 +130,15 @@ describe("isolated evidence import", () => {
   });
 });
 
-function fixture() {
+function fixture(options: {
+  task?: TaskContract;
+  plan?: PlanContract;
+  pullRequest?: number;
+  pullState?: string;
+  merged?: boolean;
+  mergeCommitSha?: string;
+  currentBaseSha?: string;
+} = {}) {
   const root = temp();
   const write = (path: string, content: string) => {
     mkdirSync(dirname(join(root, path)), { recursive: true });
@@ -140,21 +152,23 @@ function fixture() {
   git(["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "core.hooksPath=.git/hooks",
     "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "Offline importer fixture"]);
   const repository = "fixture/northstar";
+  const pullRequest = options.pullRequest ?? 17;
   const sourceHead = "a".repeat(40);
-  const task = contractFromFile("tests/fixtures/WI-1842.issue.md");
+  const task = options.task ?? contractFromFile("tests/fixtures/WI-1842.issue.md");
   const contract = {
     ...task,
     source: {
-      ...task.source, trusted: true, kind: "issue #17", issue: 17,
-      actor: "fixture-owner", association: "OWNER", url: `https://github.com/${repository}/issues/17`,
+      ...task.source, trusted: true, kind: `issue #${task.source.issue ?? pullRequest}`, issue: task.source.issue ?? pullRequest,
+      actor: "fixture-owner", association: "OWNER", url: `https://github.com/${repository}/issues/${task.source.issue ?? pullRequest}`,
     },
   };
-  const plan = extractPlanContract(readFileSync(join(import.meta.dirname, "..", "fixtures", "WI-1842.plan.md"), "utf8"))!;
+  const plan = options.plan ??
+    extractPlanContract(readFileSync(join(import.meta.dirname, "..", "fixtures", "WI-1842.plan.md"), "utf8"))!;
   plan.planDigest = planDigest(plan);
   json("artifacts/task-contract.json", contract);
   json("artifacts/producer-context/plan.json", plan);
   const env: Record<string, string | undefined> = {
-    GITHUB_ACTIONS: "true", GITHUB_REPOSITORY: repository, PR_NUMBER: "17",
+    GITHUB_ACTIONS: "true", GITHUB_REPOSITORY: repository, PR_NUMBER: String(pullRequest),
     NORTHSTAR_HEAD_SHA: sourceHead, NORTHSTAR_RUN_ID: "42", NORTHSTAR_RUN_ATTEMPT: "2",
     GITHUB_RUN_ID: "900", GITHUB_RUN_ATTEMPT: "9", GITHUB_WORKFLOW: "Publish Evidence",
     GITHUB_EVENT_NAME: "workflow_run", GITHUB_ACTOR: "fixture-publisher",
@@ -164,12 +178,24 @@ function fixture() {
     repository: { full_name: repository }, head_repository: { full_name: repository },
     event: "pull_request", status: "completed", head_sha: sourceHead, run_attempt: 2,
     actor: { login: "fixture-producer" },
-    pull_requests: [{ number: 17, head: { sha: sourceHead }, base: { sha: plan.baseSha } }],
+    pull_requests: [{
+      number: pullRequest,
+      head: { sha: sourceHead },
+      base: { sha: plan.baseSha, ref: plan.baseBranch },
+    }],
   };
   const pull = {
-    number: 17,
+    number: pullRequest,
+    state: options.pullState ?? "open",
+    merged: options.merged ?? false,
+    merge_commit_sha: options.mergeCommitSha ?? null,
+    body: renderPlan(renderPlanContract(plan), { issue: contract.source.issue }),
     head: { sha: sourceHead, repo: { full_name: repository } },
-    base: { sha: plan.baseSha, repo: { full_name: repository } },
+    base: {
+      sha: options.currentBaseSha ?? plan.baseSha,
+      ref: plan.baseBranch,
+      repo: { full_name: repository },
+    },
   };
   const ids = ["quality", "acceptance", "dependency-review", "secret-scan", "codeql", "merge-validation", "governance-policy"];
   const producers: CheckRecord[] = ids.map((id) => {
@@ -190,7 +216,7 @@ function fixture() {
       provenance: {
         repository, workflow: "Governed Change", job: id, event: source.event,
         actor: source.actor.login, runId: "42", runAttempt: "2",
-        executionRunId: "42", executionRunAttempt: "2", pullRequest: 17,
+        executionRunId: "42", executionRunAttempt: "2", pullRequest,
         headSha: sourceHead, baseSha: plan.baseSha,
         taskId: contract.id, contractDigest: contract.source.bodyDigest, planDigest: plan.planDigest!,
         source: { headSha: sourceHead, dirty: false }, validationStartedAt: null,
@@ -208,12 +234,165 @@ function fixture() {
   const run = (args: string[]) => {
     calls.push(args);
     const route = args.at(-1)!;
-    if (route.endsWith("/actions/runs/42")) return JSON.stringify(source);
-    if (route.endsWith("/pulls/17")) return JSON.stringify(pull);
+    if (route.endsWith("/actions/runs/42") || route.endsWith("/actions/runs/42/attempts/2")) return JSON.stringify(source);
+    if (route.endsWith(`/pulls/${pullRequest}`)) return JSON.stringify(pull);
     if (route.endsWith("/attempts/2/jobs?per_page=100")) return JSON.stringify([{ jobs: jobs.slice(0, 3) }, { jobs: jobs.slice(3) }]);
     throw new Error(`Unexpected offline GitHub route: ${route}`);
   };
-  return { root, env, source, pull, jobs, producers, run, calls, write, json };
+  return {
+    root, env, source, pull, jobs, producers, run, calls, write, json,
+    contract, plan,
+  };
+}
+
+function migrationTask(): TaskContract {
+  return parseIssueBody(
+    `### Task id
+AES-SURFACE-EVIDENCE
+### Goal
+Validate the exact source-run evidence for the parent task.
+### Authoritative sources
+AGENTS.md
+### Allowed scope
+.github/**
+scripts/**
+docs/**
+### Prohibited scope
+production
+### Constraints
+Keep the plan and review bound to the original base.
+### Outputs
+change | Verified source evidence.
+### Success criteria
+AC1 | Source artifacts stay bound to their attempt | proves migrated source-run evidence
+### Stop conditions
+Missing, stale, or mismatched identity.
+`,
+    {
+      number: 14,
+      source: "issue #14",
+      url: "https://github.com/fixture/northstar/issues/14",
+      actor: "fixture-owner",
+      association: "OWNER",
+      trusted: true,
+    },
+  );
+}
+
+function migrationPlan(task: TaskContract, baseSha: string): PlanContract {
+  const plan: PlanContract = {
+    schema: "northstar/plan/1",
+    taskId: task.id,
+    contractDigest: task.source.bodyDigest,
+    baseBranch: "main",
+    baseSha,
+    risk: "high",
+    objective: task.inputs.goal,
+    scope: { allowed: [".github/**", "scripts/**", "docs/**"], prohibited: [] },
+    steps: ["Resolve exact source-run provenance."],
+    requiredChecks: requiredChecksForRisk("high"),
+    successCriteria: task.successCriteria.map(({ id, provenBy }) => ({ id, provenBy })),
+    evidence: ["Exact source task, plan, run, attempt, and artifact identity."],
+    decisionsAndHandoffs: ["Fail closed if any identity changes."],
+    risks: ["Stale evidence might be incorrectly trusted."],
+    rollbackAndEscalation: ["Stop without importing mismatched evidence."],
+  };
+  plan.planDigest = planDigest(plan);
+  return plan;
+}
+
+function resolvedMigrationContext(f: ReturnType<typeof fixture>) {
+  const contextIntegrations = [
+    ["acceptance", 15368],
+    ["codeql", 15368],
+    ["dependency-review", 15368],
+    ["evidence", 15368],
+    ["governance-policy", 15368],
+    ["human-review", 15368],
+    ["merge-validation", 15368],
+    ["plan-approval", 15368],
+    ["plan-contract", 15368],
+    ["quality", 15368],
+    ["repository-controls", 15368],
+    ["scope-policy", 15368],
+    ["secret-scan", 15368],
+    ["trusted-acceptance", 5075466],
+  ].map(([context, integrationId]) => ({ context, integrationId }));
+  const artifactPairs = [
+    ["northstar-plan-context", "plan-contract"],
+    ["northstar-check-quality", "quality"],
+    ["northstar-check-acceptance", "acceptance"],
+    ["northstar-check-dependency", "dependency-review"],
+    ["northstar-check-secret", "secret-scan"],
+    ["northstar-check-codeql", "codeql"],
+    ["northstar-check-merge", "merge-validation"],
+    ["northstar-check-governance", "governance-policy"],
+  ];
+  const artifacts = artifactPairs.map(([name, job], index) => ({
+    name,
+    job,
+    id: 800 + index,
+    createdAt: "2026-09-27T10:01:00Z",
+  }));
+  return {
+    schema: "northstar/resolved-workflow-run/1",
+    mode: "bootstrap-migration",
+    repository: "fixture/northstar",
+    defaultBranch: "main",
+    sourceRunId: "42",
+    sourceRunAttempt: "2",
+    sourceWorkflow: ".github/workflows/governed-change.yml",
+    sourceEvent: "pull_request",
+    sourceConclusion: "failure",
+    pullRequest: 18,
+    headSha: f.env.NORTHSTAR_HEAD_SHA,
+    baseSha: f.plan.baseSha,
+    baseRef: "main",
+    mergeCommitSha: "e".repeat(40),
+    mergeAncestryVerified: true,
+    sourceRunStartedAt: "2026-09-27T10:00:00Z",
+    sourceRunCompletedAt: "2026-09-27T10:02:00Z",
+    restoredRuleset: {
+      id: 23998987,
+      snapshotDigest: "9".repeat(64),
+      contextIntegrations,
+      strict: true,
+      bypassActorCount: 0,
+    },
+    taskIssue: 14,
+    taskId: f.contract.id,
+    contractDigest: f.contract.source.bodyDigest,
+    planDigest: planDigest(f.plan),
+    planRisk: "high",
+    planApprovalRequired: true,
+    taskPlanApproval: {
+      planPr: 15,
+      planHeadSha: "d".repeat(40),
+      reviewId: 105,
+      reviewer: "fixture-reviewer",
+    },
+    bootstrapPlan: {
+      issue: 24,
+      taskId: "AES-TRUSTED-ACCEPTANCE-BOOTSTRAP",
+      contractDigest: "f".repeat(64),
+      planPr: 25,
+      planHeadSha: "c".repeat(40),
+      planDigest: "d".repeat(64),
+      reviewId: 106,
+      reviewer: "fixture-reviewer",
+      baseBranch: "agent/implement/aes-surface-evidence",
+      baseSha: "2ce3cf8a69439c22246de7d5449ce186e23bd584",
+    },
+    dispatcherLogin: "dispatcher[bot]",
+    dispatchActor: "dispatcher[bot]",
+    dispatchRef: "refs/heads/main",
+    maintenanceContinuation: false,
+    maintenancePublisher: null,
+    eventRun: null,
+    artifacts,
+    artifactIds: artifacts.map(({ id }) => id).join(","),
+    resolvedAt: "2026-09-27T10:04:00Z",
+  };
 }
 
 // Each case initializes real Git state; keep its startup budget bounded but separate from pure unit tests.
@@ -296,5 +475,62 @@ describe("producer-preserving workflow fan-in", { timeout: 60000 }, () => {
     f.json("artifacts/event.json", { workflow_run: { ...f.source, run_attempt: 1 } });
     f.env.GITHUB_EVENT_PATH = join(f.root, "artifacts/event.json");
     expect(() => importWorkflowResults("42", f.root, { env: f.env, run: f.run })).toThrow(/rerun or changed/);
+  });
+
+  it("imports only the exact completed source attempt after the approved merged migration resolves", () => {
+    const task = migrationTask();
+    const plan = migrationPlan(task, "b".repeat(40));
+    const f = fixture({
+      task,
+      plan,
+      pullRequest: 18,
+      pullState: "closed",
+      merged: true,
+      mergeCommitSha: "e".repeat(40),
+      currentBaseSha: "f".repeat(40),
+    });
+    f.env.NORTHSTAR_MIGRATION_MODE = "bootstrap-migration";
+    f.env.BASE_SHA = plan.baseSha;
+    f.env.GITHUB_EVENT_NAME = "workflow_dispatch";
+    f.json("artifacts/resolved-workflow-run.json", resolvedMigrationContext(f));
+    const imported = importWorkflowResults("42", f.root, { env: f.env, run: f.run });
+    expect(imported).toHaveLength(7);
+    expect(f.calls).toContainEqual([
+      "api",
+      "repos/fixture/northstar/actions/runs/42/attempts/2",
+    ]);
+    expect(JSON.parse(readFileSync(join(f.root, SOURCE_RUN_PATH), "utf8"))).toMatchObject({
+      mode: "bootstrap-migration",
+      runAttempt: "2",
+      baseSha: plan.baseSha,
+      mergeCommitSha: "e".repeat(40),
+      rulesetSnapshotDigest: "9".repeat(64),
+      artifactIds: "800,801,802,803,804,805,806,807",
+    });
+  });
+
+  it("rejects a stale source attempt or a merged PR with a different merge commit", () => {
+    const task = migrationTask();
+    const plan = migrationPlan(task, "b".repeat(40));
+    const f = fixture({
+      task,
+      plan,
+      pullRequest: 18,
+      pullState: "closed",
+      merged: true,
+      mergeCommitSha: "e".repeat(40),
+      currentBaseSha: "f".repeat(40),
+    });
+    f.env.NORTHSTAR_MIGRATION_MODE = "bootstrap-migration";
+    f.env.BASE_SHA = plan.baseSha;
+    f.env.GITHUB_EVENT_NAME = "workflow_dispatch";
+    f.json("artifacts/resolved-workflow-run.json", resolvedMigrationContext(f));
+    f.env.NORTHSTAR_RUN_ATTEMPT = "1";
+    expect(() => importWorkflowResults("42", f.root, { env: f.env, run: f.run }))
+      .toThrow(/trusted source-run resolution/);
+    f.env.NORTHSTAR_RUN_ATTEMPT = "2";
+    f.pull.merge_commit_sha = "c".repeat(40);
+    expect(() => importWorkflowResults("42", f.root, { env: f.env, run: f.run }))
+      .toThrow(/Workflow producer identity/);
   });
 });

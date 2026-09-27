@@ -245,6 +245,40 @@ still failing absent/wrong-typed diagnostics, error-level notifications,
 unsuccessful invocations and findings. The downloaded original CodeQL result
 was revalidated directly; this is distinct from claiming every hosted gate passed.
 
+The one-time trusted-acceptance bootstrap has a separate protected-default-
+branch `workflow_dispatch` route. It accepts only the exact source run and
+attempt, parent PR #18, and current independently approved issue #24 plan
+revision. Before downloading artifacts, the trusted resolver rechecks the
+source workflow/event, repository, task and plan, the original base/head
+snapshot, the closed-and-merged PR, source-head ancestry in the merge commit,
+and the exact restored ruleset 23998987 status integrations: repository
+controls 15368 and trusted acceptance 5075466. A missing context, changed
+integration, non-strict rule, or bypass actor stops publication before artifact
+download or the online audit. The resolver records a digest of the restored
+ruleset snapshot in its evidence. It selects artifact IDs only when they belong to the exact completed
+producer jobs and attempt; the importer still enforces its path allowlist and
+validates producer provenance. The live post-merge `pull.base.sha` is not used
+as a substitute for the source run's immutable base snapshot.
+
+When the default branch has advanced beyond the original task plan base, the
+migration resolver re-reads the plan-only PR's immutable artifact and native
+review, verifies its task/digest/base and eligible reviewer, and requires that
+review to predate the source implementation run. It does not treat the plan
+PR's now-advanced live base SHA as a new approval or silently rebase the plan.
+After the restored-controls audit, a protected system-maintenance continuation
+re-resolves both the source run and its exact successful publisher run before
+it can issue a ready-for-acceptance report for a control-plane change.
+
+The trusted publisher never checks out or executes PR code. A fresh report and
+the current PR/source-attempt identities are checked again immediately before
+posting `trusted-acceptance`; success is possible only for a complete
+`ready_for_acceptance` report. The publisher records the returned status
+creator, context, original head, App identity, source run/attempt, and report
+digest in `trusted-acceptance-status.json`. This workflow does not alter a
+ruleset. The one-time maximum-60-minute removal/restoration remains a human
+operation gated by the live preflight and must restore the original
+`repository-controls` integration 15368 and `trusted-acceptance` App 5075466.
+
 ### Adoption settings
 
 `CUSTOMIZE` comments mark runtime invocation, reviewer ownership, workflow

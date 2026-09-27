@@ -465,4 +465,51 @@ describe("combined-mode hosted workflow wiring", () => {
       expect(source).toContain('[ "$SELECTION_STATUS" -eq 0 ]');
     }
   });
+
+  it("validates the source attempt and approved migration plan before downloading exact artifact IDs", () => {
+    const source = workflow("publish-evidence.yml");
+    const resolver = source.indexOf("node scripts/resolve-workflow-run.mjs");
+    const download = source.indexOf("uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131");
+    expect(source).toContain("workflow_dispatch:");
+    expect(source).toContain("source-run-attempt:");
+    expect(source).toContain("parent-pr-number:");
+    expect(source).toContain("bootstrap-plan-pr-number:");
+    expect(source).toContain("bootstrap-plan-head-sha:");
+    expect(source).toContain("github.actor == vars.SYSTEM_MAINTENANCE_DISPATCH_APP_LOGIN");
+    expect(source).toContain("github.ref == format('refs/heads/{0}', github.event.repository.default_branch)");
+    expect(resolver).toBeGreaterThanOrEqual(0);
+    expect(download).toBeGreaterThan(resolver);
+    expect(source).toContain("artifact-ids: ${{ steps.resolve.outputs.artifact_ids }}");
+    expect(source).toContain("ref: main");
+    expect(source).toContain('DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}');
+    expect(source).toContain('--ref "$DEFAULT_BRANCH"');
+    expect(source).not.toMatch(/^ {10}ref:.*(?:head_sha|head_ref|head\.sha)/m);
+    expect(source).toContain("github.actor == vars.SYSTEM_MAINTENANCE_DISPATCH_APP_LOGIN");
+
+    const publisher = readFileSync(
+      join(import.meta.dirname, "..", "..", "scripts", "publish-evidence.mjs"),
+      "utf8",
+    );
+    expect(publisher).toContain("revalidateWorkflowRun(loadResolvedWorkflowRun())");
+    expect(publisher).toContain("isResolvedPullRequest(resolution, pull)");
+    const status = readFileSync(
+      join(import.meta.dirname, "..", "..", "scripts", "publish-acceptance-status.mjs"),
+      "utf8",
+    );
+    expect(status).toContain('const TRUSTED_PUBLISHER_APP_ID = "5075466"');
+    expect(status).toContain("context=trusted-acceptance");
+
+    const maintenance = workflow("system-maintenance-approval.yml");
+    const maintenanceResolver = maintenance.indexOf("node scripts/resolve-workflow-run.mjs");
+    const maintenanceDownload = maintenance.indexOf("uses: actions/download-artifact@v7");
+    expect(maintenance).toContain("source-run-attempt:");
+    expect(maintenance).toContain("evidence-run-attempt:");
+    expect(maintenance).toContain("bootstrap-plan-pr-number:");
+    expect(maintenanceResolver).toBeGreaterThanOrEqual(0);
+    expect(maintenanceDownload).toBeGreaterThan(maintenanceResolver);
+
+    const governed = workflow("governed-change.yml");
+    expect(governed).not.toContain("TRUSTED_PUBLISHER_APP_PRIVATE_KEY");
+    expect(governed).not.toContain("SYSTEM_MAINTENANCE_DISPATCH_APP_PRIVATE_KEY");
+  });
 });

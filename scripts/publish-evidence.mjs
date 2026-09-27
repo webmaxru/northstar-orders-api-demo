@@ -28,6 +28,11 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { githubJson, githubPages, runGitHub } from "./github-api.mjs";
+import {
+  isResolvedPullRequest,
+  loadResolvedWorkflowRun,
+  revalidateWorkflowRun,
+} from "./resolve-workflow-run.mjs";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 const MARKER = "<!-- northstar:evidence -->";
@@ -128,6 +133,27 @@ function main() {
   }
 
   const report = JSON.parse(readFileSync(resolve(REPO_ROOT, "artifacts/report.json"), "utf8"));
+  const resolution = revalidateWorkflowRun(loadResolvedWorkflowRun());
+  const pull = githubJson(`repos/{owner}/{repo}/pulls/${pr}`);
+  if (
+    report.schema !== "northstar/execution-report/3" ||
+    report.validationLevel !== "hosted-integration" ||
+    Number(pr) !== resolution.pullRequest ||
+    process.env.PR_NUMBER && Number(process.env.PR_NUMBER) !== resolution.pullRequest ||
+    report.provenance?.repository !== resolution.repository ||
+    report.provenance?.pullRequest !== resolution.pullRequest ||
+    report.provenance?.headSha !== resolution.headSha ||
+    report.provenance?.baseSha !== resolution.baseSha ||
+    report.provenance?.runId !== resolution.sourceRunId ||
+    report.provenance?.runAttempt !== resolution.sourceRunAttempt ||
+    report.plan?.digest !== resolution.planDigest ||
+    report.plan?.contractDigest !== resolution.contractDigest ||
+    process.env.NORTHSTAR_MIGRATION_MODE !== resolution.mode ||
+    process.env.BASE_SHA !== resolution.baseSha ||
+    !isResolvedPullRequest(resolution, pull)
+  ) {
+    throw new Error("The evidence report does not match the current trusted workflow-run resolution.");
+  }
   const body = renderComment(report, {
     run:
       process.env.GITHUB_SERVER_URL && process.env.GITHUB_RUN_ID
@@ -136,10 +162,6 @@ function main() {
   });
 
   const existing = existingCommentId(pr, process.env.NORTHSTAR_TRUSTED_PUBLISHER_APP_LOGIN);
-  const pull = githubJson(`repos/{owner}/{repo}/pulls/${pr}`);
-  if (pull.state !== "open" || pull.head.sha !== report.provenance?.headSha) {
-    throw new Error("The evidence report does not match the current open implementation PR.");
-  }
   if (existing) {
     gh(["api", "--method", "PATCH", `repos/{owner}/{repo}/issues/comments/${existing}`, "-f", `body=${body}`]);
     process.stdout.write(`updated evidence comment ${existing} on PR #${pr}\n`);

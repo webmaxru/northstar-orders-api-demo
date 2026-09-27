@@ -3,13 +3,14 @@ import { selectWorkflowPullRequest } from "../../scripts/resolve-workflow-pr.mjs
 
 const repository = "webmaxru/northstar-orders-api-demo";
 const sha = "a".repeat(40);
+const baseSha = "b".repeat(40);
 
 function pull(overrides: Record<string, unknown> = {}) {
   return {
     number: 7,
     state: "open",
     head: { sha, repo: { full_name: repository } },
-    base: { ref: "main", repo: { full_name: repository } },
+    base: { ref: "main", sha: baseSha, repo: { full_name: repository } },
     ...overrides,
   };
 }
@@ -26,18 +27,46 @@ describe("workflow-run pull request identity", () => {
     ).toMatchObject({ number: 7 });
   });
 
-  it("rejects a fork, another SHA, another base, or an ambiguous match", () => {
+  it("accepts a stacked base when the run declares that exact base", () => {
+    expect(
+      selectWorkflowPullRequest({
+        pulls: [
+          pull({
+            base: {
+              ref: "agent/implement/parent-task",
+              sha: baseSha,
+              repo: { full_name: repository },
+            },
+          }),
+        ],
+        sha,
+        repository,
+        expectedNumber: 7,
+        expectedBaseSha: baseSha,
+        expectedBaseRef: "agent/implement/parent-task",
+      }),
+    ).toMatchObject({ number: 7 });
+  });
+
+  it("rejects a fork, another SHA, a mismatched declared base, or ambiguity", () => {
     for (const candidate of [
       pull({ head: { sha, repo: { full_name: "attacker/fork" } } }),
       pull({ head: { sha: "b".repeat(40), repo: { full_name: repository } } }),
-      pull({ base: { ref: "release", repo: { full_name: repository } } }),
+      pull({
+        base: {
+          ref: "release",
+          sha: "c".repeat(40),
+          repo: { full_name: repository },
+        },
+      }),
     ]) {
       expect(() =>
         selectWorkflowPullRequest({
           pulls: [candidate],
           sha,
           repository,
-          defaultBranch: "main",
+          expectedBaseSha: baseSha,
+          expectedBaseRef: "main",
         }),
       ).toThrow(/exactly one/);
     }
@@ -90,5 +119,23 @@ describe("workflow-run pull request identity", () => {
         allowMerged: true,
       })).toThrow(/exactly one/);
     }
+  });
+
+  it("rejects malformed run and PR identities", () => {
+    expect(() =>
+      selectWorkflowPullRequest({
+        pulls: [pull()],
+        sha: "not-a-sha",
+        repository,
+      }),
+    ).toThrow(/immutable commit SHA/);
+    expect(() =>
+      selectWorkflowPullRequest({
+        pulls: [pull()],
+        sha,
+        repository,
+        expectedNumber: "0",
+      }),
+    ).toThrow(/positive integer/);
   });
 });

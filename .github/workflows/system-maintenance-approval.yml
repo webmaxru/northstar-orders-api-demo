@@ -15,9 +15,32 @@ on:
         description: Publish Evidence run containing the restricted evidence bundle
         required: true
         type: string
+      evidence-run-attempt:
+        description: Exact Publish Evidence workflow attempt
+        required: true
+        type: string
       source-run-id:
         description: Governed Change run whose immutable evidence is being evaluated
         required: true
+        type: string
+      source-run-attempt:
+        description: Exact Governed Change source attempt
+        required: true
+        type: string
+      migration-mode:
+        description: Validated PR resolution mode for the source run
+        required: true
+        type: choice
+        options:
+          - open-pr
+          - bootstrap-migration
+      bootstrap-plan-pr-number:
+        description: Independently approved issue #24 plan PR number for migration mode
+        required: false
+        type: string
+      bootstrap-plan-head-sha:
+        description: Immutable issue #24 approved plan head for migration mode
+        required: false
         type: string
       canary-plan-pr-number:
         description: Optional file-backed browser-canary plan PR
@@ -47,7 +70,15 @@ jobs:
       PR_NUMBER: ${{ inputs.pull-request }}
       NORTHSTAR_HEAD_SHA: ${{ inputs.head-sha }}
       NORTHSTAR_RUN_ID: ${{ inputs.source-run-id }}
+      NORTHSTAR_RUN_ATTEMPT: ${{ inputs.source-run-attempt }}
+      NORTHSTAR_SOURCE_RUN_ID: ${{ inputs.source-run-id }}
+      NORTHSTAR_SOURCE_RUN_ATTEMPT: ${{ inputs.source-run-attempt }}
+      NORTHSTAR_PARENT_PR_NUMBER: ${{ inputs.pull-request }}
+      NORTHSTAR_MIGRATION_MODE: ${{ inputs.migration-mode }}
+      NORTHSTAR_BOOTSTRAP_PLAN_PR_NUMBER: ${{ inputs.bootstrap-plan-pr-number }}
+      NORTHSTAR_BOOTSTRAP_PLAN_HEAD_SHA: ${{ inputs.bootstrap-plan-head-sha }}
       EVIDENCE_RUN_ID: ${{ inputs.evidence-run-id }}
+      EVIDENCE_RUN_ATTEMPT: ${{ inputs.evidence-run-attempt }}
       CANARY_PLAN_PR_NUMBER: ${{ inputs['canary-plan-pr-number'] }}
       CANARY_PLAN_HEAD_SHA: ${{ inputs['canary-plan-head-sha'] }}
       NORTHSTAR_TRUSTED_PUBLISHER_APP_ID: ${{ vars.TRUSTED_PUBLISHER_APP_ID }}
@@ -79,6 +110,11 @@ jobs:
           permission-secrets: read
           permission-statuses: write
       - run: npm ci
+      - id: resolve
+        name: Re-resolve the source and exact trusted publisher attempts
+        env:
+          GH_TOKEN: ${{ steps.publisher-token.outputs.token }}
+        run: node scripts/resolve-workflow-run.mjs
       - uses: actions/download-artifact@v7
         with:
           name: northstar-system-maintenance-evidence
@@ -97,15 +133,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.publisher-token.outputs.token }}
         run: |
-          MERGED_SOURCE_ARGS=()
-          if [ -n "$CANARY_PLAN_PR_NUMBER" ] || [ -n "$CANARY_PLAN_HEAD_SHA" ]; then
-            if [ -z "$CANARY_PLAN_PR_NUMBER" ] || [ -z "$CANARY_PLAN_HEAD_SHA" ]; then
-              echo "Both immutable canary plan identities are required."
-              exit 1
-            fi
-            MERGED_SOURCE_ARGS+=(--allow-merged)
-          fi
-          node scripts/resolve-workflow-pr.mjs --sha "$NORTHSTAR_HEAD_SHA" "${MERGED_SOURCE_ARGS[@]}"
+          node scripts/resolve-workflow-pr.mjs --sha "$NORTHSTAR_HEAD_SHA"
           npm run contract:from-pr -- --pr "$PR_NUMBER"
 
           set +e
@@ -123,8 +151,7 @@ jobs:
             --pr "$PR_NUMBER" \
             --expected-head "$NORTHSTAR_HEAD_SHA" \
             --expected-plan artifacts/candidate-plan.json \
-            --record-approval \
-            "${MERGED_SOURCE_ARGS[@]}"
+            --record-approval
           SELECTION_STATUS=$?
           node scripts/evidence-record.mjs \
             --id plan-contract \
@@ -133,7 +160,7 @@ jobs:
             --status "$([ "$PLAN_STATUS" -eq 0 ] && [ "$SELECTION_STATUS" -eq 0 ] && echo pass || echo fail)" \
             --artifact artifacts/candidate-plan.json
 
-          node scripts/check-scope.mjs --pr "$PR_NUMBER" --expected-head "$NORTHSTAR_HEAD_SHA" "${MERGED_SOURCE_ARGS[@]}"
+          node scripts/check-scope.mjs --pr "$PR_NUMBER" --expected-head "$NORTHSTAR_HEAD_SHA"
           SCOPE_STATUS=$?
           node scripts/evidence-record.mjs \
             --id scope-policy \
@@ -185,15 +212,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.publisher-token.outputs.token }}
         run: |
-          MERGED_SOURCE_ARGS=()
-          if [ -n "$CANARY_PLAN_PR_NUMBER" ] || [ -n "$CANARY_PLAN_HEAD_SHA" ]; then
-            if [ -z "$CANARY_PLAN_PR_NUMBER" ] || [ -z "$CANARY_PLAN_HEAD_SHA" ]; then
-              echo "Both immutable canary plan identities are required."
-              exit 1
-            fi
-            MERGED_SOURCE_ARGS+=(--allow-merged)
-          fi
-          node scripts/resolve-workflow-pr.mjs --sha "$NORTHSTAR_HEAD_SHA" "${MERGED_SOURCE_ARGS[@]}"
+          node scripts/resolve-workflow-pr.mjs --sha "$NORTHSTAR_HEAD_SHA"
           npm run contract:from-pr -- --pr "$PR_NUMBER"
 
           node scripts/check-plan.mjs --pr "$PR_NUMBER" --expected-head "$NORTHSTAR_HEAD_SHA"
@@ -201,8 +220,7 @@ jobs:
             --pr "$PR_NUMBER" \
             --expected-head "$NORTHSTAR_HEAD_SHA" \
             --expected-plan artifacts/plan.json \
-            --record-approval \
-            "${MERGED_SOURCE_ARGS[@]}"
+            --record-approval
           node scripts/evidence-record.mjs \
             --id plan-contract \
             --job plan-contract \
@@ -210,7 +228,7 @@ jobs:
             --status pass \
             --artifact artifacts/candidate-plan.json
 
-          node scripts/check-scope.mjs --pr "$PR_NUMBER" --expected-head "$NORTHSTAR_HEAD_SHA" "${MERGED_SOURCE_ARGS[@]}"
+          node scripts/check-scope.mjs --pr "$PR_NUMBER" --expected-head "$NORTHSTAR_HEAD_SHA"
           node scripts/evidence-record.mjs \
             --id scope-policy \
             --job scope-policy \
@@ -262,3 +280,10 @@ jobs:
       - env:
           GH_TOKEN: ${{ steps.publisher-token.outputs.token }}
         run: node scripts/publish-acceptance-status.mjs
+      - if: always() && hashFiles('artifacts/trusted-acceptance-status.json') != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: northstar-trusted-acceptance-status
+          path: artifacts/trusted-acceptance-status.json
+          if-no-files-found: error
+          retention-days: 90

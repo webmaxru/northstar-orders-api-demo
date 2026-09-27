@@ -310,6 +310,17 @@ describe("fail-closed execution evidence", () => {
       .toContain("trusted current-run revalidation missing");
   });
 
+  it("never reports hosted acceptance while repository controls remain unverified", () => {
+    const incomplete = records(true).map((record) =>
+      record.id === "repository-controls"
+        ? { ...record, status: "fail" as const }
+        : record,
+    );
+    const result = report({ records: incomplete, hosted: true });
+    expect(result.decision).toBe("ready_for_review");
+    expect(result.pendingHostedEvidence).toContain("repository-controls");
+  });
+
   it("matches proving tests by stable leaf name, not substring", () => {
     const criterion = contract.successCriteria[0]!;
     expect(criterionCoverage([criterion], [`suite > ${criterion.provenBy} extra`])[0]?.proven).toBe(false);
