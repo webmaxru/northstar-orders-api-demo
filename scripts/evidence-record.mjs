@@ -43,6 +43,7 @@ const REVALIDATED_CHECKS = new Set([
   "plan-contract", "plan-approval", "scope-policy", "repository-controls",
   "validation-authority", "human-review", "production-environment",
 ]);
+const CANDIDATE_POLICY_CHECKS = new Set(["plan-contract", "scope-policy"]);
 
 export function evidencePath(path, root = REPO_ROOT) {
   if (typeof path !== "string" || !path.trim()) {
@@ -352,7 +353,12 @@ export function validateCheckRecord(record, expected, { root = REPO_ROOT, hosted
   if (provenance.job !== record.id) reasons.push("job identity mismatch");
   const revalidated = hosted && REVALIDATED_CHECKS.has(record.id) &&
     ["Publish Evidence", "System Maintenance Approval"].includes(provenance.workflow);
-  if (hosted && REVALIDATED_CHECKS.has(record.id) && !revalidated) {
+  const candidatePolicy = hosted && CANDIDATE_POLICY_CHECKS.has(record.id) &&
+    expected.workflow === "Governed Change" &&
+    ["pull_request", "pull_request_review"].includes(expected.event) &&
+    provenance.workflow === "Governed Change" &&
+    ["pull_request", "pull_request_review"].includes(provenance.event);
+  if (hosted && REVALIDATED_CHECKS.has(record.id) && !revalidated && !candidatePolicy) {
     reasons.push("trusted current-run revalidation missing");
   }
   const producerRun = revalidated ? expected.executionRunId : expected.runId;

@@ -263,6 +263,17 @@ export function governedScopeUsesPullRequestContext(workflow) {
   );
 }
 
+export function governedRepositoryControlsHaveAppIdentity(workflow) {
+  const controlsJob = /^ {2}repository-controls:\r?\n([\s\S]*?)(?=^ {2}human-review:\r?$)/m
+    .exec(String(workflow))?.[1] ?? "";
+  return [
+    "NORTHSTAR_TRUSTED_PUBLISHER_APP_ID: ${{ vars.TRUSTED_PUBLISHER_APP_ID }}",
+    "NORTHSTAR_TRUSTED_PUBLISHER_APP_LOGIN: ${{ vars.TRUSTED_PUBLISHER_APP_LOGIN }}",
+    "NORTHSTAR_DISPATCH_APP_ID: ${{ vars.SYSTEM_MAINTENANCE_DISPATCH_APP_ID }}",
+    "NORTHSTAR_DISPATCH_APP_LOGIN: ${{ vars.SYSTEM_MAINTENANCE_DISPATCH_APP_LOGIN }}",
+  ].every((setting) => controlsJob.includes(setting));
+}
+
 export function governedMergedArtifactsHaveUniquePaths(workflow) {
   const text = String(workflow);
   const qualityJob = /^ {2}quality:\r?\n([\s\S]*?)(?=^ {2}acceptance:\r?$)/m.exec(
@@ -450,6 +461,11 @@ export function auditSourceTree({ root = REPO_ROOT, policy = GOVERNANCE_POLICY, 
         governedEvidenceTaskLookupPermissionsAreSafe(workflow),
         "workflow:evidence-task-lookup",
         "The evidence job has only the read permissions needed to resolve the pull request and linked issue.",
+      ),
+      check(
+        governedRepositoryControlsHaveAppIdentity(workflow),
+        "workflow:repository-controls-app-identity",
+        "Online repository-control checks receive the configured publisher and dispatcher identities.",
       ),
       check(
         governedScopeUsesPullRequestContext(workflow),
@@ -857,6 +873,21 @@ export function onlineControls({ env = process.env, run = runGitHub, policy = GO
   };
 }
 
+/** @param {{checks: Array<{id: string, ok: boolean, status?: string}>, lookups: Array<{id: string, state: string, detail?: string}>} | null | undefined} online */
+export function summarizeOnlineFailures(online) {
+  if (!online) return [];
+  const checks = online.checks
+    .filter(({ ok }) => !ok)
+    .map(({ id, status }) => `${id}=${status ?? "fail"}`);
+  const lookups = online.lookups
+    .filter(({ state }) => state === "unavailable")
+    .map(({ id, detail }) => {
+      const status = /\(HTTP (\d{3})\)/i.exec(detail ?? "")?.[1];
+      return `lookup:${id}=unavailable${status ? `-http-${status}` : ""}`;
+    });
+  return [...new Set([...checks, ...lookups])].sort();
+}
+
 function valueOf(flag) {
   const index = process.argv.indexOf(flag);
   return index === -1 ? undefined : process.argv[index + 1];
@@ -876,6 +907,12 @@ function main() {
     `governance=${ready ? "pass" : "fail"} checks=${report.checks.length}\n${target}\n`,
   );
   if (!ready) {
+    const sourceFailures = report.checks.filter(({ ok }) => !ok).map(({ id }) => id);
+    const onlineFailures = summarizeOnlineFailures(report.online);
+    process.stdout.write(
+      `failed source checks: ${sourceFailures.join(", ") || "none"}; ` +
+      `failed online controls: ${onlineFailures.join(", ") || "none"}\n`,
+    );
     process.exitCode = 1;
   }
 }
