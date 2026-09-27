@@ -4,7 +4,7 @@
 Prepare a safe bootstrap and migrate the required `repository-controls` result from an unprivileged pull-request audit to the protected trusted-publisher App. Rebind only the existing required check to that trusted status source, preserve all other protections, and prove a safe rollout/rollback path before changing the rule. Pull-request code must never receive administrator or secret-inventory credentials. The owner has authorized planning one temporary bootstrap exception: remove only the `repository-controls` required context for at most 60 minutes while keeping `trusted-acceptance` and every other required check, strict mode, PR review, CODEOWNERS, and the empty bypass list unchanged. This is planning authorization only; no settings change is authorized until the revised plan itself is independently approved. If the remaining controls cannot safely carry the migration, stop without mutating settings.
 
 ## Plan
-Risk: high. Base: `agent/implement/aes-surface-evidence` at `17e7a5c5f1fbf88a92351043c675f555f4c7f04f`. This plan refresh preserves the live issue #22 contract digest and changes only this plan artifact to bind it to the current parent base and record the latest failed preflight. The previous PR #23 approval is invalid. No implementation or ruleset mutation is authorized until this exact plan revision is independently approved.
+Risk: high. Base: `agent/implement/aes-surface-evidence` at `17e7a5c5f1fbf88a92351043c675f555f4c7f04f`. This revision binds amended issue #22 and adds AC7's fail-closed trusted-acceptance preflight. The previous PR #23 approval is invalid. No implementation or ruleset mutation is authorized until this exact plan revision is independently approved.
 
 ### Current preflight state
 - Parent PR #18 is open at `17e7a5c5f1fbf88a92351043c675f555f4c7f04f`; the required `trusted-acceptance` status is **failure**, targeting trusted run `36312852134`.
@@ -66,6 +66,7 @@ Prohibited paths and operations:
 - AC4 | The bootstrap changes only repository-controls for no more than 60 minutes, keeps every other required context and the empty bypass list intact, and restores the trusted-App binding | preserves hosted-control and approval boundaries
 - AC5 | The no-bypass bootstrap reaches the trusted status producer without disabling required checks or adding a bypass actor | verifies repository-controls no-bypass bootstrap
 - AC6 | The approved implementation passes focused and complete local validation and records exact hosted outcomes without overstating acceptance | records complete validation for trusted control evidence
+- AC7 | The issue #22 bootstrap refuses to open its settings window when trusted-acceptance is absent, failed, stale, or bound to another head; it proceeds only after fresh App 5075466 success on the exact current parent and every other required check passes | blocks repository-controls window when trusted-acceptance preflight fails
 
 ## Evidence
 - Live ruleset 23998987 before/during/after snapshots showing only the authorized `repository-controls` entry is removed/rebound, all other contexts and strict mode unchanged, and no bypass actor.
@@ -102,11 +103,11 @@ Prohibited paths and operations:
 {
   "schema": "northstar/plan/1",
   "taskId": "AES-REPO-CONTROLS-EVIDENCE",
-  "contractDigest": "21c19189ffda980300d7d2438f6268df172ca281c477dd5c72259dc51855309a",
+  "contractDigest": "20b3aca3cb0286d24c7c89bd1f410ff04d48e1f369cde84a8f3130c97206781d",
   "baseSha": "17e7a5c5f1fbf88a92351043c675f555f4c7f04f",
   "baseBranch": "agent/implement/aes-surface-evidence",
   "risk": "high",
-  "objective": "Prepare a safe bootstrap and migrate the required `repository-controls` result from an unprivileged pull-request audit to the protected trusted-publisher App. Rebind only the existing required check to that trusted status source, preserve all other protections, and prove a safe rollout/rollback path before changing the rule. Pull-request code must never receive administrator or secret-inventory credentials. The owner has authorized planning one temporary bootstrap exception: remove only the `repository-controls` required context for at most 60 minutes while keeping `trusted-acceptance` and every other required check, strict mode, PR review, CODEOWNERS, and the empty bypass list unchanged. This is planning authorization only; no settings change is authorized until the revised plan itself is independently approved. If the remaining controls cannot safely carry the migration, stop without mutating settings.",
+  "objective": "Prepare a safe, staged bootstrap and migrate the required `repository-controls` result from an unprivileged pull-request audit to the protected trusted-publisher App. Rebind only the existing required check to that trusted status source, preserve all other protections, and prove a safe rollout/rollback path before changing the rule. Pull-request code must never receive administrator or secret-inventory credentials. The owner has authorized planning one temporary bootstrap exception: remove only the `repository-controls` required context for at most 60 minutes while keeping `trusted-acceptance` and every other required check, strict mode, PR review, CODEOWNERS, and the empty bypass list unchanged. The window cannot start until fresh trusted-acceptance success exists for the exact current parent head and every other required check passes. The separate issue #24 trusted-acceptance bootstrap is a prerequisite when that status cannot yet pass on the stacked parent. This is planning authorization only; no settings change is authorized until this exact plan is independently approved. If any prerequisite or remaining control cannot safely pass, stop without mutating settings.",
   "scope": {
     "allowed": [
       ".github/workflows/governed-change.yml",
@@ -204,6 +205,11 @@ Prohibited paths and operations:
       "id": "AC6",
       "statement": "The approved implementation passes focused and complete local validation and records exact hosted outcomes without overstating acceptance",
       "provenBy": "records complete validation for trusted control evidence"
+    },
+    {
+      "id": "AC7",
+      "statement": "The issue #22 bootstrap refuses to open its settings window when trusted-acceptance is absent, failed, stale, or bound to another head; it proceeds only after fresh App 5075466 success on the exact current parent and every other required check passes",
+      "provenBy": "blocks repository-controls window when trusted-acceptance preflight fails"
     }
   ],
   "evidence": [
@@ -217,7 +223,7 @@ Prohibited paths and operations:
   ],
   "decisionsAndHandoffs": [
     "The owner authorized preparation of this bootstrap plan, including consideration of a one-time maximum 60-minute removal of only the `repository-controls` context; this is not authorization to execute the setting change before the plan is independently approved.",
-    "The prior PR #23 plan revision at head 25d4e771b00a24d5e34b2ba5167707c8c98a1f72 is invalid after issue #22 was amended again; this proposal must be reviewed on its new head.",
+    "This amended issue #22 contract and current parent base supersede the plan previously approved on PR #23; a new plan-only review is required.",
     "The active ruleset currently binds repository-controls to 15368 and trusted-acceptance to 5075466. The PR job cannot read administrator controls; the current protected publisher cannot resolve stacked PR bases and its prior online audit was unavailable.",
     "Issue #24 / plan PR #25 is the prerequisite for producing trusted-acceptance on the stacked parent. Its plan is bound to the old base 2e3cd083399661947b98b420f66ce7a9523ca68b; refresh and independently approve it before implementation. After it completes, re-read issue #22 and refresh this plan if the parent head changes.",
     "Issue #20 remains blocked and its previous plan approval does not authorize this migration. If the shared base changes, issue #20 must be refreshed and re-approved."
@@ -237,7 +243,7 @@ Prohibited paths and operations:
     "Never add a bypass actor, disable strict checks, broaden credentials, or exceed the 60-minute window.",
     "If rollback cannot be confirmed immediately, stop all further actions and escalate to the repository owner."
   ],
-  "planDigest": "51cb81d289b27b25b7a79ea8619900fa759eca92f88b6489d209ad4cb8d8acd0"
+  "planDigest": "7aa8bb3d43b8dfac5c25e791884f862f220951a2f9d0eddcaeb6cf9f6154326d"
 }
 ```
 <!-- northstar:plan-contract:end -->
