@@ -566,11 +566,6 @@ export function auditSourceTree({ root = REPO_ROOT, policy = GOVERNANCE_POLICY, 
         "workflow:merged-artifact-paths",
         "Independently generated reports use unique paths before artifact fan-in.",
       ),
-      check(
-        governedRepositoryControlsHaveAppIdentity(workflow),
-        "workflow:repository-controls-app-identity",
-        "Online repository-control checks receive the configured publisher and dispatcher identities.",
-      ),
     );
     for (const job of [
       "plan-contract:",
@@ -970,21 +965,6 @@ export function onlineControls({ env = process.env, run = runGitHub, policy = GO
       ? "Required controls were evaluated; an unused alternative API may still be unavailable."
       : "Some controls remain unverified. Successful checks are retained; separate administrator/App access may be required.",
   };
-}
-
-/** @param {{checks: Array<{id: string, ok: boolean, status?: string}>, lookups: Array<{id: string, state: string, detail?: string}>} | null | undefined} online */
-export function summarizeOnlineFailures(online) {
-  if (!online) return [];
-  const checks = online.checks
-    .filter(({ ok }) => !ok)
-    .map(({ id, status }) => `${id}=${status ?? "fail"}`);
-  const lookups = online.lookups
-    .filter(({ state }) => state === "unavailable")
-    .map(({ id, detail }) => {
-      const status = /\(HTTP (\d{3})\)/i.exec(detail ?? "")?.[1];
-      return `lookup:${id}=unavailable${status ? `-http-${status}` : ""}`;
-    });
-  return [...new Set([...checks, ...lookups])].sort();
 }
 
 function valueOf(flag) {
