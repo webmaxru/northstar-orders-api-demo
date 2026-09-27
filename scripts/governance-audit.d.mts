@@ -88,6 +88,9 @@ export declare function publisherUsesTrustedDefaultBranch(
   workflow: string,
   defaultBranch?: string,
 ): boolean;
+export declare function trustedControlsUseReadOnlyToken(
+  workflow: string,
+): boolean;
 export declare function environmentAllowsOnlyDefaultBranch(
   environment: Record<string, unknown>,
   branchPolicies: Array<Record<string, unknown>>,

@@ -22,6 +22,7 @@ import {
   summarizeOnlineFailures,
   strictRequiredContexts,
   strictStatusChecksEnabled,
+  trustedControlsUseReadOnlyToken,
 } from "../../scripts/governance-audit.mjs";
 import { GOVERNANCE_POLICY } from "../../scripts/risk-policy.mjs";
 
@@ -193,6 +194,33 @@ describe("source-controlled governance", () => {
     expect(governedRepositoryControlsHaveAppIdentity(
       workflow.replace("NORTHSTAR_TRUSTED_PUBLISHER_APP_ID: ${{ vars.TRUSTED_PUBLISHER_APP_ID }}", ""),
     )).toBe(false);
+    expect(workflow).not.toMatch(
+      /TRUSTED_PUBLISHER_APP_PRIVATE_KEY|SYSTEM_MAINTENANCE_DISPATCH_APP_PRIVATE_KEY/,
+    );
+  });
+
+  it("uses a distinct read-only App token for trusted repository-control queries", () => {
+    const workflow = readFileSync(
+      ".github/workflows/publish-evidence.yml",
+      "utf8",
+    );
+    expect(trustedControlsUseReadOnlyToken(workflow)).toBe(true);
+    expect(
+      trustedControlsUseReadOnlyToken(
+        workflow.replace(
+          /(^ {6}- id: controls-token[\s\S]*?^ {10}permission-administration:) read(?=\r?$)/m,
+          "$1 write",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      trustedControlsUseReadOnlyToken(
+        workflow.replace(
+          "GH_TOKEN: ${{ steps.controls-token.outputs.token }}",
+          "GH_TOKEN: ${{ steps.publisher-token.outputs.token }}",
+        ),
+      ),
+    ).toBe(false);
   });
 
   it("labels hosted repository controls as unverified rather than pretending", () => {
