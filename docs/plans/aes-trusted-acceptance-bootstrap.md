@@ -9,11 +9,7 @@ Risk: high. Base: `agent/implement/aes-surface-evidence` at `17e7a5c5f1fbf88a923
 ### Current parent status
 - Parent PR #18 is approved on `17e7a5c5f1fbf88a92351043c675f555f4c7f04f`, but `trusted-acceptance` is currently **failure**, targeting run `36312852134`.
 - Trusted report `36312262826` remains `review_required`, with AC15 unproven and `validation-authority` / `repository-controls` failed. The trusted default-branch audit reports `Branch not protected (HTTP 404)` while the ruleset is active.
-- This is the observed pre-bootstrap state, not permission to claim acceptance or change ruleset settings. The approved plan may be implemented and locally validated; the temporary window remains forbidden until its live preflight proves the publisher can restore fresh trusted statuses safely.
-
-### Current parent preflight
-
-Parent PR #18 is approved on `17e7a5c5f1fbf88a92351043c675f555f4c7f04f`, but its `trusted-acceptance` status is **failure**, targeting run `36312852134`. Trusted report `36312262826` is `review_required`, with AC15 unproven and `validation-authority` / `repository-controls` failed. This is the observed pre-bootstrap state; no settings window or implementation change is authorized from this evidence.
+- This is observed pre-bootstrap evidence, not acceptance and not permission to change ruleset settings. Source implementation may begin only after this exact plan is independently approved; the temporary window remains forbidden until its live preflight proves every remaining check passes and the publisher can restore fresh trusted statuses safely.
 
 ### Parent bootstrap sequence
 - Child implementation PR: parent branch `agent/implement/aes-surface-evidence` at the approved SHA; human review/integration into parent PR #18.
