@@ -11,7 +11,8 @@ it("documents distinct delivery flows without claiming unverified acceptance", (
   expect(first).toContain("no application implementation before required plan");
   expect(combined).toContain("same PR");
   expect(combined).toContain("no separate mandatory plan-only approval");
-  expect(combined).toContain("hosted workflow runs `plan-approval` unconditionally");
+  expect(combined).toContain("GitHub PR #19 still displays the old");
+  expect(combined).toContain("Keep it draft");
   for (const text of [first, combined]) {
     expect(text).toContain("VS Code");
     expect(text.toLowerCase()).toContain("cloud");

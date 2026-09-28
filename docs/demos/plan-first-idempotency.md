@@ -9,6 +9,15 @@ accepted VS Code/cloud plan-first replay has not been recorded. The earlier
 cloud attempt stopped at missing task authority. Follow the readiness checks
 below before advertising this as a live governed-agent demo.
 
+The published control-plane candidate, PR 18 at
+`17e7a5c5f1fbf88a92351043c675f555f4c7f04f`, has passing hosted acceptance
+tests, but hosted evidence and repository-controls remain blocked. PR #27
+contains the parallel-isolation candidate; local `validate` passes 500 unit
+tests and PostgreSQL acceptance passes 10/10, while full `validate:all` fails
+on 84 Zizmor findings. Two read-only CLI identity canaries passed, but no live
+VS Code or Copilot cloud agent has completed. These results do not constitute
+a fresh WI-1842 delivery run.
+
 ## 1. Pick the genuine starter, not a fabricated regression
 
 The original application changes are a direct parent/child pair:
@@ -185,6 +194,14 @@ npm run test:unit
 npm run test:acceptance
 npm run validate:all
 ```
+
+Recorded evidence is narrower than this full command sequence: on repair
+candidate head `17e7a5c5f1fbf88a92351043c675f555f4c7f04f`, hosted acceptance
+passes but hosted evidence and repository-controls fail. On issue #16 head
+`fc59deefc31213b2c596bd0384008f77a9955c4f`, local PostgreSQL acceptance passed
+10/10; full validation reports 84 Zizmor findings. Do not report either
+database result as overall or hosted acceptance, and do not suppress or edit
+findings outside the approved scanner-remediation scope.
 
 The current controller candidate adds
 `proves replay through separate server processes`. Do not describe the older

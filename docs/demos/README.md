@@ -23,16 +23,23 @@ already completed.** Do not present the launch instructions as execution evidenc
 | Genuine idempotency starter | `21d5e5a937e61a2a0513158942b3c9556c1ab0e0`; basic service creates duplicates and durable harness deliberately reports unimplemented |
 | Genuine idempotency solution | `ebec7ad380dd0a079a02b161a20aaa012ceec3da`, direct child of the starter; PostgreSQL implementation, no invented rollback of current main |
 | Audited remote main | `b65c2de5c8224342c72c37eeed7ef9f965ad8a2c`; idempotency already works; no lookup endpoint |
-| Local control-plane repair | `e509ce039f47feec64e1883a01c24e589d78a5b9`, `agent/implement/aes-surface-evidence`; 415 unit tests and offline checks passed; not pushed or accepted |
-| Local endpoint candidate | `d2580a5815899160d28538e2cb1b3cee7f3cbb67`, `agent/implement/wi-1843`; focused tests and real single-process HTTP 201/200/400/404 passed |
+| Published control-plane candidate | Draft [PR 18](https://github.com/webmaxru/northstar-orders-api-demo/pull/18), head `17e7a5c5f1fbf88a92351043c675f555f4c7f04f`; hosted acceptance tests pass, but hosted evidence and repository-controls fail |
+| Published isolation candidate | Draft [PR 27](https://github.com/webmaxru/northstar-orders-api-demo/pull/27), head `fc59deefc31213b2c596bd0384008f77a9955c4f`; local validation passes 500 unit and 10 PostgreSQL acceptance tests plus scope/merge checks; full validation fails at 84 Zizmor findings |
+| Published endpoint candidate | Draft [PR 19](https://github.com/webmaxru/northstar-orders-api-demo/pull/19), remote head `0d5a5d4066b3eae66330f50240232ab920e2d029`; application change `d2580a5815899160d28538e2cb1b3cee7f3cbb67`; local branch is now rebased onto `17e7a5c5f1fbf88a92351043c675f555f4c7f04f` pending publication |
+| Endpoint PostgreSQL acceptance | `npm run test:acceptance` passed 12/12 at the pre-rebase application head `0d5a5d4`; rerun against the refreshed candidate before claiming exact-head evidence |
+| Endpoint hosted base | Issue #17 and its local plan now bind to `17e7a5c5f1fbf88a92351043c675f555f4c7f04f`; GitHub PR #19 still shows its pre-refresh head/base/plan until the rebased candidate and description are published |
 | Real repair plan approval | [Plan PR 15](https://github.com/webmaxru/northstar-orders-api-demo/pull/15), review `5292933832`; approval of the repair plan, not either finished demo |
 | Real historical cloud rehearsal | [PR 13](https://github.com/webmaxru/northstar-orders-api-demo/pull/13); stopped at missing task cache; not a successful plan-first delivery |
-| PostgreSQL, VS Code agent, and cloud endpoint proof | Still pending for the new candidate; starting a terminal/server or a passing mocked SQL test is not host or database proof |
+| Current hosted status | PR 18 and PR 27 fail hosted evidence/repository-controls. PR 19's existing run fails its old plan/base identity; the refreshed local branch still needs publication and new checks. No candidate has accepted hosted evidence |
+| Live VS Code/cloud agent runs | Not recorded. GitHub Actions runs and local command sessions are not Copilot cloud-agent or VS Code agent sessions |
 
-The reference repair does not yet establish an accepted single-PR combined
-controller. Some resolver and hosted workflow paths still assume a separate
-plan PR. That must be repaired under the control-plane task, not worked around
-by inserting a fake approval or quietly turning WI-1843 into plan-first.
+The published repair head does not establish an accepted single-PR combined
+controller. PR #27 contains the risk-aware isolation candidate, but its
+passing local tests do not prove hosted behavior. The endpoint's original
+PostgreSQL run used a disposable local service; future runs must verify that
+the service and port belong to that task and must not reuse another task's
+active database. Do not start either governed-agent walkthrough until its
+exact base, controller, host and hosted gates are accepted.
 
 ## Presenter setup
 

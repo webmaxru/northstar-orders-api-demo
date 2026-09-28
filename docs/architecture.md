@@ -65,10 +65,12 @@ Existing IDs return the unchanged `Order` representation. Malformed IDs return
 failures use the existing generic `500 internal_error` boundary. GET does not
 write order or idempotency state and does not claim an idempotent replay header.
 
-This is a bounded medium-risk feature proposal, with plan and code intended
-for one PR. It does not require the high-risk plan-first approval sequence.
-See the [paired demo runbooks](demos/README.md) for exact source/evidence
-boundaries and currently unverified hosted/controller behavior.
+The draft WI-1843 candidate implements this bounded medium-risk feature with
+its plan and code in one PR; it does not require the high-risk plan-first
+approval sequence. The candidate remains unaccepted pending refreshed-base
+publication, validation, independent review and hosted evidence. See the
+[paired demo runbooks](demos/README.md) for exact source/evidence boundaries
+and currently unverified hosted/controller behavior.
 
 ## Idempotency transaction
 

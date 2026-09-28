@@ -14,12 +14,16 @@ This is a fictional unauthenticated demo, not a production order-access design.
 | Stage | Revision |
 | --- | --- |
 | Before: durable POST, no GET route | `e509ce039f47feec64e1883a01c24e589d78a5b9` |
-| Endpoint candidate | `d2580a5815899160d28538e2cb1b3cee7f3cbb67` |
+| Endpoint application change | `d2580a5815899160d28538e2cb1b3cee7f3cbb67` |
+| Published endpoint PR head | `0d5a5d4066b3eae66330f50240232ab920e2d029`, draft [PR 19](https://github.com/webmaxru/northstar-orders-api-demo/pull/19) |
 | Task | [WI-1843, issue 17](https://github.com/webmaxru/northstar-orders-api-demo/issues/17) |
 
-Both candidate revisions are local until explicitly published. The predecessor
-is not accepted. A remote clone cannot check out an unpublished SHA; do not
-invent a remote branch when demonstrating this.
+The live issue and refreshed local plan now bind the candidate to repair head
+`17e7a5c5f1fbf88a92351043c675f555f4c7f04f`; the local endpoint branch has
+been rebased onto that exact commit. GitHub PR #19 still displays the old
+head/base/plan until the refreshed branch and description are published and
+new hosted checks run. Keep it draft and do not use it for a live agent
+demonstration yet.
 
 From the local reference clone, or after the candidate refs are published:
 
@@ -58,13 +62,15 @@ keep both in one PR and review the complete result."
 
 ## 3. VS Code plan + execution session
 
-**Controller readiness gate:** the predecessor still has paths that look up a
-separate plan PR, and the hosted workflow runs `plan-approval` unconditionally.
-A generic `/implement 17` is not yet a proved single-PR entry point. That
-controller repair belongs to the control-plane task, not to this application
-change. Do not work around it by turning this story into plan-first.
+**Controller readiness gate:** published repair PR 18 is still unaccepted and
+does not establish a verified combined-mode flow. PR #27 contains a
+risk-aware isolation candidate, but its passing local tests do not establish
+VS Code or hosted behavior. A generic `/work 17` is not yet a proved live
+entry point. Do not work around this by turning the story into plan-first or
+by inventing an approval record.
 
-Once the accepted controller supports combined mode:
+Once the controller change is published, accepted, and exercised on the
+selected VS Code host:
 
 1. Open a dedicated implementation worktree in VS Code at the chosen base.
 2. Select the write-capable implementation agent, not the read-only planner.
@@ -94,8 +100,8 @@ fixture as authority.
 
 ## 4. Cloud entry for the same scenario
 
-The source branch must first be published and the combined-mode controller
-verified. Then:
+The refreshed endpoint head and plan must first be published, the parent
+controller accepted, and the cloud host canary completed. Then:
 
 ```powershell
 # CUSTOMIZE to the published endpoint starter and actual live task.
@@ -113,9 +119,11 @@ gh agent-task create --repo webmaxru/northstar-orders-api-demo `
   --base $BaseBranch --custom-agent implement $Prompt
 ```
 
-This is an operator command, not a recorded successful cloud run. Retain the
-returned session URL, source SHA, task digest, host branch and actual workflow
-evidence. If task/plan initialization fails, the demo is blocked.
+This is an operator command, not a recorded successful cloud run. Do not run it
+against the current remote PR #19 until the refreshed head and plan are
+published and their checks pass. Retain the returned session URL, source SHA,
+task digest, host branch and actual workflow evidence. If task/plan
+initialization fails, the demo is blocked.
 
 ## 5. Show the small implementation
 
@@ -179,9 +187,20 @@ through one process, read through another, restart the writer, and check that
 orders/idempotency rows did not change during reads.
 
 **Current evidence boundary:** route/service tests and real in-memory HTTP
-passed; PostgreSQL process acceptance has not run successfully because the
-test database was unavailable. Do not replace the missing proof with mocked SQL
-tests or the older idempotency audit.
+passed. The authorized PostgreSQL run at published head
+`0d5a5d4066b3eae66330f50240232ab920e2d029` passed 12/12 acceptance tests,
+including independent processes and restart behavior. The disposable
+PostgreSQL 17.11 service was cleaned up after the run. The separate full
+`npm run validate:all` run exited 1 after two Stop-suite test timeouts
+(421 passed, 2 timed out); a separate Stop-suite rerun passed 53/53, which
+does not make the full run green.
+
+The published hosted Plan Gate passed for the old PR body, but Governed Change
+failed because that plan's `e509ce0` base did not match the old live `13eb5a7`
+base. The refreshed local plan now targets `17e7a5c5…`; the remote result must
+be rerun after publication. This database result is not hosted acceptance,
+and it does not validate a Copilot cloud or VS Code agent run. Do not replace
+those missing proofs with mocked SQL tests or the older idempotency audit.
 
 ## 8. Review and accept the one PR
 
