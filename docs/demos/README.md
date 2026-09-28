@@ -25,21 +25,22 @@ already completed.** Do not present the launch instructions as execution evidenc
 | Audited remote main | `b65c2de5c8224342c72c37eeed7ef9f965ad8a2c`; idempotency already works; no lookup endpoint |
 | Published control-plane candidate | Draft [PR 18](https://github.com/webmaxru/northstar-orders-api-demo/pull/18), head `17e7a5c5f1fbf88a92351043c675f555f4c7f04f`; hosted acceptance tests pass, but hosted evidence and repository-controls fail |
 | Published isolation candidate | Draft [PR 27](https://github.com/webmaxru/northstar-orders-api-demo/pull/27), head `fc59deefc31213b2c596bd0384008f77a9955c4f`; local validation passes 500 unit and 10 PostgreSQL acceptance tests plus scope/merge checks; full validation fails at 84 Zizmor findings |
-| Published endpoint candidate | Draft [PR 19](https://github.com/webmaxru/northstar-orders-api-demo/pull/19), remote head `0d5a5d4066b3eae66330f50240232ab920e2d029`; application change `d2580a5815899160d28538e2cb1b3cee7f3cbb67`; local branch is now rebased onto `17e7a5c5f1fbf88a92351043c675f555f4c7f04f` pending publication |
-| Endpoint PostgreSQL acceptance | `npm run test:acceptance` passed 12/12 at the pre-rebase application head `0d5a5d4`; rerun against the refreshed candidate before claiming exact-head evidence |
-| Endpoint hosted base | Issue #17 and its local plan now bind to `17e7a5c5f1fbf88a92351043c675f555f4c7f04f`; GitHub PR #19 still shows its pre-refresh head/base/plan until the rebased candidate and description are published |
+| Published endpoint candidate | Draft [PR 19](https://github.com/webmaxru/northstar-orders-api-demo/pull/19); application change `d2580a5815899160d28538e2cb1b3cee7f3cbb67`; issue and plan refreshed to parent `17e7a5c5f1fbf88a92351043c675f555f4c7f04f`, with the branch rebased to match |
+| Endpoint local validation | On the rebased source tree: `npm run validate` passed 470 unit tests and 79 offline governance checks; PostgreSQL acceptance passed 12/12; scope (13 paths, zero violations) and merge checks pass |
+| Endpoint full validation | `npm run validate:all` exits 1 at Zizmor with 86 findings (65 errors, 21 notes); Poutine reports zero findings and no scanner suppressions were added |
+| Endpoint hosted base | Plan and branch now target the same exact parent `17e7a5c5f1fbf88a92351043c675f555f4c7f04f`; keep PR #19 draft until the refreshed description and current hosted checks complete |
 | Real repair plan approval | [Plan PR 15](https://github.com/webmaxru/northstar-orders-api-demo/pull/15), review `5292933832`; approval of the repair plan, not either finished demo |
 | Real historical cloud rehearsal | [PR 13](https://github.com/webmaxru/northstar-orders-api-demo/pull/13); stopped at missing task cache; not a successful plan-first delivery |
-| Current hosted status | PR 18 and PR 27 fail hosted evidence/repository-controls. PR 19's existing run fails its old plan/base identity; the refreshed local branch still needs publication and new checks. No candidate has accepted hosted evidence |
+| Current hosted status | PR 18 and PR 27 fail hosted evidence/repository-controls. PR 19's old checks were run against the stale plan; the refreshed PR must produce new checks and independent review. No candidate has accepted hosted evidence |
 | Live VS Code/cloud agent runs | Not recorded. GitHub Actions runs and local command sessions are not Copilot cloud-agent or VS Code agent sessions |
 
 The published repair head does not establish an accepted single-PR combined
 controller. PR #27 contains the risk-aware isolation candidate, but its
-passing local tests do not prove hosted behavior. The endpoint's original
-PostgreSQL run used a disposable local service; future runs must verify that
-the service and port belong to that task and must not reuse another task's
-active database. Do not start either governed-agent walkthrough until its
-exact base, controller, host and hosted gates are accepted.
+passing local tests do not prove hosted behavior. The endpoint's PostgreSQL
+run used an isolated disposable service; future runs must verify that the
+service and port belong to that task and must not reuse another task's active
+database. Do not start either governed-agent walkthrough until its exact base,
+controller, host and hosted gates are accepted.
 
 ## Presenter setup
 

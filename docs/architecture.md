@@ -67,8 +67,8 @@ write order or idempotency state and does not claim an idempotent replay header.
 
 The draft WI-1843 candidate implements this bounded medium-risk feature with
 its plan and code in one PR; it does not require the high-risk plan-first
-approval sequence. The candidate remains unaccepted pending refreshed-base
-publication, validation, independent review and hosted evidence. See the
+approval sequence. The candidate remains unaccepted pending current validation, independent
+review and hosted evidence. See the
 [paired demo runbooks](demos/README.md) for exact source/evidence boundaries
 and currently unverified hosted/controller behavior.
 

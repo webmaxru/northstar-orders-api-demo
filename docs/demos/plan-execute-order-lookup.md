@@ -15,15 +15,14 @@ This is a fictional unauthenticated demo, not a production order-access design.
 | --- | --- |
 | Before: durable POST, no GET route | `e509ce039f47feec64e1883a01c24e589d78a5b9` |
 | Endpoint application change | `d2580a5815899160d28538e2cb1b3cee7f3cbb67` |
-| Published endpoint PR head | `0d5a5d4066b3eae66330f50240232ab920e2d029`, draft [PR 19](https://github.com/webmaxru/northstar-orders-api-demo/pull/19) |
+| Current candidate | Draft [PR 19](https://github.com/webmaxru/northstar-orders-api-demo/pull/19), rebased onto `17e7a5c5f1fbf88a92351043c675f555f4c7f04f` |
 | Task | [WI-1843, issue 17](https://github.com/webmaxru/northstar-orders-api-demo/issues/17) |
 
-The live issue and refreshed local plan now bind the candidate to repair head
-`17e7a5c5f1fbf88a92351043c675f555f4c7f04f`; the local endpoint branch has
-been rebased onto that exact commit. GitHub PR #19 still displays the old
-head/base/plan until the refreshed branch and description are published and
-new hosted checks run. Keep it draft and do not use it for a live agent
-demonstration yet.
+The live issue and refreshed machine plan both bind to repair head
+`17e7a5c5f1fbf88a92351043c675f555f4c7f04f`, and the candidate branch is
+rebased on that exact commit. PR #19 remains draft pending fresh hosted checks,
+independent implementation review, and acceptance of its parent. Do not use it
+for a live agent demonstration yet.
 
 From the local reference clone, or after the candidate refs are published:
 
@@ -103,27 +102,22 @@ fixture as authority.
 The refreshed endpoint head and plan must first be published, the parent
 controller accepted, and the cloud host canary completed. Then:
 
-```powershell
-# CUSTOMIZE to the published endpoint starter and actual live task.
-$BaseBranch = '<PUBLISHED_ENDPOINT_STARTER_BRANCH>'
-$Prompt = @'
-Task issue: #17
-Task role: implement
-Delivery pattern: plan + execution, medium risk.
-Resolve the live task, create a validated plan, and propose the scoped
-GET /orders/:id implementation with that plan in the same PR.
-No separate plan-only approval, no invented approval record, no merge.
-Stop for scope/risk expansion and report actual tests and limitations.
-'@
-gh agent-task create --repo webmaxru/northstar-orders-api-demo `
-  --base $BaseBranch --custom-agent implement $Prompt
-```
+Start the Copilot cloud task from the **GitHub.com UI**, not the Copilot app or
+a CLI task-launch command:
 
-This is an operator command, not a recorded successful cloud run. Do not run it
-against the current remote PR #19 until the refreshed head and plan are
-published and their checks pass. Retain the returned session URL, source SHA,
-task digest, host branch and actual workflow evidence. If task/plan
-initialization fails, the demo is blocked.
+1. Open the live WI-1843 issue and start a new cloud-agent task from that issue.
+2. Select the `implement` agent and the exact published base
+   `agent/implement/aes-surface-evidence` at
+   `17e7a5c5f1fbf88a92351043c675f555f4c7f04f`.
+3. Prompt for plan + execution in one PR; prohibit a separate plan-only PR,
+   invented approval, out-of-scope changes, and merge.
+4. Before starting, verify the UI shows the selected issue and base. If the
+   base cannot be selected or the task page fails to load, stop without
+   launching a task or creating an empty PR.
+
+No successful cloud run is recorded. Retain the returned session URL, source
+SHA, task digest, host branch and actual workflow evidence if the UI can
+complete the run. If task/plan initialization fails, the demo is blocked.
 
 ## 5. Show the small implementation
 
@@ -187,18 +181,17 @@ through one process, read through another, restart the writer, and check that
 orders/idempotency rows did not change during reads.
 
 **Current evidence boundary:** route/service tests and real in-memory HTTP
-passed. The authorized PostgreSQL run at published head
-`0d5a5d4066b3eae66330f50240232ab920e2d029` passed 12/12 acceptance tests,
+passed. The authorized PostgreSQL run on the rebased source tree committed to
+PR #19 passed 12/12 acceptance tests,
 including independent processes and restart behavior. The disposable
 PostgreSQL 17.11 service was cleaned up after the run. The separate full
 `npm run validate:all` run exited 1 after two Stop-suite test timeouts
 (421 passed, 2 timed out); a separate Stop-suite rerun passed 53/53, which
 does not make the full run green.
 
-The published hosted Plan Gate passed for the old PR body, but Governed Change
-failed because that plan's `e509ce0` base did not match the old live `13eb5a7`
-base. The refreshed local plan now targets `17e7a5c5…`; the remote result must
-be rerun after publication. This database result is not hosted acceptance,
+The old hosted Plan Gate and Governed Change ran against the stale plan/body.
+The refreshed plan targets `17e7a5c5…`; new hosted checks must complete against
+the refreshed PR body and head. This database result is not hosted acceptance,
 and it does not validate a Copilot cloud or VS Code agent run. Do not replace
 those missing proofs with mocked SQL tests or the older idempotency audit.
 
