@@ -4,12 +4,13 @@
 Support simultaneous independent agent tasks on one local machine through Copilot CLI with separate Git worktrees, and in Copilot cloud agent through isolated task checkouts and workflow runs. Prevent one task or session from overwriting, clearing, reading as authority, or accepting another task's contracts, plans, evidence, retry state, or test resources. Also isolate PostgreSQL acceptance suites so files running concurrently never create, reset, or query the same shared schema. On 2026-09-26, hosted validation repeatedly failed because tests/acceptance/idempotency.acceptance.test.ts and tests/acceptance/postgres-privacy.acceptance.test.ts raced while creating the public `orders` type/table; PostgreSQL reported duplicate pg_type_typname_nsp_index and the tests observed two rows instead of one.
 
 ## Plan
-Risk: high. Base: `agent/implement/aes-surface-evidence` at `17e7a5c5f1fbf88a92351043c675f555f4c7f04f`. This refreshed plan replaces the stale base binding in PR #26; its previous approval is invalid. No implementation changes are authorized until an eligible independent reviewer approves the exact refreshed plan commit.
+Risk: high. Base: `agent/implement/aes-surface-evidence` at `2ce3cf8a69439c22246de7d5449ce186e23bd584`. This revision rebinds PR #26 to the current parent PR #18 head; the previous approval is invalid. No implementation changes are authorized until an eligible independent reviewer approves the exact refreshed plan commit.
 
-### Current failure evidence
+### Observed failure evidence
 - The task contract documents a shared-checkout resolver reproduction: concurrent tasks overwrite `artifacts/task-contract.json` and `artifacts/task-session.json`.
 - Hosted acceptance on unchanged plan-only PR runs reported PostgreSQL `orders` type/schema collisions (`pg_type_typname_nsp_index`) and cross-test row-count failures when acceptance files ran concurrently.
 - On 2026-09-27, hosted Governed Change run [36337147510](https://github.com/webmaxru/northstar-orders-api-demo/actions/runs/36337147510) on draft PR #28 ran the acceptance files concurrently. `idempotency.acceptance.test.ts` observed two rows instead of one, and `postgres-privacy.acceptance.test.ts` also observed two idempotency rows. The local suite passed 9/9 on the same candidate, confirming that shared test-database state is not isolated in CI.
+- Issue #24 child PR #28 is now rebased on parent head `2ce3cf8a69439c22246de7d5449ce186e23bd584` at `35ac91150fa4088af3132a9dda75bc690d657165`; its current unit and acceptance suites pass, but hosted `human-review` and `repository-controls` fail. This does not prove Issue #16's independent-task or parallel-acceptance criteria, and no acceptance decision is claimed.
 
 ### Planned approach
 1. Prove the shared-checkout failure and two-worktree isolation with deterministic concurrent tests before changing runtime authority.
@@ -67,7 +68,7 @@ Prohibited paths and operations:
 
 ## Decisions and handoffs
 - The user authorized completing remaining system tasks; issue #16 still requires its own exact high-risk plan approval and implementation review. This proposal does not modify issue #14 or approved plan #15.
-- The refreshed plan base is agent/implement/aes-surface-evidence at 17e7a5c5f1fbf88a92351043c675f555f4c7f04f, not main and not the historical e509ce0 checkpoint.
+- The refreshed plan base is agent/implement/aes-surface-evidence at 2ce3cf8a69439c22246de7d5449ce186e23bd584, not main and not the historical e509ce0 checkpoint.
 - Current hosted acceptance evidence includes duplicate orders type/schema creation (pg_type_typname_nsp_index) and cross-test row-count failures when the idempotency and privacy acceptance files ran concurrently. The failing job came from a plan-only diff, so this is a baseline test-resource defect, not a code change from that PR.
 - Issue #16 is a prerequisite for issue #24 preflight because acceptance must pass before any temporary ruleset window. Issue #24 remains blocked until this task is accepted.
 
@@ -90,7 +91,7 @@ Prohibited paths and operations:
   "schema": "northstar/plan/1",
   "taskId": "AES-PARALLEL-ISOLATION",
   "contractDigest": "2afe7ed62ca5f99393f36177182291355fb014dc70949456b2116e64e9a736f1",
-  "baseSha": "17e7a5c5f1fbf88a92351043c675f555f4c7f04f",
+  "baseSha": "2ce3cf8a69439c22246de7d5449ce186e23bd584",
   "baseBranch": "agent/implement/aes-surface-evidence",
   "risk": "high",
   "objective": "Support simultaneous independent agent tasks on one local machine through Copilot CLI with separate Git worktrees, and in Copilot cloud agent through isolated task checkouts and workflow runs. Prevent one task or session from overwriting, clearing, reading as authority, or accepting another task's contracts, plans, evidence, retry state, or test resources. Also isolate PostgreSQL acceptance suites so files running concurrently never create, reset, or query the same shared schema. On 2026-09-26, hosted validation repeatedly failed because tests/acceptance/idempotency.acceptance.test.ts and tests/acceptance/postgres-privacy.acceptance.test.ts raced while creating the public `orders` type/table; PostgreSQL reported duplicate pg_type_typname_nsp_index and the tests observed two rows instead of one.",
@@ -216,7 +217,7 @@ Prohibited paths and operations:
   ],
   "decisionsAndHandoffs": [
     "The user authorized completing remaining system tasks; issue #16 still requires its own exact high-risk plan approval and implementation review. This proposal does not modify issue #14 or approved plan #15.",
-    "The refreshed plan base is agent/implement/aes-surface-evidence at 17e7a5c5f1fbf88a92351043c675f555f4c7f04f, not main and not the historical e509ce0 checkpoint.",
+    "The refreshed plan base is agent/implement/aes-surface-evidence at 2ce3cf8a69439c22246de7d5449ce186e23bd584, not main and not the historical e509ce0 checkpoint.",
     "Current hosted acceptance evidence includes duplicate orders type/schema creation (pg_type_typname_nsp_index) and cross-test row-count failures when the idempotency and privacy acceptance files ran concurrently. The failing job came from a plan-only diff, so this is a baseline test-resource defect, not a code change from that PR.",
     "Issue #16 is a prerequisite for issue #24 preflight because acceptance must pass before any temporary ruleset window. Issue #24 remains blocked until this task is accepted."
   ],
@@ -233,7 +234,7 @@ Prohibited paths and operations:
     "If the old root-level artifact migration is ambiguous, do not adopt or delete it automatically; require an explicit owner-controlled transition.",
     "Stop after repeated identical required failures, policy/security failures, unresolved session ownership conflicts, or a missing CLI/cloud identity."
   ],
-  "planDigest": "76099e78aea93c30c99b721cb99d57e9cadef92d7686008d8a6c77f6abd7fb94"
+  "planDigest": "d020ca885dc5e1af7b29cc30c3cd537031634870eedf2936b7ed0b86843c0915"
 }
 ```
 <!-- northstar:plan-contract:end -->

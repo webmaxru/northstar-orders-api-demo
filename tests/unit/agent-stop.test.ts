@@ -24,6 +24,15 @@ const passing = {
 };
 
 describe("the stop gate summary", () => {
+  it("identifies deferred criteria as unverified", () => {
+    const summary = summarize({
+      ...passing,
+      deferredCriteria: [{ id: "AC15", status: "unverified" }],
+    });
+
+    expect(summary).toContain("deferred AC15 (unverified)");
+  });
+
   it("reports the decision and the proven ratio", () => {
     expect(summarize(passing)).toContain("ready_for_review");
     expect(summarize(passing)).toContain("criteria 2/2");

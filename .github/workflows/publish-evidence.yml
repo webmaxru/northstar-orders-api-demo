@@ -268,11 +268,18 @@ jobs:
           steps.decision.outputs.value == 'ready_for_review'
         env:
           GH_TOKEN: ${{ steps.dispatcher-token.outputs.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           test -n "$GH_TOKEN"
           gh workflow run system-maintenance-approval.yml \
-            --ref "${{ github.event.repository.default_branch }}" \
+            --ref "$DEFAULT_BRANCH" \
             -f pull-request="$PR_NUMBER" \
             -f head-sha="$NORTHSTAR_HEAD_SHA" \
             -f evidence-run-id="${{ github.run_id }}" \
             -f source-run-id="$NORTHSTAR_RUN_ID"
+      - name: Dispatch the approved browser-plan canary
+        if: steps.execution-plan.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.publisher-token.outputs.token }}
+          NORTHSTAR_DISPATCH_TOKEN: ${{ steps.dispatcher-token.outputs.token }}
+        run: node scripts/dispatch-browser-plan-canary.mjs

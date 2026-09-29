@@ -100,6 +100,24 @@ describe("the durable evidence comment", () => {
     ).toContain("Evidence: PASS");
   });
 
+  it("labels staged readiness and lists deferred criteria", () => {
+    const staged = {
+      ...report,
+      decision: "ready_for_review",
+      successCriteria: [
+        ...report.successCriteria,
+        { id: "AC15", statement: "Browser approval is recorded", proven: false, provenBy: "live canary" },
+      ],
+      deferredCriteria: [{ id: "AC15", stage: "post-acceptance", status: "unverified" }],
+      limits: ["AC15 is deferred to post-acceptance and remains unverified: browser canary."],
+    };
+    const body = renderComment(staged);
+
+    expect(body).toContain("Evidence: STAGED REVIEW; POST-ACCEPTANCE EVIDENCE REQUIRED");
+    expect(body).toContain("Deferred criteria: AC15 (unverified)");
+    expect(body).toMatch(/AC15 \|.*\*\*not proven\*\*/);
+  });
+
   it("distinguishes local readiness from hosted acceptance", () => {
     expect(
       renderComment({
