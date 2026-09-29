@@ -1,6 +1,7 @@
 export interface ExecutionReportLike {
   decision: string;
   successCriteria: Array<{ id: string; proven: boolean }>;
+  deferredCriteria?: Array<{ id: string; status: "unverified" | "proven" }>;
   tests: {
     unit: { tests?: number; failures?: number; errors?: number };
     acceptance: { tests?: number; failures?: number; errors?: number };

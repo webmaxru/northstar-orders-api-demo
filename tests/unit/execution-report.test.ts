@@ -21,6 +21,7 @@ import type { CheckRecord } from "../../scripts/evidence-record.mjs";
 import { planDigest } from "../../scripts/plan-contract.mjs";
 import type { PlanContract } from "../../scripts/plan-contract.mjs";
 import { contractFromFile } from "../../scripts/task-contract.mjs";
+import type { TaskContract } from "../../scripts/task-contract.mjs";
 
 const root = mkdtempSync(join(tmpdir(), "northstar-report-"));
 const contract = contractFromFile("tests/fixtures/WI-1842.issue.md");
@@ -37,7 +38,10 @@ const requiredChecks = [
   "dependency-review", "codeql", "secret-scan", "merge-validation",
   "governance-policy", "validation-authority", "repository-controls", "human-review", "evidence",
 ];
-const revalidated = new Set(["plan-contract", "plan-approval", "scope-policy", "validation-authority", "repository-controls", "human-review"]);
+const revalidated = new Set([
+  "plan-contract", "plan-approval", "scope-policy", "validation-authority",
+  "repository-controls", "human-review", "browser-plan-canary",
+]);
 const plan: PlanContract = {
   schema: "northstar/plan/1",
   taskId: contract.id,
@@ -102,6 +106,7 @@ beforeEach(() => {
   rmSync(join(root, "untracked.txt"), { force: true });
   for (const [id, paths] of Object.entries(CHECK_ARTIFACTS)) {
     for (const path of paths) {
+      if (id === "browser-plan-canary") continue;
       if (id === "codeql") {
         write(`${path}/results.sarif`, JSON.stringify({ version: "2.1.0", runs: [{ tool: { driver: { name: "CodeQL" } }, results: [] }] }));
       } else if (path.endsWith(".xml")) {
@@ -126,7 +131,13 @@ beforeEach(() => {
 
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-function check(id: string, status: CheckRecord["status"] = "pass", hosted = false, candidatePlan = plan): CheckRecord {
+function check(
+  id: string,
+  status: CheckRecord["status"] = "pass",
+  hosted = false,
+  candidatePlan = plan,
+  candidateContract: TaskContract = trustedContract,
+): CheckRecord {
   const producer = hosted && !revalidated.has(id) ? {
     ...hostedEnv, GITHUB_RUN_ID: "42", GITHUB_RUN_ATTEMPT: "2", GITHUB_WORKFLOW: "Governed Change",
     GITHUB_EVENT_NAME: "pull_request", GITHUB_ACTOR: "fixture-producer",
@@ -134,12 +145,68 @@ function check(id: string, status: CheckRecord["status"] = "pass", hosted = fals
   return createCheckRecord({
     id, status, artifact: CHECK_ARTIFACTS[id]?.[0] ?? null,
   }, { ...producer, NORTHSTAR_JOB_ID: id }, {
-    root, contract: trustedContract, plan: candidatePlan,
+    root, contract: candidateContract, plan: candidatePlan,
   });
 }
 
-function records(hosted = false, candidatePlan = plan): CheckRecord[] {
-  const context = evidenceContext(hosted ? hostedEnv : localEnv, { root, contract: trustedContract, plan: candidatePlan });
+function records(
+  hosted = false,
+  candidatePlan = plan,
+  candidateContract: TaskContract = trustedContract,
+): CheckRecord[] {
+  const context = evidenceContext(hosted ? hostedEnv : localEnv, {
+    root, contract: candidateContract, plan: candidatePlan,
+  });
+  if (candidatePlan.requiredChecks.includes("browser-plan-canary")) {
+    const source = {
+      repository: context.repository,
+      taskId: context.taskId,
+      contractDigest: context.contractDigest,
+      planDigest: context.planDigest,
+      headSha: context.headSha,
+      baseSha: context.baseSha,
+      pullRequest: context.pullRequest,
+      runId: context.runId,
+      runAttempt: context.runAttempt,
+      evidenceRunId: "91",
+    };
+    write("artifacts/browser-plan-canary.json", JSON.stringify({
+      schema: "northstar/browser-plan-canary/1",
+      criterionIds: ["AC15"],
+      verifiedAt: "2026-09-03T10:00:00.000Z",
+      source,
+      canary: {
+        pullRequest: 8,
+        url: "https://github.com/webmaxru/northstar-orders-api-demo/pull/8",
+        planAuthor: "fixture-author",
+        headSha: "e".repeat(40),
+        baseSha: "c".repeat(40),
+        planDigest: "d".repeat(64),
+        artifactPath: `docs/plans/${candidateContract.id.toLowerCase()}.md`,
+        artifactBlobSha: "f".repeat(40),
+        reviewId: 23,
+        reviewer: "fixture-reviewer",
+        reviewedCommit: "e".repeat(40),
+        reviewState: "APPROVED",
+        approvedAt: "2026-09-03T09:00:00.000Z",
+        canaryFor: {
+          sourceTaskId: source.taskId,
+          sourceContractDigest: source.contractDigest,
+          sourcePlanDigest: source.planDigest,
+          sourceBaseSha: source.baseSha,
+          sourcePullRequest: source.pullRequest,
+          sourceHeadSha: source.headSha,
+          sourceRunId: source.runId,
+          sourceRunAttempt: source.runAttempt,
+          sourceEvidenceRunId: source.evidenceRunId,
+          bootstrapPlanPr: 15,
+          bootstrapPlanHeadSha: "a".repeat(40),
+          bootstrapReviewId: 16,
+          bootstrapReviewer: "bootstrap-reviewer",
+        },
+      },
+    }));
+  }
   return candidatePlan.requiredChecks.filter((id) => id !== "evidence").map((id) => {
     const artifact = CHECK_ARTIFACTS[id]?.[0] ?? null;
     return {
@@ -162,12 +229,15 @@ function report(input: {
   hosted?: boolean;
   plan?: PlanContract | null;
   trusted?: boolean;
+  contract?: TaskContract;
   env?: Record<string, string | undefined>;
 } = {}) {
+  const reportContract = input.contract ?? (input.trusted === false ? contract : trustedContract);
+  const reportPlan = input.plan === undefined ? plan : input.plan;
   return buildExecutionReport({
-    contract: input.trusted === false ? contract : trustedContract,
-    plan: input.plan === undefined ? plan : input.plan,
-    records: input.records ?? records(input.hosted),
+    contract: reportContract,
+    plan: reportPlan,
+    records: input.records ?? records(input.hosted, reportPlan ?? plan, reportContract),
     unit: readJUnit("artifacts/unit-junit.xml", root),
     acceptance: readJUnit("artifacts/acceptance-junit.xml", root),
     hosted: input.hosted ?? false,
@@ -244,6 +314,192 @@ describe("fail-closed execution evidence", () => {
     const criterion = contract.successCriteria[0]!;
     expect(criterionCoverage([criterion], [`suite > ${criterion.provenBy} extra`])[0]?.proven).toBe(false);
     expect(criterionCoverage([criterion], [`suite > ${criterion.provenBy}`])[0]?.proven).toBe(true);
+  });
+
+  it("keeps a post-acceptance criterion explicitly unverified while permitting review readiness", () => {
+    const deferredCriterion = {
+      id: "AC7",
+      statement: "A browser-only plan approval is recorded after repair acceptance.",
+      provenBy: "proves browser-only plan approval end to end",
+    };
+    const deferredContract: TaskContract = {
+      ...trustedContract,
+      source: { ...trustedContract.source, bodyDigest: "e".repeat(64) },
+      successCriteria: [...trustedContract.successCriteria, deferredCriterion],
+    };
+    const deferral = {
+      id: deferredCriterion.id,
+      stage: "post-acceptance" as const,
+      reason: "The browser canary runs after repair acceptance.",
+      evidence: "Bind the native review to the original task, plan, base, and implementation head.",
+    };
+    const deferredPlan: PlanContract = {
+      ...plan,
+      contractDigest: deferredContract.source.bodyDigest,
+      successCriteria: [
+        ...plan.successCriteria,
+        { id: deferredCriterion.id, provenBy: deferredCriterion.provenBy },
+      ],
+      deferredCriteria: [deferral],
+    };
+    deferredPlan.planDigest = planDigest(deferredPlan);
+    write("artifacts/unit-junit.xml", junit([
+      ...contract.successCriteria.map(({ provenBy }) => provenBy),
+      deferredCriterion.provenBy,
+    ]));
+    write("artifacts/plan.json", JSON.stringify(deferredPlan));
+    write("artifacts/approved-plan.json", JSON.stringify(deferredPlan));
+    write("artifacts/candidate-plan.json", JSON.stringify(deferredPlan));
+    write("artifacts/scope-report.json", JSON.stringify({
+      schema: "northstar/scope-report/1",
+      taskId: deferredContract.id,
+      contractDigest: deferredContract.source.bodyDigest,
+      paths: [],
+      violations: [],
+      ok: true,
+    }));
+
+    const result = report({
+      contract: deferredContract,
+      plan: deferredPlan,
+      hosted: true,
+      records: records(true, deferredPlan, deferredContract),
+    });
+
+    expect(result.decision).toBe("ready_for_review");
+    expect(result.unprovenCriteria).toContain("AC7");
+    expect(result.successCriteria.find(({ id }) => id === "AC7")?.proven).toBe(false);
+    expect(result.deferredCriteria).toEqual([{ ...deferral, status: "unverified" }]);
+  });
+
+  it("proves only AC15 when a valid trusted browser-canary record is present", () => {
+    const deferredCriterion = {
+      id: "AC15",
+      statement: "A current browser-only plan approval is bound to the original implementation.",
+      provenBy: "proves browser-only plan approval end to end",
+    };
+    const deferredContract: TaskContract = {
+      ...trustedContract,
+      source: { ...trustedContract.source, bodyDigest: "9".repeat(64) },
+      successCriteria: [...trustedContract.successCriteria, deferredCriterion],
+    };
+    const deferral = {
+      id: deferredCriterion.id,
+      stage: "post-acceptance" as const,
+      reason: "The canary follows controlled bootstrap activation.",
+      evidence: "Verify the current native review and original source binding.",
+    };
+    const deferredPlan: PlanContract = {
+      ...plan,
+      contractDigest: deferredContract.source.bodyDigest,
+      requiredChecks: [...plan.requiredChecks, "browser-plan-canary"],
+      successCriteria: [
+        ...plan.successCriteria,
+        { id: deferredCriterion.id, provenBy: deferredCriterion.provenBy },
+      ],
+      deferredCriteria: [deferral],
+    };
+    deferredPlan.planDigest = planDigest(deferredPlan);
+    write("artifacts/unit-junit.xml", junit([
+      ...contract.successCriteria.map(({ provenBy }) => provenBy),
+      deferredCriterion.provenBy,
+    ]));
+    write("artifacts/plan.json", JSON.stringify(deferredPlan));
+    write("artifacts/approved-plan.json", JSON.stringify(deferredPlan));
+    write("artifacts/candidate-plan.json", JSON.stringify(deferredPlan));
+    write("artifacts/scope-report.json", JSON.stringify({
+      schema: "northstar/scope-report/1",
+      taskId: deferredContract.id,
+      contractDigest: deferredContract.source.bodyDigest,
+      paths: [],
+      violations: [],
+      ok: true,
+    }));
+
+    const passingRecords = records(true, deferredPlan, deferredContract);
+    const accepted = report({
+      contract: deferredContract,
+      plan: deferredPlan,
+      hosted: true,
+      records: passingRecords,
+    });
+    expect(accepted.decision).toBe("ready_for_acceptance");
+    expect(accepted.successCriteria.find(({ id }) => id === "AC15")?.proven).toBe(true);
+    expect(accepted.deferredCriteria).toEqual([{ ...deferral, status: "proven" }]);
+
+    const missingCanary = report({
+      contract: deferredContract,
+      plan: deferredPlan,
+      hosted: true,
+      records: passingRecords.filter(({ id }) => id !== "browser-plan-canary"),
+    });
+    expect(missingCanary.decision).toBe("ready_for_review");
+    expect(missingCanary.unprovenCriteria).toContain("AC15");
+    expect(missingCanary.pendingHostedEvidence).toContain("browser-plan-canary");
+  });
+
+  it("fails closed on malformed deferred criteria in an execution report", () => {
+    const malformedPlan = {
+      ...plan,
+      deferredCriteria: [null],
+    } as unknown as PlanContract;
+    malformedPlan.planDigest = planDigest(malformedPlan);
+    write("artifacts/plan.json", JSON.stringify(malformedPlan));
+    write("artifacts/approved-plan.json", JSON.stringify(malformedPlan));
+    write("artifacts/candidate-plan.json", JSON.stringify(malformedPlan));
+
+    const result = report({
+      plan: malformedPlan,
+      hosted: true,
+      records: records(true, malformedPlan),
+    });
+
+    expect(result.decision).toBe("review_required");
+    expect(result.plan.valid).toBe(false);
+    expect(result.deferredCriteria).toEqual([]);
+  });
+
+  it("does not defer an unproven criterion unless the approved plan names it", () => {
+    const deferredCriterion = {
+      id: "AC7",
+      statement: "A browser-only plan approval is recorded after repair acceptance.",
+      provenBy: "proves browser-only plan approval end to end",
+    };
+    const deferredContract: TaskContract = {
+      ...trustedContract,
+      source: { ...trustedContract.source, bodyDigest: "f".repeat(64) },
+      successCriteria: [...trustedContract.successCriteria, deferredCriterion],
+    };
+    const nonDeferredPlan: PlanContract = {
+      ...plan,
+      contractDigest: deferredContract.source.bodyDigest,
+      successCriteria: [
+        ...plan.successCriteria,
+        { id: deferredCriterion.id, provenBy: deferredCriterion.provenBy },
+      ],
+    };
+    nonDeferredPlan.planDigest = planDigest(nonDeferredPlan);
+    write("artifacts/plan.json", JSON.stringify(nonDeferredPlan));
+    write("artifacts/approved-plan.json", JSON.stringify(nonDeferredPlan));
+    write("artifacts/scope-report.json", JSON.stringify({
+      schema: "northstar/scope-report/1",
+      taskId: deferredContract.id,
+      contractDigest: deferredContract.source.bodyDigest,
+      paths: [],
+      violations: [],
+      ok: true,
+    }));
+
+    const result = report({
+      contract: deferredContract,
+      plan: nonDeferredPlan,
+      hosted: true,
+      records: records(true, nonDeferredPlan, deferredContract),
+    });
+
+    expect(result.decision).toBe("review_required");
+    expect(result.unprovenCriteria).toContain("AC7");
+    expect(result.deferredCriteria).toEqual([]);
   });
 
   it("does not count skipped testcases as criterion evidence", () => {

@@ -53,8 +53,8 @@ const PLAN_START = "<!-- northstar:plan:start -->";
 const PLAN_END = "<!-- northstar:plan:end -->";
 
 /** The branch a plan-first PR is opened from. */
-export function planBranch(taskId) {
-  return `plan/${String(taskId).toLowerCase()}`;
+export function planBranch(taskId, canary = false) {
+  return `plan/${String(taskId).toLowerCase()}${canary ? "-canary" : ""}`;
 }
 
 export function implementationBranch(taskId) {
@@ -184,24 +184,46 @@ function git(args, options = {}) {
 }
 
 /** The open PR carrying this task's plan, or null. */
-export function findPlanPr(taskId, { run = gh } = {}) {
+export function findPlanPr(taskId, { run = gh, canary = false } = {}) {
   const raw = run([
     "pr",
     "list",
     "--head",
-    planBranch(taskId),
+    planBranch(taskId, canary),
     "--state",
     "open",
     "--limit",
     "2",
     "--json",
-    "number,body,url,author,headRefOid,baseRefOid,isDraft",
+    "number",
   ]);
   const list = JSON.parse(raw);
   if (!Array.isArray(list) || list.length > 1) {
     throw new Error("The task must resolve to exactly one open plan pull request.");
   }
-  return list.length > 0 ? list[0] : null;
+  return list.length > 0 ? planPrByNumber(Number(list[0].number), { run }) : null;
+}
+
+function planPrByNumber(number, { run = gh } = {}) {
+  const pull = githubJson(`repos/{owner}/{repo}/pulls/${number}`, { run });
+  if (pull.number !== number || !pull.user?.login || !pull.head?.sha || !pull.base?.sha ||
+      !pull.head?.repo?.full_name || !pull.base?.repo?.full_name) {
+    return null;
+  }
+  return {
+    number: pull.number,
+    body: pull.body ?? "",
+    url: pull.html_url,
+    author: { login: pull.user.login },
+    headRefOid: pull.head.sha,
+    baseRefOid: pull.base.sha,
+    headRefName: pull.head.ref,
+    baseRefName: pull.base.ref,
+    headRepoFullName: pull.head.repo?.full_name ?? null,
+    baseRepoFullName: pull.base.repo?.full_name ?? null,
+    isDraft: pull.draft,
+    state: pull.state,
+  };
 }
 
 /**
@@ -256,16 +278,17 @@ function isLegacyPlan(pr, plan, contract, legacyPlans) {
     legacy.pr === pr.number &&
     pr.url === `https://github.com/${legacy.repository}/pull/${legacy.pr}` &&
     legacy.headSha === pr.headRefOid &&
-    legacy.baseSha === pr.baseRefOid &&
     legacy.baseSha === plan.baseSha &&
     legacy.contractDigest === contract.source.bodyDigest &&
-    legacy.planDigest === planDigest(plan)
+    legacy.planDigest === planDigest(plan) &&
+    pr.headRefName === planBranch(contract.id) &&
+    pr.baseRefName === plan.baseBranch
   );
 }
 
 /** Materialize only the plan, without touching the caller's checkout or index. */
 function commitPlan(contract, plan, body, existing, { vcs = git, base: baseOverride } = {}) {
-  const branch = planBranch(contract.id);
+  const branch = planBranch(contract.id, Boolean(plan.canaryFor));
   const base = resolveBase(vcs, baseOverride ?? plan.baseBranch);
   if (base !== plan.baseBranch || !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(base)) {
     throw new Error("The publication base must match the validated plan branch.");
@@ -329,7 +352,8 @@ export function publish(contract, body, deps = {}) {
     issue: contract.source?.issue,
   });
 
-  const existing = findPlanPr(contract.id, { run });
+  const canary = Boolean(plan.canaryFor);
+  const existing = findPlanPr(contract.id, { run, canary });
   if (existing) {
     if (existing.author.login !== viewer.login) {
       throw new Error("Only the plan PR's publishing identity may amend it.");
@@ -437,18 +461,34 @@ export function fetchProposedPlan(contract, deps = {}) {
 export function fetchApprovedPlan(contract, deps = {}) {
   const run = deps.run ?? gh;
   if (!contract.source?.trusted) throw new Error("Approved plans require a trusted live task contract.");
-  const pr = findPlanPr(contract.id, { run });
+  const planPrNumber = deps.planPrNumber;
+  if (planPrNumber !== undefined &&
+      (!Number.isSafeInteger(planPrNumber) || planPrNumber < 1)) {
+    throw new Error("An explicit canary plan PR number must be a positive integer.");
+  }
+  const pr = planPrNumber === undefined
+    ? findPlanPr(contract.id, { run })
+    : planPrByNumber(planPrNumber, { run });
   if (!pr) return null;
   if (pr.isDraft !== false) return null;
   let body = extractPlanSection(pr.body);
   let plan = extractPlanContract(body);
   if (!body || !plan) throw new Error("The plan PR has no structured plan.");
+  if (planPrNumber !== undefined &&
+      (pr.state !== "open" || pr.number !== planPrNumber ||
+        pr.headRefName !== planBranch(contract.id, true) ||
+        pr.baseRefName !== plan.baseBranch || !plan.canaryFor)) {
+    throw new Error("The explicit plan PR is not the current file-backed canary for this task.");
+  }
   const validation = validatePlanContract(plan, contract);
-  if (!validation.ok || plan.baseSha !== pr.baseRefOid) {
+  const files = githubPages(`repos/{owner}/{repo}/pulls/${pr.number}/files?per_page=100`, { run });
+  const pinnedLegacy = planPrNumber === undefined && files.length === 0 &&
+    isLegacyPlan(pr, plan, contract, deps.legacyPlans ?? GOVERNANCE_POLICY.planApproval?.legacyPlans);
+  if (!validation.ok || (plan.baseSha !== pr.baseRefOid && !pinnedLegacy)) {
     throw new Error("The plan PR does not match the current task and approved base.");
   }
   const reviews = githubPages(`repos/{owner}/{repo}/pulls/${pr.number}/reviews?per_page=100`, { run });
-  const files = githubPages(`repos/{owner}/{repo}/pulls/${pr.number}/files?per_page=100`, { run });
+  const repository = githubJson("repos/{owner}/{repo}", { run }).full_name;
   let result;
   if (files.length > 0) {
     const artifact = readPlanArtifact(pr.headRefOid, contract.id, { run });
@@ -458,14 +498,19 @@ export function fetchApprovedPlan(contract, deps = {}) {
     }
     plan = committedPlan;
     body = artifact.body.trim();
-    const repository = githubJson("repos/{owner}/{repo}", { run }).full_name;
+    if (pr.headRepoFullName !== repository || pr.baseRepoFullName !== repository) {
+      throw new Error("The approved plan PR must remain in the current repository.");
+    }
     result = evaluateNativePlanApproval({
       plan, contract, pr, reviews, files, entry: artifact.entry, repository,
       eligibleReviewers: configuredPlanReviewers(pr.author.login, { ...deps, run }),
     });
   } else {
-    if (!isLegacyPlan(pr, plan, contract, deps.legacyPlans ?? GOVERNANCE_POLICY.planApproval?.legacyPlans)) {
+    if (!pinnedLegacy) {
       throw new Error("Zero-file plan approval is restricted to the explicitly pinned legacy bootstrap.");
+    }
+    if (pr.headRepoFullName !== repository || pr.baseRepoFullName !== repository) {
+      throw new Error("The pinned legacy plan PR must remain in the current repository.");
     }
     const records = githubPages(`repos/{owner}/{repo}/issues/${pr.number}/comments?per_page=100`, { run })
     .map(({ body: commentBody, user }) => {
@@ -475,17 +520,26 @@ export function fetchApprovedPlan(contract, deps = {}) {
         : null;
     })
     .filter(Boolean);
-    const comparison = githubJson(`repos/{owner}/{repo}/compare/${pr.baseRefOid}...${pr.headRefOid}`, { run });
-    if (!Array.isArray(comparison.files)) throw new Error("The legacy plan comparison is incomplete.");
+    const comparison = githubJson(`repos/{owner}/{repo}/compare/${plan.baseSha}...${pr.headRefOid}`, { run });
+    if (comparison.merge_base_commit?.sha !== plan.baseSha ||
+        !["ahead", "identical"].includes(comparison.status) ||
+        !Array.isArray(comparison.files) || comparison.files.length !== 0) {
+      throw new Error("The pinned legacy plan no longer resolves to its exact fileless approved commit.");
+    }
     result = evaluatePlanApproval({
       plan, contract, approvalRecords: records, reviews, prAuthor: pr.author.login,
-      planHeadSha: pr.headRefOid, baseSha: pr.baseRefOid,
-      planOnlyCommits: comparison.files.length === 0 ? [pr.headRefOid] : [],
+      planHeadSha: pr.headRefOid, baseSha: plan.baseSha,
+      planOnlyCommits: [pr.headRefOid],
     });
   }
-  const current = findPlanPr(contract.id, { run });
+  const current = planPrNumber === undefined
+    ? findPlanPr(contract.id, { run })
+    : planPrByNumber(planPrNumber, { run });
   if (!current || current.isDraft !== false || current.headRefOid !== pr.headRefOid ||
-      current.baseRefOid !== pr.baseRefOid || current.body !== pr.body) {
+      current.baseRefOid !== pr.baseRefOid || current.body !== pr.body ||
+      (planPrNumber !== undefined &&
+        (current.state !== "open" || current.headRefName !== planBranch(contract.id, true) ||
+          current.baseRefName !== plan.baseBranch))) {
     throw new Error("The plan PR changed while its approval was being resolved.");
   }
   return result.ok ? { body, plan, approval: result.record, pr } : null;

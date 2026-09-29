@@ -36,12 +36,14 @@ export const CHECK_ARTIFACTS = Object.freeze({
   "governance-policy": ["artifacts/governance-report.json"],
   "repository-controls": ["artifacts/repository-controls-report.json"],
   "validation-authority": ["artifacts/validation-authority-report.json"],
+  "browser-plan-canary": ["artifacts/browser-plan-canary.json"],
   "human-review": [],
   "production-environment": [],
 });
 const REVALIDATED_CHECKS = new Set([
   "plan-contract", "plan-approval", "scope-policy", "repository-controls",
   "validation-authority", "human-review", "production-environment",
+  "browser-plan-canary",
 ]);
 const CANDIDATE_POLICY_CHECKS = new Set(["plan-contract", "scope-policy"]);
 
@@ -245,6 +247,7 @@ export function artifactErrors(record, root = REPO_ROOT) {
         "governance-policy": "northstar/governance-report/1",
         "repository-controls": "northstar/governance-report/1",
         "validation-authority": "northstar/validation-authority-report/1",
+        "browser-plan-canary": "northstar/browser-plan-canary/1",
       };
       if (schemas[record.id] && data?.schema !== schemas[record.id]) errors.push("artifact schema mismatch");
       if (record.id.startsWith("plan-") && (
@@ -283,6 +286,53 @@ export function artifactErrors(record, root = REPO_ROOT) {
           !Number.isSafeInteger(counts.high) || counts.high < 0 ||
           !Number.isSafeInteger(counts.critical) || counts.critical < 0) errors.push("dependency audit is malformed");
         else if (record.status === "pass" && counts.high + counts.critical > 0) errors.push("dependency audit contains blocking findings");
+      }
+      if (record.id === "browser-plan-canary") {
+        const source = data?.source;
+        const canary = data?.canary;
+        const binding = canary?.canaryFor;
+        const sourceFields = [
+          "repository", "taskId", "contractDigest", "planDigest",
+          "headSha", "baseSha", "pullRequest", "runId", "runAttempt",
+        ];
+        if (!source || typeof source !== "object" || sourceFields.some((field) =>
+          source[field] !== record.provenance?.[field])) {
+          errors.push("browser canary source identity mismatch");
+        }
+        if (!/^[1-9]\d*$/.test(source?.evidenceRunId ?? "") ||
+          !Array.isArray(data?.criterionIds) || data.criterionIds.length !== 1 || data.criterionIds[0] !== "AC15" ||
+          typeof data?.verifiedAt !== "string" || !Number.isFinite(Date.parse(data.verifiedAt))) {
+          errors.push("browser canary evidence identity is incomplete");
+        }
+        if (!canary || !Number.isSafeInteger(canary.pullRequest) || canary.pullRequest < 1 ||
+          canary.pullRequest === source?.pullRequest || !SHA.test(canary.headSha ?? "") ||
+          !SHA.test(canary.baseSha ?? "") || !DIGEST.test(canary.planDigest ?? "") ||
+          canary.url !== `https://github.com/${String(source?.repository ?? "")}/pull/${canary.pullRequest}` ||
+          canary.artifactPath !== `docs/plans/${String(source?.taskId ?? "").toLowerCase()}.md` ||
+          !SHA.test(canary.artifactBlobSha ?? "") || canary.reviewedCommit !== canary.headSha ||
+          String(canary.reviewState).toUpperCase() !== "APPROVED" ||
+          !Number.isSafeInteger(canary.reviewId) || canary.reviewId < 1 ||
+          typeof canary.reviewer !== "string" || !canary.reviewer.trim() ||
+          !canary.planAuthor || canary.reviewer === canary.planAuthor ||
+          !Number.isFinite(Date.parse(canary.approvedAt ?? ""))) {
+          errors.push("browser canary review or plan artifact identity is invalid");
+        }
+        if (!binding || typeof binding !== "object" ||
+          binding.sourceTaskId !== source?.taskId ||
+          binding.sourceContractDigest !== source?.contractDigest ||
+          binding.sourcePlanDigest !== source?.planDigest ||
+          binding.sourceBaseSha !== source?.baseSha ||
+          binding.sourcePullRequest !== source?.pullRequest ||
+          binding.sourceHeadSha !== source?.headSha ||
+          binding.sourceRunId !== source?.runId ||
+          binding.sourceRunAttempt !== source?.runAttempt ||
+          binding.sourceEvidenceRunId !== source?.evidenceRunId ||
+          !Number.isSafeInteger(binding.bootstrapPlanPr) || binding.bootstrapPlanPr < 1 ||
+          !SHA.test(binding.bootstrapPlanHeadSha ?? "") ||
+          !Number.isSafeInteger(binding.bootstrapReviewId) || binding.bootstrapReviewId < 1 ||
+          typeof binding.bootstrapReviewer !== "string" || !binding.bootstrapReviewer.trim()) {
+          errors.push("browser canary does not bind the original approved plan and implementation");
+        }
       }
       if (record.id === "validation-authority" && (
         data?.headSha !== record.provenance?.headSha || data?.pullRequest !== record.provenance?.pullRequest ||

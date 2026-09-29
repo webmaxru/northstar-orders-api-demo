@@ -3,7 +3,8 @@
  *
  * Every producer emits a northstar/check-evidence/1 envelope bound to the
  * task, plan, source, and exact run attempt. Local validation can reach
- * ready_for_review; only hosted checks and human approvals can reach
+ * ready_for_review, including when a validated plan explicitly defers a
+ * criterion to post-acceptance. Deferred criteria remain unverified and block
  * ready_for_acceptance.
  */
 
@@ -39,8 +40,8 @@ const HOSTED_ONLY_CHECKS = new Set([
   "production-environment",
   "repository-controls",
   "validation-authority",
+  "browser-plan-canary",
 ]);
-
 function decodeXml(value) {
   return String(value)
     .replace(/&#(x[0-9a-f]+|\d+);/gi, (_, code) =>
@@ -273,13 +274,33 @@ export function buildExecutionReport({
     };
   });
 
+  const deferredCriteria = planValidation.ok && Array.isArray(plan?.deferredCriteria)
+    ? plan.deferredCriteria
+    : [];
+  const deferredIds = new Set(deferredCriteria.map(({ id }) => id));
+  const canaryCheck = checks.find(({ id }) => id === "browser-plan-canary");
+  const canaryEvidence = canaryCheck?.present && canaryCheck.valid &&
+    canaryCheck.status === "pass" && typeof canaryCheck.record?.artifact === "string"
+    ? readEvidenceJson(canaryCheck.record.artifact, root)
+    : null;
+  const canaryProven = new Set(Array.isArray(canaryEvidence?.criterionIds)
+    ? canaryEvidence.criterionIds : []);
   const successCriteria = criterionCoverage(contract.successCriteria, [
     ...(unit.testNames ?? []),
     ...(acceptance.testNames ?? []),
-  ]);
+  ]).map((criterion) => deferredIds.has(criterion.id)
+    ? { ...criterion, proven: canaryProven.has(criterion.id) }
+    : criterion);
   const unprovenCriteria = successCriteria
     .filter(({ proven }) => !proven)
     .map(({ id }) => id);
+  const blockingUnprovenCriteria = unprovenCriteria.filter(
+    (id) => !deferredIds.has(id),
+  );
+  const deferredCriteriaReport = deferredCriteria.map((criterion) => ({
+    ...criterion,
+    status: canaryProven.has(criterion.id) ? "proven" : "unverified",
+  }));
 
   const localChecks = checks.filter(({ hostedOnly }) => !hostedOnly);
   const hostedChecks = checks.filter(({ hostedOnly }) => hostedOnly);
@@ -301,11 +322,12 @@ export function buildExecutionReport({
     acceptance.passed &&
     Number(acceptance.tests ?? 0) > 0 &&
     failedLocalChecks.length === 0 &&
-    unprovenCriteria.length === 0;
+    blockingUnprovenCriteria.length === 0;
   const hostedReady =
     localReady &&
     hasLiveTaskIdentity(contract, expected.repository) &&
-    failedHostedChecks.length === 0;
+    failedHostedChecks.length === 0 &&
+    unprovenCriteria.length === 0;
   const decision = !localReady
     ? "review_required"
     : hosted && hostedReady
@@ -313,7 +335,7 @@ export function buildExecutionReport({
       : "ready_for_review";
 
   return {
-    schema: "northstar/execution-report/3",
+    schema: "northstar/execution-report/4",
     workItem: contract.id,
     contractSource: contract.source,
     generatedAt: new Date().toISOString(),
@@ -338,8 +360,12 @@ export function buildExecutionReport({
     failedLocalChecks,
     pendingHostedEvidence: failedHostedChecks,
     unprovenCriteria,
+    deferredCriteria: deferredCriteriaReport,
     decision,
     limits: [
+      ...deferredCriteriaReport.filter(({ status }) => status === "unverified").map(({ id, reason }) =>
+        `${id} remains unverified until its trusted post-bootstrap canary is verified: ${reason}`,
+      ),
       ...(!contract.source.trusted
         ? [
             "The task contract came from an offline fixture, not a live trusted GitHub issue.",
@@ -393,6 +419,12 @@ function main() {
       `criteriaProven=${report.successCriteria.filter(({ proven }) => proven).length}/${report.successCriteria.length}`,
     ].join("  ") + `\n${target}\n`,
   );
+
+  if (report.deferredCriteria.some(({ status }) => status === "unverified")) {
+    process.stdout.write(
+      `deferred criteria: ${report.deferredCriteria.filter(({ status }) => status === "unverified").map(({ id }) => id).join(", ")} (unverified)\n`,
+    );
+  }
 
   if (report.decision === "review_required") {
     process.stdout.write(

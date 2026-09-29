@@ -3,9 +3,11 @@ import { resolve } from "node:path";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 
-export function runGitHub(args) {
+export function runGitHub(args, { token } = {}) {
   const env = { ...process.env };
-  if (!env.GH_TOKEN && env.GITHUB_COPILOT_GIT_TOKEN) {
+  if (token) {
+    env.GH_TOKEN = token;
+  } else if (!env.GH_TOKEN && env.GITHUB_COPILOT_GIT_TOKEN) {
     env.GH_TOKEN = env.GITHUB_COPILOT_GIT_TOKEN;
   }
   return execFileSync("gh", args, {

@@ -156,6 +156,81 @@ export function validatePlanContract(plan, contract) {
     }
   }
 
+  const deferredCriteria = plan.deferredCriteria;
+  if (deferredCriteria !== undefined && !Array.isArray(deferredCriteria)) {
+    errors.push("Plan deferredCriteria must be an array.");
+  } else {
+    const deferredIds = new Set();
+    for (const deferred of deferredCriteria ?? []) {
+      if (!deferred || typeof deferred !== "object" || Array.isArray(deferred)) {
+        errors.push("Plan deferredCriteria entries must be objects.");
+        continue;
+      }
+      const id = deferred.id;
+      if (typeof id !== "string" || !id.trim()) {
+        errors.push("Deferred criterion id is required.");
+        continue;
+      }
+      if (deferredIds.has(id)) {
+        errors.push(`Deferred criterion ${id} is duplicated.`);
+      }
+      deferredIds.add(id);
+      if (!plannedCriteria.some((criterion) => criterion.id === id)) {
+        errors.push(`Deferred criterion ${id} is not mapped by the plan.`);
+      }
+      if (contract && !contract.successCriteria.some((criterion) => criterion.id === id)) {
+        errors.push(`Deferred criterion ${id} is not part of the task contract.`);
+      }
+      if (deferred.stage !== "post-acceptance") {
+        errors.push(`Deferred criterion ${id} stage must be post-acceptance.`);
+      }
+      if (typeof deferred.reason !== "string" || !deferred.reason.trim()) {
+        errors.push(`Deferred criterion ${id} requires a reason.`);
+      }
+      if (typeof deferred.evidence !== "string" || !deferred.evidence.trim()) {
+        errors.push(`Deferred criterion ${id} requires an evidence description.`);
+      }
+    }
+  }
+
+  const canaryFor = plan.canaryFor;
+  if (canaryFor !== undefined) {
+    if (!canaryFor || typeof canaryFor !== "object" || Array.isArray(canaryFor)) {
+      errors.push("Plan canaryFor must be an object.");
+    } else {
+      if (canaryFor.sourceTaskId !== contract?.id) {
+        errors.push("Plan canaryFor sourceTaskId must match the task contract.");
+      }
+      if (canaryFor.sourceContractDigest !== contract?.source?.bodyDigest) {
+        errors.push("Plan canaryFor sourceContractDigest must match the live task.");
+      }
+      if (!/^[0-9a-f]{64}$/i.test(String(canaryFor.sourcePlanDigest ?? ""))) {
+        errors.push("Plan canaryFor sourcePlanDigest must be a SHA-256 digest.");
+      }
+      for (const field of ["sourceBaseSha", "sourceHeadSha", "bootstrapPlanHeadSha"]) {
+        if (!/^[0-9a-f]{40}$/i.test(String(canaryFor[field] ?? ""))) {
+          errors.push(`Plan canaryFor ${field} must be a full 40-character commit SHA.`);
+        }
+      }
+      for (const field of ["sourceRunId", "sourceRunAttempt", "sourceEvidenceRunId"]) {
+        if (!/^[1-9]\d*$/.test(String(canaryFor[field] ?? ""))) {
+          errors.push(`Plan canaryFor ${field} must be a positive decimal string.`);
+        }
+      }
+      for (const field of ["sourcePullRequest", "bootstrapPlanPr", "bootstrapReviewId"]) {
+        if (!Number.isSafeInteger(canaryFor[field]) || canaryFor[field] < 1) {
+          errors.push(`Plan canaryFor ${field} must be a positive integer.`);
+        }
+      }
+      if (typeof canaryFor.bootstrapReviewer !== "string" || !canaryFor.bootstrapReviewer.trim()) {
+        errors.push("Plan canaryFor bootstrapReviewer is required.");
+      }
+      if (!plan.requiredChecks.includes("browser-plan-canary")) {
+        errors.push("A canary plan must require browser-plan-canary evidence.");
+      }
+    }
+  }
+
   const assessment = inferRisk({
     paths: plan.scope?.allowed ?? [],
     operations: plan.operations ?? [],

@@ -200,8 +200,37 @@ canaries remain acceptance requirements after the changed controls are reviewed.
 Rules/branch protection, protected environments, App identities and secrets
 are external administrator settings, not established by repository files.
 
-The combined-mode controller now selects a lower-risk proposed plan from the
-same implementation PR, not a separate `plan/<task>` PR. It validates live task,
+For the AES-SURFACE-EVIDENCE bootstrap, AC15 is deferred to the post-acceptance
+stage of controlled bootstrap activation, but must be proven before final Issue
+#14 acceptance. Before the browser canary, the report may be
+`ready_for_review` only when every non-deferred criterion and applicable check
+passes; AC15 remains unverified and `ready_for_acceptance` stays blocked.
+
+The protected system-maintenance workflow permits only that exact staged
+state: `ready_for_review`, AC15 as the sole unverified criterion, and
+`browser-plan-canary` as the sole missing hosted check. It may record the
+environment-approved control-plane activation, but it publishes no
+ready-for-acceptance status. The canary is a file-backed plan-only PR on the
+separate `plan/<task>-canary` branch, leaving the legacy bootstrap plan
+isolated. After an eligible reviewer approves its immutable plan, the trusted
+publisher dispatches protected maintenance to revalidate and bind the live task
+contract, bootstrap approval, original implementation PR/head, source and
+evidence runs, canary PR/head/blob, and native review event. Only a fully
+proven report may publish `ready_for_acceptance`. Hosted proof remains pending
+until this exact flow completes; repository files do not establish external
+ruleset, App-permission, or secret configuration.
+
+The post-merge verifier resolves the original PR only through the explicit
+canary dispatch, checks the merge commit against the captured source base and
+exact source head, and reports against that original base rather than the
+advanced default branch. The legacy bootstrap approval remains valid only for
+its pinned plan commit, contract, reviewer, and original base; changing any
+pinned identity still fails closed.
+
+The combined-mode controller selects a lower-risk proposed plan from the same
+implementation PR, not a separate `plan/<task>` PR. This applies only to
+combined low/medium execution; the AC15 high-risk browser canary uses its
+separate file-backed `plan/<task>-canary` PR. The controller validates live task,
 base/head, repository and ancestry and creates no approval record. Local
 `/work` startup may prepare only a bounded proposal artifact, then activate it
 through the dedicated materialization command before any source edit.

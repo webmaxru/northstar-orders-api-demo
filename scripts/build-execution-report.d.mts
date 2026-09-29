@@ -1,5 +1,5 @@
 import type { CheckRecord, EvidenceContext } from "./evidence-record.d.mts";
-import type { PlanContract } from "./plan-contract.d.mts";
+import type { DeferredCriterion, PlanContract } from "./plan-contract.d.mts";
 import type {
   SuccessCriterion,
   TaskContract,
@@ -20,7 +20,7 @@ export interface JUnitEvidence {
 }
 
 export interface ExecutionReport {
-  schema: "northstar/execution-report/3";
+  schema: "northstar/execution-report/4";
   workItem: string;
   contractSource: TaskContract["source"];
   generatedAt: string;
@@ -51,6 +51,7 @@ export interface ExecutionReport {
   failedLocalChecks: string[];
   pendingHostedEvidence: string[];
   unprovenCriteria: string[];
+  deferredCriteria: Array<DeferredCriterion & { status: "unverified" | "proven" }>;
   decision: "review_required" | "ready_for_review" | "ready_for_acceptance";
   limits: string[];
 }
