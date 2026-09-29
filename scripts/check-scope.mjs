@@ -23,7 +23,6 @@ import {
 } from "./resolve-workflow-run.mjs";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
-const SHA = /^[0-9a-f]{40}$/;
 
 function normalize(path) {
   return String(path).replace(/\\/g, "/").replace(/^\.\//, "");

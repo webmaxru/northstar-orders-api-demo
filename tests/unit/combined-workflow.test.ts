@@ -253,7 +253,7 @@ describe("risk-aware hosted execution-plan selection", { timeout: 90000 }, () =>
     expect(f.candidate.baseSha).toBe(baseSha);
   });
 
-  it("accepts an explicitly allowed merged source PR without rebasing its approved plan", () => {
+  it("does not accept a merged source PR through a caller-supplied allowMerged flag", () => {
     const f = fixture("high");
     f.pull.state = "closed";
     Object.assign(f.pull, {
@@ -263,18 +263,14 @@ describe("risk-aware hosted execution-plan selection", { timeout: 90000 }, () =>
     });
     f.pull.base.sha = "e".repeat(40);
     const readApprovedPlan = vi.fn(() => f.approved);
+    const options = Object.assign(
+      { run: f.run, readApprovedPlan },
+      { allowMerged: true },
+    );
 
-    expect(() =>
-      selectExecutionPlan(f.input, { run: f.run, readApprovedPlan }),
-    ).toThrow(/does not match the selected task/);
-    expect(
-      selectExecutionPlan(f.input, {
-        run: f.run,
-        readApprovedPlan,
-        allowMerged: true,
-      }),
-    ).toMatchObject({ approvalState: "approved", planDigest: f.candidate.planDigest });
-    expect(readApprovedPlan).toHaveBeenCalledTimes(1);
+    expect(() => selectExecutionPlan(f.input, options))
+      .toThrow(/does not match the selected task/);
+    expect(readApprovedPlan).not.toHaveBeenCalled();
   });
 
   it.each(["head", "repository", "task", "base-branch", "plan-body"] as const)("rejects mismatched %s identity", (field) => {
@@ -501,11 +497,14 @@ describe("combined-mode hosted workflow wiring", () => {
 
     const maintenance = workflow("system-maintenance-approval.yml");
     const maintenanceResolver = maintenance.indexOf("node scripts/resolve-workflow-run.mjs");
-    const maintenanceDownload = maintenance.indexOf("uses: actions/download-artifact@v7");
+    const maintenanceDownload = maintenance.indexOf(
+      "uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131",
+    );
     expect(maintenance).toContain("source-run-attempt:");
     expect(maintenance).toContain("evidence-run-attempt:");
     expect(maintenance).toContain("bootstrap-plan-pr-number:");
     expect(maintenance).toContain("artifact-ids: ${{ steps.resolve.outputs.maintenance_artifact_id }}");
+    expect(maintenance).toContain("persist-credentials: false");
     expect(maintenanceResolver).toBeGreaterThanOrEqual(0);
     expect(maintenanceDownload).toBeGreaterThan(maintenanceResolver);
 
