@@ -8,6 +8,22 @@ export interface DeferredCriterion {
   evidence: string;
 }
 
+export interface BrowserPlanCanaryBinding {
+  sourceTaskId: string;
+  sourceContractDigest: string;
+  sourcePlanDigest: string;
+  sourceBaseSha: string;
+  sourcePullRequest: number;
+  sourceHeadSha: string;
+  sourceRunId: string;
+  sourceRunAttempt: string;
+  sourceEvidenceRunId: string;
+  bootstrapPlanPr: number;
+  bootstrapPlanHeadSha: string;
+  bootstrapReviewId: number;
+  bootstrapReviewer: string;
+}
+
 export interface PlanContract {
   schema: "northstar/plan/1";
   taskId: string;
@@ -21,6 +37,7 @@ export interface PlanContract {
   steps: string[];
   successCriteria: Array<{ id: string; provenBy: string }>;
   deferredCriteria?: DeferredCriterion[];
+  canaryFor?: BrowserPlanCanaryBinding;
   requiredChecks: string[];
   evidence: string[];
   decisionsAndHandoffs: string[];

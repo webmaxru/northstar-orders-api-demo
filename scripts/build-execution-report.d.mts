@@ -51,7 +51,7 @@ export interface ExecutionReport {
   failedLocalChecks: string[];
   pendingHostedEvidence: string[];
   unprovenCriteria: string[];
-  deferredCriteria: Array<DeferredCriterion & { status: "unverified" }>;
+  deferredCriteria: Array<DeferredCriterion & { status: "unverified" | "proven" }>;
   decision: "review_required" | "ready_for_review" | "ready_for_acceptance";
   limits: string[];
 }

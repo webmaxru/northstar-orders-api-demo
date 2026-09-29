@@ -193,6 +193,44 @@ export function validatePlanContract(plan, contract) {
     }
   }
 
+  const canaryFor = plan.canaryFor;
+  if (canaryFor !== undefined) {
+    if (!canaryFor || typeof canaryFor !== "object" || Array.isArray(canaryFor)) {
+      errors.push("Plan canaryFor must be an object.");
+    } else {
+      if (canaryFor.sourceTaskId !== contract?.id) {
+        errors.push("Plan canaryFor sourceTaskId must match the task contract.");
+      }
+      if (canaryFor.sourceContractDigest !== contract?.source?.bodyDigest) {
+        errors.push("Plan canaryFor sourceContractDigest must match the live task.");
+      }
+      if (!/^[0-9a-f]{64}$/i.test(String(canaryFor.sourcePlanDigest ?? ""))) {
+        errors.push("Plan canaryFor sourcePlanDigest must be a SHA-256 digest.");
+      }
+      for (const field of ["sourceBaseSha", "sourceHeadSha", "bootstrapPlanHeadSha"]) {
+        if (!/^[0-9a-f]{40}$/i.test(String(canaryFor[field] ?? ""))) {
+          errors.push(`Plan canaryFor ${field} must be a full 40-character commit SHA.`);
+        }
+      }
+      for (const field of ["sourceRunId", "sourceRunAttempt", "sourceEvidenceRunId"]) {
+        if (!/^[1-9]\d*$/.test(String(canaryFor[field] ?? ""))) {
+          errors.push(`Plan canaryFor ${field} must be a positive decimal string.`);
+        }
+      }
+      for (const field of ["sourcePullRequest", "bootstrapPlanPr", "bootstrapReviewId"]) {
+        if (!Number.isSafeInteger(canaryFor[field]) || canaryFor[field] < 1) {
+          errors.push(`Plan canaryFor ${field} must be a positive integer.`);
+        }
+      }
+      if (typeof canaryFor.bootstrapReviewer !== "string" || !canaryFor.bootstrapReviewer.trim()) {
+        errors.push("Plan canaryFor bootstrapReviewer is required.");
+      }
+      if (!plan.requiredChecks.includes("browser-plan-canary")) {
+        errors.push("A canary plan must require browser-plan-canary evidence.");
+      }
+    }
+  }
+
   const assessment = inferRisk({
     paths: plan.scope?.allowed ?? [],
     operations: plan.operations ?? [],

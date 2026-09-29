@@ -75,7 +75,7 @@ export function summarize(data) {
   }
   const proven = data.successCriteria.filter((criterion) => criterion.proven).length;
   const deferredCriteria = Array.isArray(data.deferredCriteria)
-    ? data.deferredCriteria.map(({ id }) => id)
+    ? data.deferredCriteria.filter(({ status }) => status === "unverified").map(({ id }) => id)
     : [];
   return [
     data.decision,

@@ -40,8 +40,8 @@ const HOSTED_ONLY_CHECKS = new Set([
   "production-environment",
   "repository-controls",
   "validation-authority",
+  "browser-plan-canary",
 ]);
-
 function decodeXml(value) {
   return String(value)
     .replace(/&#(x[0-9a-f]+|\d+);/gi, (_, code) =>
@@ -278,11 +278,18 @@ export function buildExecutionReport({
     ? plan.deferredCriteria
     : [];
   const deferredIds = new Set(deferredCriteria.map(({ id }) => id));
+  const canaryCheck = checks.find(({ id }) => id === "browser-plan-canary");
+  const canaryEvidence = canaryCheck?.present && canaryCheck.valid &&
+    canaryCheck.status === "pass" && typeof canaryCheck.record?.artifact === "string"
+    ? readEvidenceJson(canaryCheck.record.artifact, root)
+    : null;
+  const canaryProven = new Set(Array.isArray(canaryEvidence?.criterionIds)
+    ? canaryEvidence.criterionIds : []);
   const successCriteria = criterionCoverage(contract.successCriteria, [
     ...(unit.testNames ?? []),
     ...(acceptance.testNames ?? []),
   ]).map((criterion) => deferredIds.has(criterion.id)
-    ? { ...criterion, proven: false }
+    ? { ...criterion, proven: canaryProven.has(criterion.id) }
     : criterion);
   const unprovenCriteria = successCriteria
     .filter(({ proven }) => !proven)
@@ -292,7 +299,7 @@ export function buildExecutionReport({
   );
   const deferredCriteriaReport = deferredCriteria.map((criterion) => ({
     ...criterion,
-    status: "unverified",
+    status: canaryProven.has(criterion.id) ? "proven" : "unverified",
   }));
 
   const localChecks = checks.filter(({ hostedOnly }) => !hostedOnly);
@@ -356,8 +363,8 @@ export function buildExecutionReport({
     deferredCriteria: deferredCriteriaReport,
     decision,
     limits: [
-      ...deferredCriteriaReport.map(({ id, reason }) =>
-        `${id} is deferred to post-acceptance and remains unverified: ${reason}`,
+      ...deferredCriteriaReport.filter(({ status }) => status === "unverified").map(({ id, reason }) =>
+        `${id} remains unverified until its trusted post-bootstrap canary is verified: ${reason}`,
       ),
       ...(!contract.source.trusted
         ? [
@@ -413,9 +420,9 @@ function main() {
     ].join("  ") + `\n${target}\n`,
   );
 
-  if (report.deferredCriteria.length > 0) {
+  if (report.deferredCriteria.some(({ status }) => status === "unverified")) {
     process.stdout.write(
-      `deferred criteria: ${report.deferredCriteria.map(({ id }) => id).join(", ")} (unverified)\n`,
+      `deferred criteria: ${report.deferredCriteria.filter(({ status }) => status === "unverified").map(({ id }) => id).join(", ")} (unverified)\n`,
     );
   }
 

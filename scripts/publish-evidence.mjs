@@ -38,11 +38,12 @@ export function renderComment(report, links = {}) {
   const deferredCriteria = Array.isArray(report.deferredCriteria)
     ? report.deferredCriteria
     : [];
+  const unverifiedDeferred = deferredCriteria.filter(({ status }) => status === "unverified");
   let verdict = "REVIEW REQUIRED";
   if (report.decision === "ready_for_acceptance") {
     verdict = "PASS";
   } else if (report.decision === "ready_for_review") {
-    verdict = deferredCriteria.length > 0
+    verdict = unverifiedDeferred.length > 0
       ? "STAGED REVIEW; POST-ACCEPTANCE EVIDENCE REQUIRED"
       : "LOCAL READY; HOSTED REVIEW REQUIRED";
   }
@@ -71,7 +72,7 @@ export function renderComment(report, links = {}) {
     `Validation level: **${report.validationLevel}**. Commit: \`${report.provenance?.headSha ?? "unknown"}\`.`,
     "",
     ...(deferredCriteria.length > 0
-      ? [`Deferred criteria: ${deferredCriteria.map(({ id }) => `${id} (unverified)`).join(", ")}`, ""]
+      ? [`Deferred criteria: ${deferredCriteria.map(({ id, status }) => `${id} (${status})`).join(", ")}`, ""]
       : []),
     "| Criterion | Statement | Result | Proven by |",
     "| --- | --- | --- | --- |",

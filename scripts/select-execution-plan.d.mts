@@ -30,6 +30,7 @@ export interface ExecutionPlanOptions {
   readProposedPlan?: typeof fetchProposedPlan;
   requirementsOnly?: boolean;
   approvalOnly?: boolean;
+  allowMerged?: boolean;
 }
 export declare function executionPlanRequirements(contract: TaskContract, plan: PlanContract): ExecutionPlanRequirements;
 export declare function selectExecutionPlan(input: ExecutionPlanInput, options?: ExecutionPlanOptions): ExecutionPlanSelection;

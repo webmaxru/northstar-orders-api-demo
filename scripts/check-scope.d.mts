@@ -18,6 +18,11 @@ export declare function evaluateChangedPaths(
 };
 
 export declare function parseNameStatus(raw: string): string[];
+export declare function isPlanOnlyBranch(
+  taskId: string,
+  headBranch: string,
+  plan: Pick<PlanContract, "canaryFor"> | null | undefined,
+): boolean;
 export declare function evaluateExecutionContext(input: {
   taskId: string;
   plan: PlanContract;

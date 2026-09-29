@@ -10,6 +10,11 @@ export interface PlanPr {
   headRefOid: string;
   baseRefOid: string;
   isDraft: boolean;
+  headRefName?: string;
+  baseRefName?: string;
+  headRepoFullName?: string | null;
+  baseRepoFullName?: string | null;
+  state?: string;
 }
 
 export interface GitOptions {
@@ -34,9 +39,11 @@ export interface PublishDeps {
   pullRequest?: number | null;
   headBranch?: string;
   expectedHead?: string;
+  canary?: boolean;
+  planPrNumber?: number;
 }
 
-export declare function planBranch(taskId: string): string;
+export declare function planBranch(taskId: string, canary?: boolean): string;
 export declare function implementationBranch(taskId: string): string;
 export declare function resolveBase(
   vcs: (args: string[]) => string,

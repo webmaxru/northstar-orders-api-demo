@@ -161,6 +161,62 @@ describe("risk-aware hosted execution-plan selection", { timeout: 90000 }, () =>
     expect(approvalEvidenceInput(result)).toMatchObject({ status: "pass", required: true });
   });
 
+  it("resolves a canary plan approval from the exact canary PR, not the bootstrap plan PR", () => {
+    const f = fixture("high");
+    const canary: PlanContract = {
+      ...f.candidate,
+      requiredChecks: [...f.candidate.requiredChecks, "browser-plan-canary"],
+      canaryFor: {
+        sourceTaskId: contract.id,
+        sourceContractDigest: contract.source.bodyDigest,
+        sourcePlanDigest: "a".repeat(64),
+        sourceBaseSha: baseSha,
+        sourcePullRequest: 71,
+        sourceHeadSha: "c".repeat(40),
+        sourceRunId: "91",
+        sourceRunAttempt: "2",
+        sourceEvidenceRunId: "92",
+        bootstrapPlanPr: 73,
+        bootstrapPlanHeadSha: "d".repeat(40),
+        bootstrapReviewId: 93,
+        bootstrapReviewer: "fixture-reviewer",
+      },
+    };
+    canary.planDigest = planDigest(canary);
+    f.pull.body = renderPlan(renderPlanContract(canary), { issue });
+    const approval: NativeApprovalRecord = {
+      ...f.approved.approval,
+      planPr: pullRequest,
+      planDigest: canary.planDigest,
+      reviewedCommit: headSha,
+      baseSha,
+    };
+    const canaryApproval = {
+      ...f.approved,
+      body: renderPlanContract(canary),
+      plan: canary,
+      approval,
+      pr: {
+        ...f.approved.pr,
+        number: pullRequest,
+        headRefOid: headSha,
+        baseRefOid: baseSha,
+      },
+    };
+    const readApprovedPlan = vi.fn(() => canaryApproval);
+
+    const selected = selectExecutionPlan(
+      { ...f.input, candidate: canary },
+      { run: f.run, readApprovedPlan },
+    );
+
+    expect(selected.planDigest).toBe(canary.planDigest);
+    expect(readApprovedPlan).toHaveBeenCalledExactlyOnceWith(contract, {
+      run: f.run,
+      planPrNumber: pullRequest,
+    });
+  });
+
   it("does not turn missing or unavailable high-risk approval into combined execution", () => {
     const f = fixture("high");
     const readProposedPlan = vi.fn(() => { throw new Error("No fallback allowed."); });
@@ -195,6 +251,30 @@ describe("risk-aware hosted execution-plan selection", { timeout: 90000 }, () =>
     f.pull.base.sha = "13eb5a7dad21a974085383949f3a19b1c82af668";
     expect(() => selectExecutionPlan(f.input, { run: f.run })).toThrow(/base, or head/);
     expect(f.candidate.baseSha).toBe(baseSha);
+  });
+
+  it("accepts an explicitly allowed merged source PR without rebasing its approved plan", () => {
+    const f = fixture("high");
+    f.pull.state = "closed";
+    Object.assign(f.pull, {
+      merged: true,
+      merged_at: "2026-09-02T10:00:00Z",
+      merge_commit_sha: "f".repeat(40),
+    });
+    f.pull.base.sha = "e".repeat(40);
+    const readApprovedPlan = vi.fn(() => f.approved);
+
+    expect(() =>
+      selectExecutionPlan(f.input, { run: f.run, readApprovedPlan }),
+    ).toThrow(/does not match the selected task/);
+    expect(
+      selectExecutionPlan(f.input, {
+        run: f.run,
+        readApprovedPlan,
+        allowMerged: true,
+      }),
+    ).toMatchObject({ approvalState: "approved", planDigest: f.candidate.planDigest });
+    expect(readApprovedPlan).toHaveBeenCalledTimes(1);
   });
 
   it.each(["head", "repository", "task", "base-branch", "plan-body"] as const)("rejects mismatched %s identity", (field) => {

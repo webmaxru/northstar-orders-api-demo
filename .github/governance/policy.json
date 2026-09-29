@@ -185,8 +185,8 @@
         "pr": 15,
         "headSha": "c6f5958a5117443ffaf1065bff7f0104a1ca8382",
         "baseSha": "b65c2de5c8224342c72c37eeed7ef9f965ad8a2c",
-        "contractDigest": "e17f6d2d14747dca8265ab3913b203bf65f8aa0d01aeb1cc349ccd0678121ffd",
-        "planDigest": "48e0135df6d3af70c03a6facee02910dccd69eb58d7f7b6a803bec64a39f552f"
+        "contractDigest": "a611cd038b1ea29e17790f2911612e3e0a86ad2b455061292bdb38694f620f6a",
+        "planDigest": "e5ce0f4cb9923daa93a00e17c2ef286cc3b0ef32a8b12de51221b515d7424c4c"
       }
     ]
   },

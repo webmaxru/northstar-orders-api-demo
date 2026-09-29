@@ -99,14 +99,14 @@ const GOOD_PLAN = [
   renderPlanContract(MACHINE_PLAN),
 ].join("\n");
 
-function publisher(existing?: PlanPr) {
+function publisher(existing?: PlanPr, expectedBody = GOOD_PLAN) {
   const calls: string[][] = [];
   const commands: string[][] = [];
   const blob = "e".repeat(40);
   const vcs = (args: string[], options?: GitOptions) => {
     commands.push(args);
     if (args[0] === "hash-object") {
-      expect(options?.input).toBe(`${GOOD_PLAN}\n`);
+      expect(options?.input).toBe(`${expectedBody.trim()}\n`);
       return `${blob}\n`;
     }
     if (args[0] === "write-tree") return `${"c".repeat(40)}\n`;
@@ -117,7 +117,27 @@ function publisher(existing?: PlanPr) {
   const run = (args: string[]) => {
     calls.push(args);
     if (args[0] === "pr" && args[1] === "list") {
-      return JSON.stringify(existing ? [existing] : []);
+      return JSON.stringify(existing ? [{ number: existing.number }] : []);
+    }
+    if (args[0] === "api" && args.at(-1) === `repos/{owner}/{repo}/pulls/${existing?.number}` && existing) {
+      return JSON.stringify({
+        number: existing.number,
+        state: "open",
+        draft: existing.isDraft,
+        body: existing.body,
+        html_url: existing.url,
+        user: { login: existing.author.login },
+        head: {
+          sha: existing.headRefOid,
+          ref: existing.headRefName ?? "plan/wi-1842",
+          repo: { full_name: "o/r" },
+        },
+        base: {
+          sha: existing.baseRefOid,
+          ref: existing.baseRefName ?? MACHINE_PLAN.baseBranch,
+          repo: { full_name: "o/r" },
+        },
+      });
     }
     if (args[0] === "pr" && args[1] === "create") return "https://github.com/o/r/pull/12\n";
     if (args[0] === "api" && args.includes("user")) {
@@ -167,9 +187,42 @@ describe("the plan is a pull request, not a chat message", () => {
 
   it("names the plan branch after the task, not the session", () => {
     expect(planBranch("WI-1842")).toBe("plan/wi-1842");
+    expect(planBranch("WI-1842", true)).toBe("plan/wi-1842-canary");
     expect(implementationBranch("WI-1842")).toBe(
       "agent/implement/wi-1842",
     );
+  });
+
+  it("publishes an AC15 canary plan to a separate versioned plan branch", () => {
+    const canary: PlanContract = {
+      ...MACHINE_PLAN,
+      requiredChecks: [...MACHINE_PLAN.requiredChecks, "browser-plan-canary"],
+      canaryFor: {
+        sourceTaskId: TASK_CONTRACT.id,
+        sourceContractDigest: TASK_CONTRACT.source.bodyDigest,
+        sourcePlanDigest: "a".repeat(64),
+        sourceBaseSha: "b".repeat(40),
+        sourcePullRequest: 18,
+        sourceHeadSha: "c".repeat(40),
+        sourceRunId: "9001",
+        sourceRunAttempt: "2",
+        sourceEvidenceRunId: "9002",
+        bootstrapPlanPr: 15,
+        bootstrapPlanHeadSha: "d".repeat(40),
+        bootstrapReviewId: 100,
+        bootstrapReviewer: "vibeprogrammer",
+      },
+    };
+    const body = renderPlanContract(canary);
+    const deps = publisher(undefined, body);
+
+    publish(CONTRACT, body, deps);
+
+    const create = deps.calls.find(([a, b]) => a === "pr" && b === "create")!;
+    expect(create[create.indexOf("--head") + 1]).toBe("plan/wi-1842-canary");
+    expect(deps.commands.some((args) =>
+      args[0] === "push" && args.at(-1) === `${"d".repeat(40)}:refs/heads/plan/wi-1842-canary`,
+    )).toBe(true);
   });
 
   it("edits the existing plan PR instead of opening a second one", () => {

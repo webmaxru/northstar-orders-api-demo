@@ -129,6 +129,39 @@ describe("machine-readable plan contract", () => {
     expect(incomplete.errors.join(" ")).toMatch(/deferred criterion AC1.*reason/i);
   });
 
+  it("requires a canary plan to bind its source and require trusted canary evidence", () => {
+    const canaryFor = {
+      sourceTaskId: contract.id,
+      sourceContractDigest: contract.source.bodyDigest,
+      sourcePlanDigest: "c".repeat(64),
+      sourceBaseSha: "b".repeat(40),
+      sourcePullRequest: 17,
+      sourceHeadSha: "d".repeat(40),
+      sourceRunId: "18",
+      sourceRunAttempt: "2",
+      sourceEvidenceRunId: "19",
+      bootstrapPlanPr: 20,
+      bootstrapPlanHeadSha: "e".repeat(40),
+      bootstrapReviewId: 21,
+      bootstrapReviewer: "vibeprogrammer",
+    };
+    const valid = validatePlanContract(
+      plan({
+        canaryFor,
+        requiredChecks: [...plan().requiredChecks, "browser-plan-canary"],
+      }),
+      contract,
+    );
+    expect(valid.ok).toBe(true);
+
+    const missingCanaryCheck = validatePlanContract(
+      plan({ canaryFor }),
+      contract,
+    );
+    expect(missingCanaryCheck.ok).toBe(false);
+    expect(missingCanaryCheck.errors.join(" ")).toMatch(/require browser-plan-canary/i);
+  });
+
   it("rejects risk below the deterministic floor", () => {
     const result = validatePlanContract(
       plan({

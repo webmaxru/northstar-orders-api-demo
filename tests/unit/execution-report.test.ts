@@ -38,7 +38,10 @@ const requiredChecks = [
   "dependency-review", "codeql", "secret-scan", "merge-validation",
   "governance-policy", "validation-authority", "repository-controls", "human-review", "evidence",
 ];
-const revalidated = new Set(["plan-contract", "plan-approval", "scope-policy", "validation-authority", "repository-controls", "human-review"]);
+const revalidated = new Set([
+  "plan-contract", "plan-approval", "scope-policy", "validation-authority",
+  "repository-controls", "human-review", "browser-plan-canary",
+]);
 const plan: PlanContract = {
   schema: "northstar/plan/1",
   taskId: contract.id,
@@ -103,6 +106,7 @@ beforeEach(() => {
   rmSync(join(root, "untracked.txt"), { force: true });
   for (const [id, paths] of Object.entries(CHECK_ARTIFACTS)) {
     for (const path of paths) {
+      if (id === "browser-plan-canary") continue;
       if (id === "codeql") {
         write(`${path}/results.sarif`, JSON.stringify({ version: "2.1.0", runs: [{ tool: { driver: { name: "CodeQL" } }, results: [] }] }));
       } else if (path.endsWith(".xml")) {
@@ -153,6 +157,56 @@ function records(
   const context = evidenceContext(hosted ? hostedEnv : localEnv, {
     root, contract: candidateContract, plan: candidatePlan,
   });
+  if (candidatePlan.requiredChecks.includes("browser-plan-canary")) {
+    const source = {
+      repository: context.repository,
+      taskId: context.taskId,
+      contractDigest: context.contractDigest,
+      planDigest: context.planDigest,
+      headSha: context.headSha,
+      baseSha: context.baseSha,
+      pullRequest: context.pullRequest,
+      runId: context.runId,
+      runAttempt: context.runAttempt,
+      evidenceRunId: "91",
+    };
+    write("artifacts/browser-plan-canary.json", JSON.stringify({
+      schema: "northstar/browser-plan-canary/1",
+      criterionIds: ["AC15"],
+      verifiedAt: "2026-09-03T10:00:00.000Z",
+      source,
+      canary: {
+        pullRequest: 8,
+        url: "https://github.com/webmaxru/northstar-orders-api-demo/pull/8",
+        planAuthor: "fixture-author",
+        headSha: "e".repeat(40),
+        baseSha: "c".repeat(40),
+        planDigest: "d".repeat(64),
+        artifactPath: `docs/plans/${candidateContract.id.toLowerCase()}.md`,
+        artifactBlobSha: "f".repeat(40),
+        reviewId: 23,
+        reviewer: "fixture-reviewer",
+        reviewedCommit: "e".repeat(40),
+        reviewState: "APPROVED",
+        approvedAt: "2026-09-03T09:00:00.000Z",
+        canaryFor: {
+          sourceTaskId: source.taskId,
+          sourceContractDigest: source.contractDigest,
+          sourcePlanDigest: source.planDigest,
+          sourceBaseSha: source.baseSha,
+          sourcePullRequest: source.pullRequest,
+          sourceHeadSha: source.headSha,
+          sourceRunId: source.runId,
+          sourceRunAttempt: source.runAttempt,
+          sourceEvidenceRunId: source.evidenceRunId,
+          bootstrapPlanPr: 15,
+          bootstrapPlanHeadSha: "a".repeat(40),
+          bootstrapReviewId: 16,
+          bootstrapReviewer: "bootstrap-reviewer",
+        },
+      },
+    }));
+  }
   return candidatePlan.requiredChecks.filter((id) => id !== "evidence").map((id) => {
     const artifact = CHECK_ARTIFACTS[id]?.[0] ?? null;
     return {
@@ -316,6 +370,72 @@ describe("fail-closed execution evidence", () => {
     expect(result.unprovenCriteria).toContain("AC7");
     expect(result.successCriteria.find(({ id }) => id === "AC7")?.proven).toBe(false);
     expect(result.deferredCriteria).toEqual([{ ...deferral, status: "unverified" }]);
+  });
+
+  it("proves only AC15 when a valid trusted browser-canary record is present", () => {
+    const deferredCriterion = {
+      id: "AC15",
+      statement: "A current browser-only plan approval is bound to the original implementation.",
+      provenBy: "proves browser-only plan approval end to end",
+    };
+    const deferredContract: TaskContract = {
+      ...trustedContract,
+      source: { ...trustedContract.source, bodyDigest: "9".repeat(64) },
+      successCriteria: [...trustedContract.successCriteria, deferredCriterion],
+    };
+    const deferral = {
+      id: deferredCriterion.id,
+      stage: "post-acceptance" as const,
+      reason: "The canary follows controlled bootstrap activation.",
+      evidence: "Verify the current native review and original source binding.",
+    };
+    const deferredPlan: PlanContract = {
+      ...plan,
+      contractDigest: deferredContract.source.bodyDigest,
+      requiredChecks: [...plan.requiredChecks, "browser-plan-canary"],
+      successCriteria: [
+        ...plan.successCriteria,
+        { id: deferredCriterion.id, provenBy: deferredCriterion.provenBy },
+      ],
+      deferredCriteria: [deferral],
+    };
+    deferredPlan.planDigest = planDigest(deferredPlan);
+    write("artifacts/unit-junit.xml", junit([
+      ...contract.successCriteria.map(({ provenBy }) => provenBy),
+      deferredCriterion.provenBy,
+    ]));
+    write("artifacts/plan.json", JSON.stringify(deferredPlan));
+    write("artifacts/approved-plan.json", JSON.stringify(deferredPlan));
+    write("artifacts/candidate-plan.json", JSON.stringify(deferredPlan));
+    write("artifacts/scope-report.json", JSON.stringify({
+      schema: "northstar/scope-report/1",
+      taskId: deferredContract.id,
+      contractDigest: deferredContract.source.bodyDigest,
+      paths: [],
+      violations: [],
+      ok: true,
+    }));
+
+    const passingRecords = records(true, deferredPlan, deferredContract);
+    const accepted = report({
+      contract: deferredContract,
+      plan: deferredPlan,
+      hosted: true,
+      records: passingRecords,
+    });
+    expect(accepted.decision).toBe("ready_for_acceptance");
+    expect(accepted.successCriteria.find(({ id }) => id === "AC15")?.proven).toBe(true);
+    expect(accepted.deferredCriteria).toEqual([{ ...deferral, status: "proven" }]);
+
+    const missingCanary = report({
+      contract: deferredContract,
+      plan: deferredPlan,
+      hosted: true,
+      records: passingRecords.filter(({ id }) => id !== "browser-plan-canary"),
+    });
+    expect(missingCanary.decision).toBe("ready_for_review");
+    expect(missingCanary.unprovenCriteria).toContain("AC15");
+    expect(missingCanary.pendingHostedEvidence).toContain("browser-plan-canary");
   });
 
   it("fails closed on malformed deferred criteria in an execution report", () => {

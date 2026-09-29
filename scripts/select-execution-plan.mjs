@@ -33,14 +33,19 @@ export function executionPlanRequirements(contract, plan) {
   };
 }
 
-function readCandidatePull(contract, candidate, { pullRequest, expectedHead, run }) {
+function readCandidatePull(contract, candidate, {
+  pullRequest, expectedHead, run, allowMerged = false,
+}) {
   if (!Number.isSafeInteger(pullRequest) || pullRequest < 1 || !SHA.test(expectedHead ?? "")) {
     throw new Error("Hosted plan selection requires an explicit PR and immutable expected head.");
   }
   const requirements = executionPlanRequirements(contract, candidate);
   const pull = githubJson(`repos/{owner}/{repo}/pulls/${pullRequest}`, { run });
-  if (pull.number !== pullRequest || pull.state !== "open" ||
-    pull.head?.sha !== expectedHead || pull.base?.sha !== candidate.baseSha ||
+  const isOpen = pull.state === "open";
+  const isMerged = allowMerged && pull.state === "closed" && pull.merged === true &&
+    typeof pull.merged_at === "string" && SHA.test(pull.merge_commit_sha ?? "");
+  if (pull.number !== pullRequest || (!isOpen && !isMerged) ||
+    pull.head?.sha !== expectedHead || (isOpen && pull.base?.sha !== candidate.baseSha) ||
     pull.base?.ref !== candidate.baseBranch ||
     pull.head?.repo?.full_name !== requirements.repository ||
     pull.base?.repo?.full_name !== requirements.repository ||
@@ -59,8 +64,15 @@ function readCandidatePull(contract, candidate, { pullRequest, expectedHead, run
   return { requirements, pull };
 }
 
-function approvedSelection(contract, candidate, { run, readApprovedPlan }) {
-  const resolved = readApprovedPlan(contract, { run });
+function approvedSelection(contract, candidate, { run, readApprovedPlan, pullRequest }) {
+  const canaryPlan = Boolean(candidate?.canaryFor);
+  if (canaryPlan && (!Number.isSafeInteger(pullRequest) || pullRequest < 1)) {
+    throw new Error("Canary plan approval requires its explicit current plan PR.");
+  }
+  const resolved = readApprovedPlan(contract, {
+    run,
+    ...(canaryPlan ? { planPrNumber: pullRequest } : {}),
+  });
   if (!resolved) throw new Error("No current independent plan-only approval matches this task.");
   const requirements = executionPlanRequirements(contract, resolved.plan);
   const approval = resolved.approval;
@@ -85,7 +97,7 @@ export function selectExecutionPlan({
   contract, candidate, pullRequest, expectedHead,
 }, {
   run = runGitHub, readApprovedPlan = fetchApprovedPlan, readProposedPlan = fetchProposedPlan,
-  requirementsOnly = false, approvalOnly = false,
+  requirementsOnly = false, approvalOnly = false, allowMerged = false,
 } = {}) {
   if (requirementsOnly && approvalOnly) {
     throw new Error("An approval-only operation cannot bypass live approval resolution.");
@@ -95,9 +107,11 @@ export function selectExecutionPlan({
       const requirements = executionPlanRequirements(contract, candidate);
       if (!requirements.approvalRequired) throw new Error("Plan-only approval is not required for this combined plan.");
     }
-    return approvedSelection(contract, candidate, { run, readApprovedPlan });
+    return approvedSelection(contract, candidate, { run, readApprovedPlan, pullRequest });
   }
-  const { requirements, pull } = readCandidatePull(contract, candidate, { pullRequest, expectedHead, run });
+  const { requirements, pull } = readCandidatePull(contract, candidate, {
+    pullRequest, expectedHead, run, allowMerged,
+  });
   if (approvalOnly && !requirements.approvalRequired) {
     throw new Error("Plan-only approval is not required; select the same-PR proposed plan instead.");
   }
@@ -109,7 +123,7 @@ export function selectExecutionPlan({
       body: extractPlanSection(pull.body),
     };
   } else if (requirements.approvalRequired) {
-    selected = approvedSelection(contract, candidate, { run, readApprovedPlan });
+    selected = approvedSelection(contract, candidate, { run, readApprovedPlan, pullRequest });
   } else {
     const proposed = readProposedPlan(contract, { pullRequest, expectedHead, run });
     if (!proposed || proposed.approval !== null || Object.hasOwn(proposed.plan, "approval") ||
@@ -125,8 +139,12 @@ export function selectExecutionPlan({
     };
   }
   const after = githubJson(`repos/{owner}/{repo}/pulls/${pullRequest}`, { run });
-  if (after.state !== "open" || after.head?.sha !== expectedHead ||
-    after.base?.sha !== pull.base.sha || after.base?.ref !== pull.base.ref || after.body !== pull.body ||
+  const stillOpen = after.state === "open";
+  const stillMerged = allowMerged && after.state === "closed" && after.merged === true &&
+    typeof after.merged_at === "string" && after.merge_commit_sha === pull.merge_commit_sha;
+  if ((!stillOpen && !stillMerged) || after.head?.sha !== expectedHead ||
+    (stillOpen && after.base?.sha !== pull.base.sha) ||
+    after.base?.ref !== pull.base.ref || after.body !== pull.body ||
     after.head?.repo?.full_name !== requirements.repository || after.base?.repo?.full_name !== requirements.repository) {
     throw new Error("The implementation PR changed during execution-plan selection.");
   }
@@ -216,6 +234,7 @@ export function executionPlanMain({ approvalOnly = false } = {}) {
       ...(valueOf("--expected-head") ? { expectedHead: valueOf("--expected-head") } : {}),
     }, {
       approvalOnly, requirementsOnly: process.argv.includes("--requirements-only"),
+      allowMerged: process.argv.includes("--allow-merged"),
       recordApproval: process.argv.includes("--record-approval"),
     });
     cacheContract(contract);
