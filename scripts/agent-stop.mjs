@@ -74,9 +74,15 @@ export function summarize(data) {
     return "invalid execution report";
   }
   const proven = data.successCriteria.filter((criterion) => criterion.proven).length;
+  const deferredCriteria = Array.isArray(data.deferredCriteria)
+    ? data.deferredCriteria.map(({ id }) => id)
+    : [];
   return [
     data.decision,
     `criteria ${proven}/${data.successCriteria.length}`,
+    ...(deferredCriteria.length > 0
+      ? [`deferred ${deferredCriteria.join(", ")} (unverified)`]
+      : []),
     `unit ${data.tests.unit.tests ?? 0} tests, ${(data.tests.unit.failures ?? 0) + (data.tests.unit.errors ?? 0)} failed`,
     `acceptance ${data.tests.acceptance.tests ?? 0} tests, ${(data.tests.acceptance.failures ?? 0) + (data.tests.acceptance.errors ?? 0)} failed`,
   ].join(" | ");

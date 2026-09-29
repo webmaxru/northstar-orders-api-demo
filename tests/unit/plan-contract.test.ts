@@ -84,6 +84,51 @@ describe("machine-readable plan contract", () => {
     expect(result.errors.join(" ")).toMatch(/contractDigest/);
   });
 
+  it("accepts explicit post-acceptance deferrals bound to task criteria", () => {
+    const result = validatePlanContract(
+      plan({
+        deferredCriteria: [{
+          id: "AC1",
+          stage: "post-acceptance",
+          reason: "Run the browser canary after the repair is accepted.",
+          evidence: "Bind the native review event to the task, plan, base, and implementation head.",
+        }],
+      }),
+      contract,
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects deferred criteria outside the task and missing deferral evidence", () => {
+    const unknown = validatePlanContract(
+      plan({
+        deferredCriteria: [{
+          id: "AC99",
+          stage: "post-acceptance",
+          reason: "Defer a criterion.",
+          evidence: "Provide the matching artifact.",
+        }],
+      }),
+      contract,
+    );
+    expect(unknown.ok).toBe(false);
+    expect(unknown.errors.join(" ")).toMatch(/deferred criterion AC99/i);
+
+    const incomplete = validatePlanContract(
+      plan({
+        deferredCriteria: [{
+          id: "AC1",
+          stage: "post-acceptance",
+          reason: "",
+          evidence: "Provide the matching artifact.",
+        }],
+      }),
+      contract,
+    );
+    expect(incomplete.ok).toBe(false);
+    expect(incomplete.errors.join(" ")).toMatch(/deferred criterion AC1.*reason/i);
+  });
+
   it("rejects risk below the deterministic floor", () => {
     const result = validatePlanContract(
       plan({

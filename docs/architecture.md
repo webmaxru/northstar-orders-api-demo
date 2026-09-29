@@ -200,6 +200,18 @@ canaries remain acceptance requirements after the changed controls are reviewed.
 Rules/branch protection, protected environments, App identities and secrets
 are external administrator settings, not established by repository files.
 
+For the AES-SURFACE-EVIDENCE bootstrap, AC15 is explicitly deferred in the
+approved plan until the post-acceptance browser canary. Before that canary, the
+report may be `ready_for_review` only when every non-deferred criterion and
+applicable local check passes; AC15 stays unverified and
+`ready_for_acceptance` remains blocked.
+
+The current protected system-maintenance workflow still requires
+`ready_for_acceptance` before publishing its report. Because the approved plan
+forbids that decision until AC15 is proven, the hosted post-acceptance transition
+is not yet executable; keep acceptance blocked until an approved sequencing
+amendment resolves this gate.
+
 The combined-mode controller now selects a lower-risk proposed plan from the
 same implementation PR, not a separate `plan/<task>` PR. It validates live task,
 base/head, repository and ancestry and creates no approval record. Local

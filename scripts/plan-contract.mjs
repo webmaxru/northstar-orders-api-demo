@@ -156,6 +156,43 @@ export function validatePlanContract(plan, contract) {
     }
   }
 
+  const deferredCriteria = plan.deferredCriteria;
+  if (deferredCriteria !== undefined && !Array.isArray(deferredCriteria)) {
+    errors.push("Plan deferredCriteria must be an array.");
+  } else {
+    const deferredIds = new Set();
+    for (const deferred of deferredCriteria ?? []) {
+      if (!deferred || typeof deferred !== "object" || Array.isArray(deferred)) {
+        errors.push("Plan deferredCriteria entries must be objects.");
+        continue;
+      }
+      const id = deferred.id;
+      if (typeof id !== "string" || !id.trim()) {
+        errors.push("Deferred criterion id is required.");
+        continue;
+      }
+      if (deferredIds.has(id)) {
+        errors.push(`Deferred criterion ${id} is duplicated.`);
+      }
+      deferredIds.add(id);
+      if (!plannedCriteria.some((criterion) => criterion.id === id)) {
+        errors.push(`Deferred criterion ${id} is not mapped by the plan.`);
+      }
+      if (contract && !contract.successCriteria.some((criterion) => criterion.id === id)) {
+        errors.push(`Deferred criterion ${id} is not part of the task contract.`);
+      }
+      if (deferred.stage !== "post-acceptance") {
+        errors.push(`Deferred criterion ${id} stage must be post-acceptance.`);
+      }
+      if (typeof deferred.reason !== "string" || !deferred.reason.trim()) {
+        errors.push(`Deferred criterion ${id} requires a reason.`);
+      }
+      if (typeof deferred.evidence !== "string" || !deferred.evidence.trim()) {
+        errors.push(`Deferred criterion ${id} requires an evidence description.`);
+      }
+    }
+  }
+
   const assessment = inferRisk({
     paths: plan.scope?.allowed ?? [],
     operations: plan.operations ?? [],

@@ -204,8 +204,10 @@ Hosted acceptance additionally requires CodeQL/SARIF, real workflow runs,
 current human approval, required checks, CODEOWNERS enforcement, and any
 required environment approval. **Missing evidence is failure.**
 
-`ready_for_review` means local reference evidence is complete.
-`ready_for_acceptance` is reserved for complete hosted evidence.
+`ready_for_review` means local reference evidence for every criterion due at the
+approved plan stage is complete; explicitly deferred criteria remain listed and
+unverified.
+`ready_for_acceptance` requires every task criterion and complete hosted evidence.
 
 ## Recovery
 

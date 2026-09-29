@@ -1,6 +1,13 @@
 import type { TaskContract } from "./task-contract.d.mts";
 import type { Risk } from "./risk-policy.d.mts";
 
+export interface DeferredCriterion {
+  id: string;
+  stage: "post-acceptance";
+  reason: string;
+  evidence: string;
+}
+
 export interface PlanContract {
   schema: "northstar/plan/1";
   taskId: string;
@@ -13,6 +20,7 @@ export interface PlanContract {
   operations?: string[];
   steps: string[];
   successCriteria: Array<{ id: string; provenBy: string }>;
+  deferredCriteria?: DeferredCriterion[];
   requiredChecks: string[];
   evidence: string[];
   decisionsAndHandoffs: string[];

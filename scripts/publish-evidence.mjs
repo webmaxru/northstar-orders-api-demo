@@ -35,12 +35,17 @@ const MARKER = "<!-- northstar:evidence -->";
 export function renderComment(report, links = {}) {
   const proven = report.successCriteria.filter((c) => c.proven).length;
   const total = report.successCriteria.length;
-  const verdict =
-    report.decision === "ready_for_acceptance"
-      ? "PASS"
-      : report.decision === "ready_for_review"
-        ? "LOCAL READY; HOSTED REVIEW REQUIRED"
-        : "REVIEW REQUIRED";
+  const deferredCriteria = Array.isArray(report.deferredCriteria)
+    ? report.deferredCriteria
+    : [];
+  let verdict = "REVIEW REQUIRED";
+  if (report.decision === "ready_for_acceptance") {
+    verdict = "PASS";
+  } else if (report.decision === "ready_for_review") {
+    verdict = deferredCriteria.length > 0
+      ? "STAGED REVIEW; POST-ACCEPTANCE EVIDENCE REQUIRED"
+      : "LOCAL READY; HOSTED REVIEW REQUIRED";
+  }
 
   const rows = report.successCriteria
     .map((c) => `| ${c.id} | ${c.statement} | ${c.proven ? "proven" : "**not proven**"} | \`${c.provenBy}\` |`)
@@ -65,6 +70,9 @@ export function renderComment(report, links = {}) {
     `**${report.workItem}** graded against ${source}. ${proven}/${total} success criteria proven.`,
     `Validation level: **${report.validationLevel}**. Commit: \`${report.provenance?.headSha ?? "unknown"}\`.`,
     "",
+    ...(deferredCriteria.length > 0
+      ? [`Deferred criteria: ${deferredCriteria.map(({ id }) => `${id} (unverified)`).join(", ")}`, ""]
+      : []),
     "| Criterion | Statement | Result | Proven by |",
     "| --- | --- | --- | --- |",
     rows,
