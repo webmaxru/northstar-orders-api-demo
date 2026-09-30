@@ -168,11 +168,15 @@ task/base/head identities. A mutated PR-description mirror is rejected.
 The old zero-file approval record is accepted only for the pinned bootstrap.
 
 SessionStart accepts documented initial prompt fields and the cloud prompt
-environment variable in addition to an explicit issue variable. Prompt-hook
-failure clears only cached authority owned by that session. Foreign-owner
-conflicts and ownerless legacy task caches are preserved and fail closed. All
-edit paths, including supported absolute paths and patch moves, are checked
-against the repository, task and plan.
+environment variable in addition to an explicit issue variable. SessionStart
+and UserPromptSubmit allow up to 90 seconds for live issue and approved-plan
+resolution; if the hook times out, PreToolUse still denies writes without
+complete task and plan identity. An interrupted resolver lock is reclaimed
+only by the same owner after its process has exited. Prompt-hook failure
+clears only cached authority owned by that session. Foreign-owner conflicts
+and ownerless legacy task caches are preserved and fail closed. All edit
+paths, including supported absolute paths and patch moves, are checked against
+the repository, task and plan.
 Unknown payloads cannot widen scope. The cloud path requires a real matching
 PR and immutable plan/task/base/head identity, not just a `copilot/` prefix.
 One repository-level Stop dispatcher selects the explicit plan or implement

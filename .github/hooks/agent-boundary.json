@@ -1,19 +1,19 @@
 {
-  "$comment": "CUSTOMIZE the Node invocation only for your installed runtime. PascalCase event names select documented compatibility envelopes, not proof of host parity. Register each event once. Prompt hook output is not a universal stop control; cached authority is cleared on failure and PreToolUse denies writes. Stop dispatch uses the explicit task role. Local hook records are not hosted acceptance evidence.",
+  "$comment": "CUSTOMIZE the Node invocation only for your installed runtime. PascalCase event names select documented compatibility envelopes, not proof of host parity. Register each event once. SessionStart and UserPromptSubmit allow 90 seconds for live issue and approved-plan resolution; if that bound expires, PreToolUse still denies writes and same-owner recovery is required. Prompt hook output is not a universal stop control. Stop dispatch uses the explicit task role. Local hook records are not hosted acceptance evidence.",
   "version": 1,
   "hooks": {
     "SessionStart": [
       {
         "type": "command",
         "command": "node scripts/session-start.mjs",
-        "timeout": 20
+        "timeout": 90
       }
     ],
     "UserPromptSubmit": [
       {
         "type": "command",
         "command": "node scripts/resolve-task.mjs",
-        "timeout": 20
+        "timeout": 90
       }
     ],
     "PreToolUse": [

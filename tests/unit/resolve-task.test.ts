@@ -25,6 +25,29 @@ import {
 
 const fixtureEnv = { GITHUB_REPOSITORY: "fixture/northstar" };
 
+describe("task-resolution hook budgets", () => {
+  it("bounds live issue and approved-plan resolution without weakening fast write authorization", () => {
+    const hooks = JSON.parse(readFileSync(
+      join(import.meta.dirname, "..", "..", ".github", "hooks", "agent-boundary.json"),
+      "utf8",
+    )).hooks;
+    expect(hooks.SessionStart).toHaveLength(1);
+    expect(hooks.SessionStart[0]).toMatchObject({
+      command: "node scripts/session-start.mjs",
+      timeout: 90,
+    });
+    expect(hooks.UserPromptSubmit).toHaveLength(1);
+    expect(hooks.UserPromptSubmit[0]).toMatchObject({
+      command: "node scripts/resolve-task.mjs",
+      timeout: 90,
+    });
+    expect(hooks.PreToolUse[0]).toMatchObject({
+      command: "node scripts/authorize-tool.mjs",
+      timeout: 10,
+    });
+  });
+});
+
 describe("the issue number is an argument, not a guess", () => {
   it("recognizes the raw slash invocation", () => {
     expect(isTaskInvocation("/plan 4")).toBe(true);
