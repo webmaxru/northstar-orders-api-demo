@@ -170,9 +170,11 @@ The old zero-file approval record is accepted only for the pinned bootstrap.
 SessionStart accepts documented initial prompt fields and the cloud prompt
 environment variable in addition to an explicit issue variable. SessionStart
 and UserPromptSubmit allow up to 90 seconds for live issue and approved-plan
-resolution; if the hook times out, PreToolUse still denies writes without
-complete task and plan identity. An interrupted resolver lock is reclaimed
-only by the same owner after its process has exited. Prompt-hook failure
+resolution. If resolution fails, PreToolUse denies writes when it runs to
+completion without complete task and plan identity. Command-hook timeouts are
+fail-open, including PreToolUse, so a timeout of the authorization hook itself
+does not guarantee denial. An interrupted resolver lock is reclaimed only by
+the same owner after its process has exited. Prompt-hook failure
 clears only cached authority owned by that session. Foreign-owner conflicts
 and ownerless legacy task caches are preserved and fail closed. All edit
 paths, including supported absolute paths and patch moves, are checked against

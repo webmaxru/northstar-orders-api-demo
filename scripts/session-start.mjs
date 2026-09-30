@@ -168,7 +168,7 @@ async function main() {
         root: process.cwd(),
         sessionId,
       });
-      emit("No explicit task issue was supplied. Reads remain available; writes are denied. " +
+      emit("No explicit task issue was supplied. Reads remain available. The PreToolUse authorizer denies writes when it runs to completion, but command-hook timeouts are fail-open. " +
         "Supply `/plan <issue>`, `/implement <issue>`, or AGENT_TASK_ISSUE. No cached task or fixture was adopted." +
         (cleanup.status === "preserved" ? ` ${cleanup.reason}` : ""));
       return;
@@ -188,7 +188,7 @@ async function main() {
       preserved = ` Existing owned workspace state was preserved: ${/** @type {Error} */ (cleanupError).message}`;
     }
     emit(
-      `Task resolution failed; writes remain denied: ` +
+      `Task resolution failed; the PreToolUse authorizer denies writes when it runs to completion, but command-hook timeouts are fail-open: ` +
         `${/** @type {Error} */ (error).message.split("\n")[0]} ` +
         "Fix the issue body to match .github/ISSUE_TEMPLATE/agent-task.yml." + preserved,
     );
