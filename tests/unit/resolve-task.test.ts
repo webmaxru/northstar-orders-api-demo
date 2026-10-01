@@ -7,8 +7,13 @@ import {
   decide,
   extractIssue,
   isTaskInvocation,
+  linkedIssue,
+  resolveTaskPRDetails,
+  resolveTaskPRIssue,
   resolveTask,
   clearTaskState,
+  taskInputs,
+  taskRole,
 } from "../../scripts/resolve-task.mjs";
 import { contractFromFile } from "../../scripts/task-contract.mjs";
 import {
@@ -52,6 +57,96 @@ describe("the issue number is an argument, not a guess", () => {
   it("recognizes the raw slash invocation", () => {
     expect(isTaskInvocation("/plan 4")).toBe(true);
     expect(isTaskInvocation("/implement 4")).toBe(true);
+  });
+
+  it("uses a Task PR selector as an explicit implementation task", () => {
+    expect(isTaskInvocation("Task PR: #27")).toBe(true);
+    expect(taskRole("Task PR: #27")).toBe("implement");
+    expect(taskInputs("Task PR: #27").pullRequest).toBe(27);
+    expect(decide("Task PR: #27", {
+      readTaskPR: (pullRequest) => {
+        expect(pullRequest).toBe(27);
+        return 16;
+      },
+    })).toEqual({ action: "resolve", issue: 16, pullRequest: 27 });
+    expect(() => resolveTask(16, {
+      role: "plan",
+      pullRequest: 27,
+      taskPRSelected: true,
+    })).toThrow(/requires the implementation role/);
+  });
+
+  it("rejects a Task PR whose linked issue conflicts with the explicit issue", () => {
+    expect(decide("/implement 17\nTask PR: #27", {
+      readTaskPR: () => 16,
+    })).toMatchObject({ action: "stop", reason: /links issue #16, not explicitly selected issue #17/ });
+  });
+
+  it("fails closed when a Task PR cannot be resolved to a live issue", () => {
+    expect(decide("Task PR: #27")).toMatchObject({
+      action: "stop",
+      reason: /requires a live same-repository pull-request resolver/,
+    });
+    expect(decide("Task PR: #27", {
+      readTaskPR: () => 0,
+    })).toMatchObject({
+      action: "stop",
+      reason: /did not resolve to one live task issue/,
+    });
+  });
+
+  it("resolves a Task PR only when it is open, same-repository, and linked once", () => {
+    const pull = {
+      number: 27,
+      state: "open",
+      base: {
+        ref: "agent/implement/aes-surface-evidence",
+        sha: "a".repeat(40),
+        repo: { full_name: "webmaxru/northstar-orders-api-demo" },
+      },
+      head: {
+        ref: "agent/implement/aes-parallel-isolation",
+        sha: "b".repeat(40),
+        repo: { full_name: "webmaxru/northstar-orders-api-demo" },
+      },
+      body: "Closes #16",
+    };
+    const run = (args: string[], options: { cwd: string }) => {
+      expect(args).toEqual(["api", "repos/{owner}/{repo}/pulls/27"]);
+      expect(options).toEqual({ cwd: "C:\\repo" });
+      return JSON.stringify(pull);
+    };
+    expect(resolveTaskPRDetails(27, { root: "C:\\repo", run })).toEqual({
+      number: 27,
+      issue: 16,
+      repository: "webmaxru/northstar-orders-api-demo",
+      baseBranch: "agent/implement/aes-surface-evidence",
+      baseSha: "a".repeat(40),
+      headBranch: "agent/implement/aes-parallel-isolation",
+      headSha: "b".repeat(40),
+    });
+    expect(resolveTaskPRIssue(27, { root: "C:\\repo", run })).toBe(16);
+    expect(linkedIssue("Closes #16\nFixes #16")).toBe(16);
+    expect(() => resolveTaskPRIssue(27, {
+      root: "C:\\repo",
+      run: () => JSON.stringify({ ...pull, state: "closed" }),
+    })).toThrow(/not open/);
+    expect(() => resolveTaskPRIssue(27, {
+      root: "C:\\repo",
+      run: () => JSON.stringify({
+        ...pull,
+        head: { repo: { full_name: "contributor/fork" } },
+      }),
+    })).toThrow(/same-repository/);
+    expect(() => resolveTaskPRIssue(27, {
+      root: "C:\\repo",
+      run: () => JSON.stringify({ ...pull, body: "No task link" }),
+    })).toThrow(/link exactly one task issue/);
+    expect(() => resolveTaskPRDetails(27, {
+      root: "C:\\repo",
+      run: () => JSON.stringify({ ...pull, head: { ...pull.head, sha: "invalid" } }),
+    })).toThrow(/invalid branch metadata/);
+    expect(() => linkedIssue("Closes #16\nFixes #17")).toThrow(/Multiple task issues/);
   });
 
   describe("fresh task authority", () => {
@@ -280,8 +375,23 @@ describe("the issue number is an argument, not a guess", () => {
       });
       expect(resolveIssueNumber({ env: {}, payload: { initialPrompt: "/implement 14" } }).number).toBe(14);
       expect(resolveIssueNumber({ env: { COPILOT_AGENT_PROMPT: "Task issue: #14\nTask role: implement" } }).number).toBe(14);
+      expect(resolveIssueNumber({
+        env: {},
+        payload: { initial_prompt: "Task PR: #27" },
+        readTaskPR: (pullRequest) => {
+          expect(pullRequest).toBe(27);
+          return 16;
+        },
+      })).toEqual({
+        number: 16, how: "initial_prompt", pullRequest: 27,
+      });
       expect(() => resolveIssueNumber({
         env: { AGENT_TASK_ISSUE: "4", COPILOT_AGENT_PROMPT: "/implement 14" },
+      })).toThrow(/Conflicting/);
+      expect(() => resolveIssueNumber({
+        env: { AGENT_TASK_ISSUE: "17" },
+        payload: { initial_prompt: "Task PR: #27" },
+        readTaskPR: () => 16,
       })).toThrow(/Conflicting/);
       expect(() => resolveIssueNumber({ env: { AGENT_TASK_ISSUE: "-1" } })).toThrow(/positive/);
       expect(resolveIssueNumber({ env: { COPILOT_AGENT_PROMPT: "Explain this example:\n```\n/plan 4\n```" } }).number).toBeNull();

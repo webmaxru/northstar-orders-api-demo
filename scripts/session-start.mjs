@@ -29,12 +29,25 @@ import {
   resolveTask,
   taskRole,
   taskInputs,
+  resolveTaskPRIssue,
+  isTaskInvocation,
   renderResult,
 } from "./resolve-task.mjs";
 import { readWorkspaceOwner, releaseTaskWorkspace } from "./workspace-owner.mjs";
 
-export function resolveIssueNumber({ env = process.env, payload = {} } = {}) {
+export function resolveIssueNumber({
+  env = process.env,
+  payload = {},
+  readTaskPR = resolveTaskPRIssue,
+} = {}) {
   const candidates = [];
+  const resolvedPRs = new Map();
+  const resolvePR = (pullRequest) => {
+    if (!resolvedPRs.has(pullRequest)) {
+      resolvedPRs.set(pullRequest, readTaskPR(pullRequest));
+    }
+    return resolvedPRs.get(pullRequest);
+  };
   if (env.AGENT_TASK_ISSUE !== undefined && env.AGENT_TASK_ISSUE !== "") {
     if (!/^[1-9]\d*$/.test(env.AGENT_TASK_ISSUE) ||
         !Number.isSafeInteger(Number(env.AGENT_TASK_ISSUE))) {
@@ -49,14 +62,34 @@ export function resolveIssueNumber({ env = process.env, payload = {} } = {}) {
   ]) {
     if (prompt === undefined) continue;
     if (typeof prompt !== "string") throw new Error(`${how} must be text.`);
-    const decision = decide(prompt);
+    const decision = decide(prompt, { readTaskPR: resolvePR });
     if (decision.action === "stop") throw new Error(decision.reason);
-    if (decision.action === "resolve") candidates.push({ number: decision.issue, how });
+    if (decision.action === "resolve") {
+      candidates.push({
+        number: decision.issue,
+        how,
+        ...(decision.pullRequest !== undefined ? { pullRequest: decision.pullRequest } : {}),
+      });
+    }
   }
   if (new Set(candidates.map(({ number }) => number)).size > 1) {
     throw new Error("Conflicting explicit task selectors; cached authority was cleared.");
   }
-  return candidates[0] ?? { number: null, how: "nothing" };
+  const pullRequests = new Set(
+    candidates.flatMap(({ pullRequest }) =>
+      pullRequest === undefined ? [] : [pullRequest]),
+  );
+  if (pullRequests.size > 1) {
+    throw new Error("Conflicting explicit task PR selectors; cached authority was cleared.");
+  }
+  const selected = candidates[0];
+  return selected
+    ? {
+        number: selected.number,
+        how: selected.how,
+        ...(pullRequests.size === 1 ? { pullRequest: [...pullRequests][0] } : {}),
+      }
+    : { number: null, how: "nothing" };
 }
 
 function summarize(contract, how, plan, approvalState) {
@@ -173,11 +206,20 @@ async function main() {
         (cleanup.status === "preserved" ? ` ${cleanup.reason}` : ""));
       return;
     }
-    const prompt = payload.initial_prompt ?? payload.initialPrompt ?? process.env.COPILOT_AGENT_PROMPT ?? "";
+    const prompts = [
+      payload.initial_prompt,
+      payload.initialPrompt,
+      process.env.COPILOT_AGENT_PROMPT,
+    ].filter((candidate) => typeof candidate === "string");
+    const prompt = prompts.find((candidate) => taskRole(candidate) !== null) ??
+      prompts.find(isTaskInvocation) ?? "";
+    const inputs = taskInputs(prompt);
     const { contract, plan, approvalState } = resolveTask(resolution.number, {
       role: taskRole(prompt),
       sessionId: payload.session_id ?? payload.sessionId ?? null,
-      ...taskInputs(prompt),
+      ...inputs,
+      pullRequest: resolution.pullRequest ?? inputs.pullRequest,
+      taskPRSelected: resolution.pullRequest !== undefined,
     });
     emit(summarize(contract, resolution.how, plan, approvalState));
   } catch (error) {

@@ -3,6 +3,8 @@ export interface IssueResolution {
   number: number | null;
   /** How it was identified, for the injected session context. */
   how: string;
+  /** The explicit implementation PR, when selected and live-resolved. */
+  pullRequest?: number;
 }
 
 export interface UnselectedTaskStateCleanup {
@@ -18,6 +20,7 @@ export declare function resolveIssueNumber(options?: {
     session_id?: string;
     sessionId?: string;
   };
+  readTaskPR?: (pullRequest: number) => number;
 }): IssueResolution;
 
 export declare function clearUnselectedTaskState(options?: {

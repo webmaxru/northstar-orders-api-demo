@@ -495,6 +495,29 @@ export function evaluateToolCall(call, context = {}) {
       }
       return allow("resolve the explicit task under the current session identity; the owner check precedes cache changes");
     }
+    if (command === "npm run plan:approved") {
+      if (
+        context.role !== "implement" ||
+        !trusted ||
+        !branchAuthorized ||
+        context.workspaceOwnerMatches !== true ||
+        !Number.isSafeInteger(context.issue) ||
+        context.issue < 1 ||
+        typeof context.taskId !== "string" ||
+        !context.taskId.trim() ||
+        typeof context.sessionId !== "string" ||
+        !context.sessionId.trim() ||
+        context.validPlan !== true ||
+        context.requirePlanApproval !== true
+      ) {
+        return deny(
+          "approved-plan refresh requires a valid high-risk plan in the current trusted, owned implementation session",
+        );
+      }
+      return allow(
+        "resolve the exact independent plan-only approval for the current owned implementation task",
+      );
+    }
     const materializeProposal =
       /^npm run plan:materialize -- --file artifacts\/plan-proposal\.md --execute-proposed --session-id ([A-Za-z0-9._-]+)$/.exec(command);
     if (canPropose && materializeProposal) {

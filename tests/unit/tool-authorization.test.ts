@@ -6,6 +6,7 @@ import {
   parsePayload,
   renderDecision,
 } from "../../scripts/authorize-tool.mjs";
+import type { AuthorizationContext } from "../../scripts/authorize-tool.mjs";
 import { contractFromFile, isPathPattern } from "../../scripts/task-contract.mjs";
 
 // The contract comes from the issue. Tests parse the seed file that creates it.
@@ -404,6 +405,50 @@ describe("capability boundary during normal work", () => {
         context,
       ),
     ).toMatchObject({ permissionDecision: "deny" });
+  });
+
+  it("refreshes an approved plan only for the current owned high-risk implementation session", () => {
+    const call = {
+      toolName: "bash",
+      toolArgs: { command: "npm run plan:approved" },
+    };
+    const refreshContext: AuthorizationContext = {
+      ...context,
+      taskId: "AES-PARALLEL-ISOLATION",
+      issue: 16,
+      sessionId: "session-16",
+      role: "implement" as const,
+      workspaceOwnerMatches: true,
+      approvedPlan: false,
+      validPlan: true,
+      requirePlanApproval: true,
+    };
+    const invalidContexts: Partial<AuthorizationContext>[] = [
+      { role: "plan" },
+      { role: null },
+      { trustedContract: false },
+      { branchAuthorized: false },
+      { workspaceOwnerMatches: false },
+      { issue: 0 },
+      { sessionId: "" },
+      { taskId: "" },
+      { validPlan: false },
+      { requirePlanApproval: false },
+    ];
+
+    expect(evaluateToolCall(call, refreshContext)).toMatchObject({
+      permissionDecision: "allow",
+      permissionDecisionReason: expect.stringMatching(/independent plan-only approval/),
+    });
+    for (const invalidContext of invalidContexts) {
+      expect(evaluateToolCall(call, { ...refreshContext, ...invalidContext })).toMatchObject({
+        permissionDecision: "deny",
+      });
+    }
+    expect(evaluateToolCall({
+      toolName: "bash",
+      toolArgs: { command: "npm run plan:approved -- --issue 16" },
+    }, refreshContext)).toMatchObject({ permissionDecision: "deny" });
   });
 
   it("allows read and search", () => {

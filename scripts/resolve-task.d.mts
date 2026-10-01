@@ -10,6 +10,24 @@ export declare function clearTaskState(
   root?: string,
   ownerClaim?: import("./workspace-owner.d.mts").WorkspaceOwnerClaim | null,
 ): void;
+export declare function linkedIssue(body: unknown): number | null;
+export interface TaskPRDetails {
+  number: number;
+  issue: number;
+  repository: string;
+  baseBranch: string;
+  baseSha: string;
+  headBranch: string;
+  headSha: string;
+}
+export declare function resolveTaskPRDetails(pullRequest: number, options?: {
+  root?: string;
+  run?: (args: string[], options: { cwd: string }) => string;
+}): TaskPRDetails;
+export declare function resolveTaskPRIssue(pullRequest: number, options?: {
+  root?: string;
+  run?: (args: string[], options: { cwd: string }) => string;
+}): number;
 export declare function taskRole(prompt: unknown): "plan" | "implement" | null;
 export declare function taskInputs(prompt: unknown): {
   pullRequest: number | null;
@@ -20,11 +38,14 @@ export declare function taskInputs(prompt: unknown): {
 export type TaskDecision =
   | { action: "ignore" }
   | { action: "stop"; reason: string }
-  | { action: "resolve"; issue: number };
+  | { action: "resolve"; issue: number; pullRequest?: number };
 
 export declare function isTaskInvocation(prompt: unknown): boolean;
 export declare function extractIssue(prompt: unknown): number | null;
-export declare function decide(prompt: unknown): TaskDecision;
+export declare function decide(
+  prompt: unknown,
+  options?: { readTaskPR?: (pullRequest: number) => number },
+): TaskDecision;
 export declare function resolveTask(
   issue: number,
   deps?: {
@@ -37,6 +58,8 @@ export declare function resolveTask(
     env?: Record<string, string | undefined>;
     cloud?: boolean;
     pullRequest?: number | null;
+    taskPRSelected?: boolean;
+    readTaskPRDetails?: (pullRequest: number) => TaskPRDetails;
     expectedHead?: string;
     proposalPath?: string | null;
     combined?: boolean;

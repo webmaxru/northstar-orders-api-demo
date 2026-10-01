@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { cacheContract, contractFromIssue } from "./task-contract.mjs";
-import { clearTaskState } from "./resolve-task.mjs";
+import { clearTaskState, linkedIssue } from "./resolve-task.mjs";
 import {
   bindWorkspaceOwner,
   claimWorkspaceOwner,
@@ -25,12 +25,7 @@ function valueOf(flag) {
   return index === -1 ? undefined : process.argv[index + 1];
 }
 
-export function linkedIssue(body) {
-  const matches = [...String(body ?? "").matchAll(/\b(?:closes|fixes|resolves)\s+#(\d+)\b/gi)];
-  const issues = [...new Set(matches.map((match) => Number(match[1])))];
-  if (issues.length > 1) throw new Error("Multiple task issues are linked; select one explicit task.");
-  return issues[0] ?? null;
-}
+export { linkedIssue };
 
 /** Allow replacement of imported caches only in the exact isolated PR workflow run. */
 export function runScopedUnownedCachePaths(contract, env = process.env) {
