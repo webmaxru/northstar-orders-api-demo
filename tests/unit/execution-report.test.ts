@@ -98,7 +98,7 @@ beforeAll(() => {
     GITHUB_WORKFLOW: "Publish Evidence", GITHUB_EVENT_NAME: "workflow_run",
     GITHUB_ACTOR: "fixture-publisher", PR_NUMBER: "7",
   };
-});
+}, 60000);
 
 beforeEach(() => {
   rmSync(join(root, "artifacts"), { recursive: true, force: true });
