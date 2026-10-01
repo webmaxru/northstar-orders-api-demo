@@ -4,7 +4,7 @@ import { planDigest, renderPlanContract, type PlanContract } from "../../scripts
 import { contractFromFile } from "../../scripts/task-contract.mjs";
 
 describe("cloud execution isolation", () => {
-  it("validates cloud execution against approved pull request identity", () => {
+  it("binds Cloud execution to the actual PR instead of author or branch convention", () => {
     const fixture = contractFromFile("tests/fixtures/WI-1842.issue.md");
     const contract = { ...fixture, source: { ...fixture.source, issue: 4, trusted: true } };
     const plan: PlanContract = {
@@ -16,22 +16,21 @@ describe("cloud execution isolation", () => {
       risks: ["scope"], rollbackAndEscalation: ["stop"],
     };
     const repository = "example/reference";
-    const branch = "copilot/wi-1842-implementation";
+    const branch = "agent/implement/aes-parallel-isolation";
     const headSha = "b".repeat(40);
     const pull = {
       number: 17, state: "open", body: `Closes #4\n${renderPlanContract(plan)}`,
-      user: { type: "Bot" },
+      user: { type: "User" },
       head: { ref: branch, sha: headSha, repo: { full_name: repository } },
       base: { ref: "main", sha: plan.baseSha, repo: { full_name: repository } },
     };
     const input = { pull, repository, contract, plan, branch, headSha, descendsFromApprovedBase: true };
     expect(validateCloudExecution(input)).toBe(true);
-    expect(validateCloudExecution({ ...input, branch: "copilot/unrelated" })).toBe(false);
+    expect(validateCloudExecution({ ...input, branch: "agent/implement/unrelated" })).toBe(false);
     expect(validateCloudExecution({ ...input, headSha: "c".repeat(40) })).toBe(false);
     expect(validateCloudExecution({ ...input, descendsFromApprovedBase: false })).toBe(false);
     expect(validateCloudExecution({ ...input, pull: { ...pull, body: `Closes #99\n${renderPlanContract(plan)}` } })).toBe(false);
     expect(validateCloudExecution({ ...input, pull: { ...pull, head: { ...pull.head, repo: { full_name: "outside/fork" } } } })).toBe(false);
-    expect(validateCloudExecution({ ...input, pull: { ...pull, user: { type: "User" } } })).toBe(false);
     expect(plan.planDigest).toBeUndefined();
     const context = resolveCloudExecution(contract, plan, {
       vcs: (args) => args[0] === "branch" ? branch : headSha,

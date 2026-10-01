@@ -9,14 +9,13 @@ export function validateCloudExecution({ pull, repository, contract, plan, branc
   const planInPr = extractPlanContract(pull?.body);
   const issues = [...new Set([...String(pull?.body ?? "").matchAll(/\b(?:closes|fixes|resolves)\s+#(\d+)\b/gi)]
     .map((match) => Number(match[1])))];
+  // The actual PR identity is authoritative; author class and branch naming are not.
   return Boolean(
     pull?.state === "open" &&
-    pull?.user?.type === "Bot" &&
     Number.isSafeInteger(pull.number) &&
     pull.head?.repo?.full_name === repository &&
     pull.base?.repo?.full_name === repository &&
     pull.head?.ref === branch &&
-    /^copilot\/[A-Za-z0-9._/-]+$/.test(branch) &&
     pull.head?.sha === headSha &&
     pull.base?.ref === plan.baseBranch &&
     pull.base?.sha === plan.baseSha &&
