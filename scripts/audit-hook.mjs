@@ -5,7 +5,11 @@ import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { CONTRACT_CACHE } from "./task-contract.mjs";
 import { evidencePath } from "./evidence-record.mjs";
-import { readWorkspaceOwner, workspaceOwnerIdentity } from "./workspace-owner.mjs";
+import {
+  readWorkspaceOwner,
+  resolveSessionId,
+  workspaceOwnerIdentity,
+} from "./workspace-owner.mjs";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 
@@ -87,7 +91,7 @@ export function createAuditRecord(
   root = REPO_ROOT,
   env = process.env,
 ) {
-  const sessionId = payload.sessionId ?? payload.session_id ?? null;
+  const sessionId = resolveSessionId({ payload, env });
   const active = ownedTask(root, sessionId, env);
   const args = payload.toolArgs ?? payload.tool_input ?? {};
   const toolName = payload.toolName ?? payload.tool_name ?? null;

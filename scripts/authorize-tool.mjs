@@ -28,7 +28,12 @@ import {
 import { planDigest, validatePlanContract } from "./plan-contract.mjs";
 import { planArtifactPath } from "./plan-artifact.mjs";
 import { approvalPolicyForRisk } from "./risk-policy.mjs";
-import { assertWorkspaceOwner, readWorkspaceOwner, workspaceOwnerIdentity } from "./workspace-owner.mjs";
+import {
+  assertWorkspaceOwner,
+  readWorkspaceOwner,
+  resolveSessionId,
+  workspaceOwnerIdentity,
+} from "./workspace-owner.mjs";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 
@@ -769,7 +774,10 @@ async function main() {
       } catch (error) {
         if (error.code !== "ENOENT") throw error;
       }
-      const sessionId = parsed.value?.session_id ?? parsed.value?.sessionId;
+      const sessionId = resolveSessionId({
+        payload: parsed.value,
+        env: process.env,
+      });
       const workspaceOwner = readWorkspaceOwner(REPO_ROOT);
       let workspaceOwnerMatches = false;
       if (workspaceOwner && typeof sessionId === "string" && sessionId.trim() &&

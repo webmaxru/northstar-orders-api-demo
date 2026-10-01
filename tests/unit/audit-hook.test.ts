@@ -46,6 +46,21 @@ describe("payload-free hook audit records", () => {
     });
   });
 
+  it("uses the host session identity when the audit payload omits it", () => {
+    const root = mkdtempSync(join(tmpdir(), "northstar-audit-session-"));
+    try {
+      const record = createAuditRecord(
+        { hook_event_name: "PostToolUse" },
+        "2026-10-01T20:00:00Z",
+        root,
+        { COPILOT_SESSION_ID: "cloud-session" },
+      );
+      expect(record.sessionId).toBe("cloud-session");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("keeps local audit output in a session-specific artifact file", () => {
     const root = mkdtempSync(join(tmpdir(), "northstar-audit-owner-"));
     try {
@@ -59,7 +74,13 @@ describe("payload-free hook audit records", () => {
       expect(existsSync(secondPath)).toBe(true);
       expect(readFileSync(firstPath, "utf8")).toContain('"sessionId":"session-one"');
       expect(readFileSync(secondPath, "utf8")).toContain('"sessionId":"session-two"');
-      expect(() => writeAuditRecord(createAuditRecord({ hook_event_name: "SessionEnd" }), null, root))
+      const noSession = createAuditRecord(
+        { hook_event_name: "SessionEnd" },
+        "2026-09-04T10:00:00Z",
+        root,
+        {},
+      );
+      expect(() => writeAuditRecord(noSession, null, root))
         .toThrow(/explicit session identity/);
     } finally {
       rmSync(root, { recursive: true, force: true });

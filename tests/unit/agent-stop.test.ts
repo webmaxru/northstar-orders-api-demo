@@ -210,6 +210,19 @@ describe("the stop gate summary", () => {
       expect(state().attempts[0]?.sessionId).toBe(session.sessionId);
     });
 
+    it("resolves the current Stop session from the host environment when payload ID is absent", () => {
+      const result = runStopGate({ stop_hook_active: false }, {
+        root,
+        env: {
+          GITHUB_REPOSITORY: repository,
+          COPILOT_SESSION_ID: session.sessionId,
+        },
+        run: simulate,
+      });
+      expect(result.systemMessage).toContain("Evidence gate passed");
+      expect(state().attempts[0]?.sessionId).toBe(session.sessionId);
+    });
+
     it("rejects conflicting or omitted session identity instead of choosing an alias", () => {
       for (const input of [
         { stop_hook_active: false },

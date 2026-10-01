@@ -36,6 +36,7 @@ import {
   bindWorkspaceOwner,
   claimWorkspaceOwner,
   releaseWorkspaceClaim,
+  resolveSessionId,
   TASK_AUTHORITY_PATHS,
   unownedTaskAuthorityPaths,
 } from "./workspace-owner.mjs";
@@ -517,7 +518,7 @@ async function main() {
     const inputs = taskInputs(prompt);
     const result = resolveTask(decision.issue, {
       role: taskRole(prompt),
-      sessionId: payload.session_id ?? payload.sessionId ?? null,
+      sessionId: resolveSessionId({ payload, env: process.env }),
       ...inputs,
       pullRequest: decision.pullRequest ?? inputs.pullRequest,
       taskPRSelected: decision.pullRequest !== undefined,

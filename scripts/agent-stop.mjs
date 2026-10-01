@@ -22,6 +22,7 @@ import { approvalPolicyForRisk, GOVERNANCE_POLICY } from "./risk-policy.mjs";
 import {
   assertWorkspaceOwner,
   readWorkspaceOwner,
+  resolveSessionId,
   workspaceOwnerIdentity,
 } from "./workspace-owner.mjs";
 
@@ -112,10 +113,12 @@ function readStopSession(input, contract, root, env) {
     throw new Error("Task-session metadata does not match the current task contract.");
   }
   const ids = [input.session_id, input.sessionId].filter((id) => id !== undefined);
+  const sessionId = resolveSessionId({ payload: input, env });
   if (ids.some((id) => typeof id !== "string" || !id.trim()) ||
     new Set(ids).size > 1 ||
+    typeof sessionId !== "string" || !sessionId.trim() ||
     typeof session.sessionId !== "string" || !session.sessionId.trim() ||
-    session.sessionId !== ids[0]) {
+    session.sessionId !== sessionId) {
     throw new Error("Stop session identity is missing, invalid, or different from the resolved task session.");
   }
   const repository = env.GITHUB_REPOSITORY ??

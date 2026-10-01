@@ -51,17 +51,47 @@ function repositoryFromWorkspace(root) {
   return match[1];
 }
 
-function executionIdentity(sessionId, env) {
-  const explicit = sessionId ?? env.COPILOT_SESSION_ID ??
-    env.COPILOT_SESSION_UUID ?? env.COPILOT_AGENT_SESSION_ID;
-  if (typeof explicit === "string" && explicit.trim()) {
-    return `copilot-session:${explicit.trim()}`;
-  }
+function githubActionsSessionId(env) {
   if (env.GITHUB_ACTIONS === "true" &&
       /^[^/\s]+\/[^/\s]+$/.test(env.GITHUB_REPOSITORY ?? "") &&
       /^[1-9]\d*$/.test(env.GITHUB_RUN_ID ?? "") &&
       /^[1-9]\d*$/.test(env.GITHUB_RUN_ATTEMPT ?? "")) {
     return `github-actions:${env.GITHUB_REPOSITORY}:${env.GITHUB_RUN_ID}:${env.GITHUB_RUN_ATTEMPT}`;
+  }
+  return null;
+}
+
+export function resolveSessionId({
+  explicit,
+  payload = {},
+  env = process.env,
+} = {}) {
+  const eventIdentity = explicit ?? payload.session_id ?? payload.sessionId;
+  if (eventIdentity !== undefined && eventIdentity !== null) {
+    if (typeof eventIdentity !== "string" || !eventIdentity.trim()) {
+      throw new Error("Host session identity is missing or malformed.");
+    }
+    return eventIdentity.trim();
+  }
+  for (const candidate of [
+    env.COPILOT_SESSION_ID,
+    env.COPILOT_SESSION_UUID,
+    env.COPILOT_AGENT_SESSION_ID,
+  ]) {
+    if (candidate === undefined || candidate === null || candidate === "") continue;
+    if (typeof candidate !== "string" || !candidate.trim()) {
+      throw new Error("Host session identity is missing or malformed.");
+    }
+    return candidate.trim();
+  }
+  return githubActionsSessionId(env);
+}
+
+function executionIdentity(sessionId, env) {
+  const explicit = resolveSessionId({ explicit: sessionId, env });
+  if (typeof explicit === "string" && explicit.trim()) {
+    if (explicit === githubActionsSessionId(env)) return explicit;
+    return `copilot-session:${explicit.trim()}`;
   }
   throw new Error("Task workspace ownership requires an explicit Copilot session or workflow run identity.");
 }

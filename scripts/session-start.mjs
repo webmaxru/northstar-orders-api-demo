@@ -33,7 +33,11 @@ import {
   isTaskInvocation,
   renderResult,
 } from "./resolve-task.mjs";
-import { readWorkspaceOwner, releaseTaskWorkspace } from "./workspace-owner.mjs";
+import {
+  readWorkspaceOwner,
+  releaseTaskWorkspace,
+  resolveSessionId,
+} from "./workspace-owner.mjs";
 
 export function resolveIssueNumber({
   env = process.env,
@@ -194,9 +198,9 @@ async function main() {
     const raw = Buffer.concat(chunks).toString("utf8").trim();
     const payload = raw ? JSON.parse(raw) : {};
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("Invalid session hook envelope.");
+    const sessionId = resolveSessionId({ payload, env: process.env });
     const resolution = resolveIssueNumber({ payload });
     if (!resolution.number) {
-      const sessionId = payload.session_id ?? payload.sessionId ?? null;
       const cleanup = await clearUnselectedTaskState({
         root: process.cwd(),
         sessionId,
@@ -216,7 +220,7 @@ async function main() {
     const inputs = taskInputs(prompt);
     const { contract, plan, approvalState } = resolveTask(resolution.number, {
       role: taskRole(prompt),
-      sessionId: payload.session_id ?? payload.sessionId ?? null,
+      sessionId,
       ...inputs,
       pullRequest: resolution.pullRequest ?? inputs.pullRequest,
       taskPRSelected: resolution.pullRequest !== undefined,

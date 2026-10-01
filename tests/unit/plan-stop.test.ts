@@ -75,5 +75,15 @@ describe("plan Stop owner binding", () => {
     });
     expect(active.session.workspaceOwner).toBe(owner.identity.ownerKey);
     releaseWorkspaceClaim(active.claim);
+
+    const fromEnvironment = claimOwnedPlanSession({}, {
+      root,
+      env: {
+        GITHUB_REPOSITORY: repository,
+        COPILOT_SESSION_ID: "plan-owner",
+      },
+    });
+    expect(fromEnvironment.session.sessionId).toBe("plan-owner");
+    releaseWorkspaceClaim(fromEnvironment.claim);
   });
 });

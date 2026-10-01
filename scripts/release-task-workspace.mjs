@@ -1,7 +1,7 @@
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import { clearTaskState } from "./resolve-task.mjs";
-import { releaseTaskWorkspace } from "./workspace-owner.mjs";
+import { releaseTaskWorkspace, resolveSessionId } from "./workspace-owner.mjs";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 
@@ -13,10 +13,7 @@ function valueOf(flag) {
 async function main() {
   const issueText = valueOf("--issue");
   const issue = Number(issueText);
-  const sessionId = valueOf("--session-id") ??
-    process.env.COPILOT_SESSION_ID ??
-    process.env.COPILOT_SESSION_UUID ??
-    process.env.COPILOT_AGENT_SESSION_ID;
+  const sessionId = resolveSessionId({ explicit: valueOf("--session-id") });
   const clearUnowned = process.argv.includes("--clear-unowned");
   if (!/^[1-9]\d*$/.test(issueText ?? "") || !Number.isSafeInteger(issue) ||
     typeof sessionId !== "string" || !sessionId.trim()) {

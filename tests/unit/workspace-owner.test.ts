@@ -9,6 +9,7 @@ import {
   readWorkspaceOwner,
   releaseTaskWorkspace,
   releaseWorkspaceClaim,
+  resolveSessionId,
   WORKSPACE_OWNER_PATH,
   workspaceOwnerIdentity,
 } from "../../scripts/workspace-owner.mjs";
@@ -17,6 +18,70 @@ import { clearTaskState } from "../../scripts/resolve-task.mjs";
 const temporary: string[] = [];
 const worker = resolve(import.meta.dirname, "../fixtures/task-resolver-worker.mjs");
 const fixtureEnv = { GITHUB_REPOSITORY: "fixture/northstar" };
+
+describe("host session identity resolution", () => {
+  it("prefers an explicit event or CLI identity and falls back to Copilot host environment", () => {
+    expect(resolveSessionId({
+      explicit: "cli-session",
+      payload: { session_id: "event-session" },
+      env: { COPILOT_SESSION_ID: "environment-session" },
+    })).toBe("cli-session");
+    expect(resolveSessionId({
+      payload: { session_id: "event-session" },
+      env: { COPILOT_SESSION_ID: "environment-session" },
+    })).toBe("event-session");
+    expect(resolveSessionId({
+      payload: {},
+      env: { COPILOT_SESSION_ID: "environment-session" },
+    })).toBe("environment-session");
+    expect(resolveSessionId({
+      payload: {},
+      env: { COPILOT_SESSION_UUID: "uuid-session" },
+    })).toBe("uuid-session");
+    expect(resolveSessionId({
+      payload: {},
+      env: { COPILOT_AGENT_SESSION_ID: "agent-session" },
+    })).toBe("agent-session");
+    expect(resolveSessionId({ payload: {}, env: {} })).toBeNull();
+  });
+
+  it("rejects malformed host session identities", () => {
+    expect(() => resolveSessionId({
+      payload: { session_id: 42 },
+      env: {},
+    })).toThrow(/missing or malformed/);
+    expect(() => resolveSessionId({
+      payload: { session_id: " " },
+      env: {},
+    })).toThrow(/missing or malformed/);
+  });
+
+  it("uses a repository-run-attempt identity when Actions provides no Copilot session ID", () => {
+    const root = tempRoot();
+    const env = {
+      GITHUB_ACTIONS: "true",
+      GITHUB_REPOSITORY: "fixture/northstar",
+      GITHUB_RUN_ID: "101",
+      GITHUB_RUN_ATTEMPT: "2",
+    };
+    const sessionId = resolveSessionId({ payload: {}, env });
+    expect(sessionId).toBe("github-actions:fixture/northstar:101:2");
+
+    const input = {
+      root,
+      issue: 41,
+      taskId: "AES-PARALLEL-ISOLATION",
+      contractDigest: "a".repeat(64),
+      env,
+    };
+    expect(workspaceOwnerIdentity({ ...input, sessionId }).ownerKey)
+      .toBe(workspaceOwnerIdentity(input).ownerKey);
+    expect(resolveSessionId({
+      payload: {},
+      env: { ...env, GITHUB_RUN_ATTEMPT: "3" },
+    })).not.toBe(sessionId);
+  });
+});
 
 function tempRoot() {
   const root = mkdtempSync(join(tmpdir(), "northstar-workspace-owner-"));

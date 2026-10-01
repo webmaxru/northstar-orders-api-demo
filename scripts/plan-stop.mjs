@@ -31,6 +31,7 @@ import {
   assertWorkspaceOwner,
   claimWorkspaceOwner,
   readWorkspaceOwner,
+  resolveSessionId,
   releaseWorkspaceClaim,
   workspaceOwnerIdentity,
 } from "./workspace-owner.mjs";
@@ -55,7 +56,7 @@ export function claimOwnedPlanSession(input, {
   root = REPO_ROOT,
   env = process.env,
 } = {}) {
-  const sessionId = input?.session_id ?? input?.sessionId;
+  const sessionId = resolveSessionId({ payload: input, env });
   if (typeof sessionId !== "string" || !sessionId.trim()) {
     throw new Error("The planning Stop event must include the current session identity.");
   }

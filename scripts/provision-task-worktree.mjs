@@ -6,7 +6,12 @@ import { fetchApprovedPlan, implementationBranch } from "./publish-plan.mjs";
 import { validatePlanContract } from "./plan-contract.mjs";
 import { contractFromIssue } from "./task-contract.mjs";
 import { resolveTask } from "./resolve-task.mjs";
-import { assertWorkspaceOwner, readWorkspaceOwner, workspaceOwnerIdentity } from "./workspace-owner.mjs";
+import {
+  assertWorkspaceOwner,
+  readWorkspaceOwner,
+  resolveSessionId,
+  workspaceOwnerIdentity,
+} from "./workspace-owner.mjs";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 
@@ -216,9 +221,7 @@ export function provisionTaskWorktree({
 function main() {
   const issue = Number(valueOf("--issue"));
   const requestedPath = valueOf("--path");
-  const sessionId = valueOf("--session-id") ??
-    process.env.COPILOT_SESSION_ID ??
-    process.env.COPILOT_SESSION_UUID;
+  const sessionId = resolveSessionId({ explicit: valueOf("--session-id") });
   try {
     const result = provisionTaskWorktree({ issue, requestedPath, sessionId });
     process.stdout.write(

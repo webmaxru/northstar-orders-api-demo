@@ -11,6 +11,7 @@
 
 import { CONTRACT_CACHE, contractFromFile } from "./task-contract.mjs";
 import { resolveTask } from "./resolve-task.mjs";
+import { resolveSessionId } from "./workspace-owner.mjs";
 import { resolve } from "node:path";
 
 function valueOf(flag) {
@@ -33,11 +34,7 @@ let target;
 try {
   if (issue) {
     const result = resolveTask(Number(issue), {
-      sessionId: valueOf("--session-id") ??
-        process.env.COPILOT_SESSION_ID ??
-        process.env.COPILOT_SESSION_UUID ??
-        process.env.COPILOT_AGENT_SESSION_ID ??
-        null,
+      sessionId: resolveSessionId({ explicit: valueOf("--session-id") }),
     });
     contract = result.contract;
     target = resolve(import.meta.dirname, "..", CONTRACT_CACHE);

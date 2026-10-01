@@ -6,6 +6,7 @@ import { clearTaskState, linkedIssue } from "./resolve-task.mjs";
 import {
   bindWorkspaceOwner,
   claimWorkspaceOwner,
+  resolveSessionId,
   releaseWorkspaceClaim,
   TASK_AUTHORITY_PATHS,
 } from "./workspace-owner.mjs";
@@ -59,10 +60,7 @@ function main() {
       issue,
       taskId: contract.id,
       contractDigest: contract.source.bodyDigest,
-      sessionId: process.env.COPILOT_SESSION_ID ??
-        process.env.COPILOT_SESSION_UUID ??
-        process.env.COPILOT_AGENT_SESSION_ID ??
-        null,
+      sessionId: resolveSessionId(),
       allowUnownedStatePaths: runScopedUnownedCachePaths(contract),
       contract,
     });

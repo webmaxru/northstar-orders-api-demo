@@ -19,6 +19,7 @@ import { dirname, resolve } from "node:path";
 import {
   assertWorkspaceOwner,
   readWorkspaceOwner,
+  resolveSessionId,
   unownedTaskAuthorityPaths,
   workspaceOwnerIdentity,
 } from "./workspace-owner.mjs";
@@ -208,9 +209,7 @@ export function cacheContract(contract, cachePath = CONTRACT_CACHE, ownerClaim =
     }
     let identity = ownerClaim?.identity;
     if (!identity) {
-      let sessionId = process.env.COPILOT_SESSION_ID ??
-        process.env.COPILOT_SESSION_UUID ??
-        process.env.COPILOT_AGENT_SESSION_ID;
+      let sessionId = resolveSessionId();
       if (!sessionId && existingOwner && process.env.GITHUB_ACTIONS !== "true") {
         const sessionPath = resolve(root, "artifacts/task-session.json");
         if (!existsSync(sessionPath)) {

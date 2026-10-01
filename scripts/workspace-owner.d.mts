@@ -16,6 +16,11 @@ export interface WorkspaceOwnerClaim {
 export declare const WORKSPACE_OWNER_PATH: string;
 export declare const TASK_AUTHORITY_PATHS: readonly string[];
 export declare function unownedTaskAuthorityPaths(root: string): string[];
+export declare function resolveSessionId(input?: {
+  explicit?: string | null;
+  payload?: Record<string, unknown>;
+  env?: Record<string, string | undefined>;
+}): string | null;
 
 export declare function workspaceOwnerIdentity(input: {
   root: string;
