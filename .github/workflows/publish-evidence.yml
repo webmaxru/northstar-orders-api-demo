@@ -120,6 +120,7 @@ jobs:
           NORTHSTAR_PARENT_PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number || inputs.parent-pr-number }}
           NORTHSTAR_BOOTSTRAP_PLAN_PR_NUMBER: ${{ inputs.bootstrap-plan-pr-number }}
           NORTHSTAR_BOOTSTRAP_PLAN_HEAD_SHA: ${{ inputs.bootstrap-plan-head-sha }}
+          NORTHSTAR_MIGRATION_MODE: ${{ github.event_name == 'workflow_dispatch' && 'bootstrap-migration' || '' }}
           NORTHSTAR_DISPATCH_APP_LOGIN: ${{ vars.SYSTEM_MAINTENANCE_DISPATCH_APP_LOGIN }}
         run: node scripts/resolve-workflow-run.mjs
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7

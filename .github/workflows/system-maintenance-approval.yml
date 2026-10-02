@@ -17,7 +17,7 @@ on:
         type: string
       evidence-run-attempt:
         description: Exact Publish Evidence workflow attempt
-        required: true
+        required: false
         type: string
       source-run-id:
         description: Governed Change run whose immutable evidence is being evaluated
@@ -25,12 +25,13 @@ on:
         type: string
       source-run-attempt:
         description: Exact Governed Change source attempt
-        required: true
+        required: false
         type: string
       migration-mode:
         description: Validated PR resolution mode for the source run
-        required: true
+        required: false
         type: choice
+        default: open-pr
         options:
           - open-pr
           - bootstrap-migration

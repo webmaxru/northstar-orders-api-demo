@@ -95,7 +95,7 @@ export interface WorkflowResolutionInput {
   eventName: "workflow_run" | "workflow_dispatch";
   repository: string;
   sourceRunId: string | number;
-  sourceRunAttempt: string | number;
+  sourceRunAttempt?: string | number;
   pullRequest: string | number;
   eventRun?: Record<string, unknown>;
   bootstrapPlanPr?: string | number;

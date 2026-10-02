@@ -472,6 +472,9 @@ describe("combined-mode hosted workflow wiring", () => {
     expect(source).toContain("bootstrap-plan-pr-number:");
     expect(source).toContain("bootstrap-plan-head-sha:");
     expect(source).toContain("github.actor == vars.SYSTEM_MAINTENANCE_DISPATCH_APP_LOGIN");
+    expect(source).toContain(
+      "NORTHSTAR_MIGRATION_MODE: ${{ github.event_name == 'workflow_dispatch' && 'bootstrap-migration' || '' }}",
+    );
     expect(source).toContain("github.ref == format('refs/heads/{0}', github.event.repository.default_branch)");
     expect(resolver).toBeGreaterThanOrEqual(0);
     expect(download).toBeGreaterThan(resolver);
@@ -511,5 +514,26 @@ describe("combined-mode hosted workflow wiring", () => {
     const governed = workflow("governed-change.yml");
     expect(governed).not.toContain("TRUSTED_PUBLISHER_APP_PRIVATE_KEY");
     expect(governed).not.toContain("SYSTEM_MAINTENANCE_DISPATCH_APP_PRIVATE_KEY");
+  });
+
+  it("preserves browser-canary dispatches while resolving exact run attempts from GitHub", () => {
+    const maintenance = workflow("system-maintenance-approval.yml");
+    expect(maintenance).toContain("default: open-pr");
+    expect(maintenance).toMatch(
+      /source-run-attempt:\r?\n\s+description: Exact Governed Change source attempt\r?\n\s+required: false/,
+    );
+    expect(maintenance).toMatch(
+      /evidence-run-attempt:\r?\n\s+description: Exact Publish Evidence workflow attempt\r?\n\s+required: false/,
+    );
+    expect(maintenance).toContain("NORTHSTAR_SOURCE_RUN_ATTEMPT: ${{ inputs.source-run-attempt }}");
+    expect(maintenance).toContain("EVIDENCE_RUN_ATTEMPT: ${{ inputs.evidence-run-attempt }}");
+
+    const browserCanaryDispatcher = readFileSync(
+      join(import.meta.dirname, "..", "..", "scripts", "dispatch-browser-plan-canary.mjs"),
+      "utf8",
+    );
+    expect(browserCanaryDispatcher).toContain('"workflow", "run", "system-maintenance-approval.yml"');
+    expect(browserCanaryDispatcher).not.toContain("source-run-attempt=");
+    expect(browserCanaryDispatcher).not.toContain("evidence-run-attempt=");
   });
 });

@@ -9,6 +9,7 @@ import {
   validateRestoredBootstrapRuleset,
   validateResolvedWorkflowRunContext,
 } from "../../scripts/resolve-workflow-run.mjs";
+import type { WorkflowResolutionInput } from "../../scripts/resolve-workflow-run.mjs";
 import { planDigest, renderPlanContract } from "../../scripts/plan-contract.mjs";
 import type { PlanContract } from "../../scripts/plan-contract.mjs";
 import { renderPlan } from "../../scripts/publish-plan.mjs";
@@ -470,7 +471,7 @@ function fixture(
     if (route === `repos/${repository}/actions/runs/77`) {
       return JSON.stringify(publisherRun);
     }
-    if (route === `repos/${repository}/actions/runs/77/attempts/1/jobs?per_page=100`) {
+    if (route === `repos/${repository}/actions/runs/77/attempts/${publisherRun.run_attempt}/jobs?per_page=100`) {
       return JSON.stringify([{ total_count: 1, jobs: [publisherJob] }]);
     }
     if (route === `repos/${repository}/actions/runs/77/artifacts?per_page=100`) {
@@ -524,7 +525,7 @@ function fixture(
     }
     if (
       route ===
-      `repos/${repository}/actions/runs/${sourceRunId}/attempts/1/jobs?per_page=100`
+      `repos/${repository}/actions/runs/${sourceRunId}/attempts/${sourceRun.run_attempt}/jobs?per_page=100`
     ) {
       return JSON.stringify([{ total_count: jobs.length, jobs }]);
     }
@@ -1044,6 +1045,42 @@ describe("attempt-bound workflow resolution", () => {
       },
       mergeCommitSha: mergeSha,
     });
+  });
+
+  it("resolves omitted maintenance attempts from exact GitHub run metadata", () => {
+    const f = fixture("open-pr", true);
+    f.sourceRun.run_attempt = 2;
+    f.publisherRun.run_attempt = 2;
+    const withoutAttempts: WorkflowResolutionInput = { ...f.input };
+    delete withoutAttempts.sourceRunAttempt;
+    delete withoutAttempts.publisherRunAttempt;
+    const result = resolveWorkflowRun(withoutAttempts, {
+      run: f.run,
+      readTask: f.readTask,
+      readApproved: f.readApproved,
+      readHistoricalApproval: f.readHistoricalApproval,
+    });
+
+    expect(result).toMatchObject({
+      sourceRunAttempt: "2",
+      maintenancePublisher: {
+        runAttempt: "2",
+        artifactId: 1200,
+      },
+    });
+    expect(validateResolvedWorkflowRunContext(result)).toEqual(result);
+
+    const stale = fixture("open-pr", true);
+    stale.sourceRun.run_attempt = 2;
+    expect(() => resolveWorkflowRun({
+      ...stale.input,
+      sourceRunAttempt: 1,
+    }, {
+      run: stale.run,
+      readTask: stale.readTask,
+      readApproved: stale.readApproved,
+      readHistoricalApproval: stale.readHistoricalApproval,
+    })).toThrow(/exact completed same-repository/);
   });
 
   it("requires the maintenance publisher attempt and its artifact to complete before status revalidation", () => {

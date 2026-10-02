@@ -466,16 +466,33 @@ function validateMaintenancePublisher({
   run,
 }) {
   const id = String(publisherRunId ?? "");
-  const attemptNumber = Number(publisherRunAttempt);
+  const sourceAttemptNumber = Number(sourceRunAttempt);
+  const suppliedAttemptNumber =
+    publisherRunAttempt == null || publisherRunAttempt === ""
+      ? null
+      : Number(publisherRunAttempt);
   if (
     !isPositiveInteger(id) ||
-    !Number.isSafeInteger(attemptNumber) ||
-    attemptNumber < 1 ||
-    !Number.isSafeInteger(Number(sourceRunAttempt)) ||
-    Number(sourceRunAttempt) < 1 ||
+    (suppliedAttemptNumber !== null &&
+      (!Number.isSafeInteger(suppliedAttemptNumber) || suppliedAttemptNumber < 1)) ||
+    !Number.isSafeInteger(sourceAttemptNumber) ||
+    sourceAttemptNumber < 1 ||
     id === String(sourceRunId)
   ) {
     throw new Error("Maintenance continuation requires an exact trusted publisher run attempt.");
+  }
+  const latestRunBeforeAttempt = githubJson(
+    `repos/${repository}/actions/runs/${id}`,
+    { run },
+  );
+  const attemptNumber = suppliedAttemptNumber ?? Number(latestRunBeforeAttempt.run_attempt);
+  if (
+    !Number.isSafeInteger(attemptNumber) ||
+    attemptNumber < 1 ||
+    String(latestRunBeforeAttempt.id) !== id ||
+    Number(latestRunBeforeAttempt.run_attempt) !== attemptNumber
+  ) {
+    throw new Error("The maintenance continuation is not bound to the exact successful trusted publisher run.");
   }
   const attempt = githubJson(
     `repos/${repository}/actions/runs/${id}/attempts/${attemptNumber}`,
@@ -939,17 +956,21 @@ export function resolveWorkflowRun(input, {
   }
   const repository = input.repository;
   const runId = String(input.sourceRunId ?? "");
-  const attemptNumber = Number(input.sourceRunAttempt);
+  const suppliedAttemptNumber =
+    input.sourceRunAttempt == null || input.sourceRunAttempt === ""
+      ? null
+      : Number(input.sourceRunAttempt);
   const pullRequest = Number(input.pullRequest);
   if (
     !REPOSITORY.test(repository ?? "") ||
     !isPositiveInteger(runId) ||
-    !Number.isSafeInteger(attemptNumber) ||
-    attemptNumber < 1 ||
+    (suppliedAttemptNumber !== null &&
+      (!Number.isSafeInteger(suppliedAttemptNumber) || suppliedAttemptNumber < 1)) ||
+    (!maintenanceContinuation && suppliedAttemptNumber === null) ||
     !Number.isSafeInteger(pullRequest) ||
     pullRequest < 1
   ) {
-    throw new Error("Resolution requires exact repository, run, attempt, and pull request identities.");
+    throw new Error("Resolution requires exact repository, run, and pull request identities.");
   }
   if (
     (migration || maintenanceContinuation) &&
@@ -991,6 +1012,20 @@ export function resolveWorkflowRun(input, {
     );
   }
 
+  const latestRunBeforeAttempt = maintenanceContinuation
+    ? api(`repos/${repository}/actions/runs/${runId}`)
+    : null;
+  const attemptNumber = suppliedAttemptNumber ??
+    Number(latestRunBeforeAttempt?.run_attempt);
+  if (
+    !Number.isSafeInteger(attemptNumber) ||
+    attemptNumber < 1 ||
+    (latestRunBeforeAttempt &&
+      (String(latestRunBeforeAttempt.id) !== runId ||
+        Number(latestRunBeforeAttempt.run_attempt) !== attemptNumber))
+  ) {
+    throw new Error("The source run is not the exact completed same-repository Governed Change attempt.");
+  }
   const attempt = api(
     `repos/${repository}/actions/runs/${runId}/attempts/${attemptNumber}`,
   );

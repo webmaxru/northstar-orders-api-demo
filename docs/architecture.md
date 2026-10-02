@@ -167,6 +167,12 @@ role, preserving the host's session identity and stop-loop flag.
 
 Evidence must bind real artifacts and complete producer identity. Missing,
 modified, stale or mismatched task/plan/base/head/run/attempt evidence fails.
+For compatibility with the browser-plan-canary dispatcher, System Maintenance
+may omit attempt inputs; the resolver reads each current attempt from GitHub
+for the supplied run ID, binds it into the resolution, and rejects a stale
+supplied attempt or any change during revalidation. Its dispatch mode defaults
+to `open-pr`; the protected Publish Evidence bootstrap dispatch selects
+`bootstrap-migration` only on its guarded default-branch path.
 The preliminary Governed Change report may consume only its current-run
 `plan-contract` and `scope-policy` producer records after validating their
 task, plan, source, run, attempt, job and artifact identities. The trusted
