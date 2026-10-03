@@ -4,22 +4,19 @@
 Safely bootstrap trusted-acceptance publication for same-repository stacked PRs without exposing publisher credentials to pull-request code. During ordinary processing, require the PR to be open. For the single approved migration only, permit protected-default-branch workflow_dispatch to process the exact merged migration PR after verifying source run/attempt, repository, workflow/event, original head/base, merge commit, task and plan. After the parent merge, first restore repository-controls to its original Actions integration 15368 and trusted-acceptance to App 5075466, then run the trusted online audit and publish `trusted-acceptance` on the validated original PR head only if the report is ready_for_acceptance. Issue #22 separately owns any later repository-controls rebind.
 
 ## Plan
-Risk: high. Base: `agent/implement/aes-surface-evidence` at `2ce3cf8a69439c22246de7d5449ce186e23bd584`. The owner amended Issue #24 on 2026-10-02 to allow only the Fastify 5.12.1 to 5.12.5 update and the minimum lockfile update needed to resolve `brace-expansion` at 5.0.12 or later. This changes the task digest; prior PR #25 approval is invalid and this plan must receive a fresh independent native approval. PR #28 is at `cb507e20cd0cb8fdeabfedaece67510a651757b0` on the exact parent base and has exact-head approval `5391273930`, but its hosted checks still fail. This plan authorizes only a plan refresh and, after approval, the bounded dependency updates plus already-planned resolver/workflow work; it authorizes no settings mutation or PR merge.
+Risk: high. Base: agent/implement/aes-surface-evidence at 2ce3cf8a69439c22246de7d5449ce186e23bd584. Live Issue #24 contract digest: 8763c017e195fc22c2a4b4c3347ad961616eeaa8ee56029a72c2f315e33bf01c. The amended contract requires an exact-base/candidate pinned Zizmor 1.30.0 comparison and no new findings. PR #25's previous approval is bound to 2d25fc79ffff1aecd2fef10787233865a54a06d0e96a8313a87fa46c6ca70936 and is not valid for this revision; fresh independent native approval is required. This proposal authorizes no settings mutation or PR merge by itself.
 
 ### Current parent and child status
-- Parent PR #18 remains at `2ce3cf8a69439c22246de7d5449ce186e23bd584`; its required `trusted-acceptance` status remains **failure**. The latest known source report is `ready_for_review` with AC15 unverified; no fresh passing trusted status on the exact parent head is recorded.
-- PR #28 is stacked on the parent branch at `cb507e20cd0cb8fdeabfedaece67510a651757b0`; `vibeprogrammer` approved that exact head (review `5391273930`). Governed Change run `37001565136` passes current-head `human-review`, plan, scope, quality, acceptance, CodeQL, merge validation, secret scan and governance. `dependency-review`, `repository-controls` and `evidence` fail. The report remains `review_required` with `validation-authority` absent and trusted current-run revalidation incomplete.
-- Trusted Publish Evidence run `37001721147` executed protected `main` at `b65c2de` and failed to resolve the stacked PR: deployed default-branch code only found PRs targeting `main`. PR #28 contains the exact-declared-base resolver fix, but that code is not yet deployed on protected `main`.
-- These are blockers, not acceptance or permission to change ruleset settings. Do not claim hosted acceptance or start the 60-minute window until dependency validation, trusted stacked-base publication, and the exact-parent preflight are proven.
+- Parent PR #18 is at 2ce3cf8a69439c22246de7d5449ce186e23bd584 on base b65c2de5c8224342c72c37eeed7ef9f965ad8a2c; review decision REVIEW_REQUIRED; current failing checks: repository-controls, human-review, evidence.
+- Child PR #28 is at cb507e20cd0cb8fdeabfedaece67510a651757b0 on base 2ce3cf8a69439c22246de7d5449ce186e23bd584; draft=true; review decision APPROVED; current failing checks: dependency-review, repository-controls, human-review, evidence. These are blockers, not acceptance.
+- PR #25 is at 1c67b1106f9a8f2a94dfe62185ada6e7b679e24b, draft=true, and its current artifact uses the superseded contract digest. Fresh independent approval on the refreshed exact plan head is required.
 
 ### Parent bootstrap sequence
-- PR #28 already targets parent branch `agent/implement/aes-surface-evidence` at exact base `2ce3cf8a69439c22246de7d5449ce186e23bd584`; do not rebase it unless the parent advances. After fresh approval of this amended plan, apply only the authorized dependency updates and rerun the exact audit/tests below. PR #28 must remain draft until applicable local/hosted checks are ready.
-- A human integrates reviewed child changes into parent PR #18; the agent does not merge. Do not integrate PR #28 while dependency-review, repository-controls or evidence is failing.
-- Main bootstrap PR: parent PR #18 only after issue #24 child code and dependent work are integrated. Before the window, preflight all remaining checks and prove the protected publisher can restore both trusted statuses on the exact source head.
-- Remove only `repository-controls` and `trusted-acceptance` for at most 60 minutes; keep `evidence`, all other checks, strictness, human review, CODEOWNERS, environments and no bypass actors.
-- Merge parent #18 through normal human review, then immediately restore repository-controls -> Actions `15368` and trusted-acceptance -> App `5075466`.
-- Dispatch the protected publisher from main with exact source run/attempt and approved plan identities; validate merge/source provenance before import; run live governance audit after restoration; publish trusted-acceptance on original head only after ready_for_acceptance.
-- On any audit/status failure, publish no success and block later merges. Issue #22 owns the later repository-controls rebind.
+- Keep PR #28 stacked on parent branch agent/implement/aes-surface-evidence at exact base 2ce3cf8a69439c22246de7d5449ce186e23bd584; rebind and reapprove if the parent advances. A human integrates reviewed child changes into PR #18 after applicable checks pass; the agent does not merge.
+- Issue #24's two-context bootstrap is first, only after the #24 child is integrated and its exact-head preflight passes. Remove exactly repository-controls and trusted-acceptance for at most 60 minutes; preserve evidence, all other checks, strict mode, approvals, CODEOWNERS, environments, and the empty bypass list. Immediately restore repository-controls to integration 15368 and trusted-acceptance to App 5075466, verify both identities, then run the protected audit and publish only truthful status on the validated original head.
+- After both contexts are restored, refresh and implement Issue #22 under its own fresh approved plan; keep trusted-acceptance required and allow only its separate repository-controls window. After #22 is accepted, refresh and implement Issue #20. Never overlap the windows.
+- AC6 requires no new Zizmor 1.30.0 findings on the #24 candidate. Existing findings remain assigned to #20 and block parent ready_for_acceptance until #20 and required hosted checks pass. No scanner suppressions or severity downgrades are authorized.
+- Do not start a settings window unless every task-specific preflight and status gate passes. On any missing, stale, failed, or untruthful evidence, do not start; if active, restore both original contexts and stop.
 
 ## Scope and files to change
 - `scripts/resolve-workflow-pr.d.mts`
@@ -88,37 +85,35 @@ Prohibited paths and operations:
 - AC3 | Missing, stale, failed, or mismatched evidence never produces success and migration evidence never claims acceptance | rejects stale publisher run provenance
 - AC4 | The bootstrap removes only the two named contexts for at most 60 minutes, preserves `evidence` and all other requirements, adds no bypass actor, and restores the original integrations 15368 and 5075466 | preserves hosted-control and approval boundaries
 - AC5 | PR workflows receive no privileged credentials and the protected publisher never checks out or executes PR code | publisher never executes pull request code
-- AC6 | The implementation passes focused/full validation and records exact hosted status identity and ruleset restoration | records complete trusted-acceptance validation
+- AC6 | The Issue #24 candidate passes focused/unit/acceptance tests, typecheck/build, plan and scope checks, dependency audit with zero high/critical findings, secret scan, and agentic:compile. Pinned Zizmor is compared against the exact approved base and the candidate introduces no new findings. Existing findings remain unresolved and assigned to Issue #20; this criterion does not claim parent ready_for_acceptance until Issue #20 and all required hosted checks pass | records task-scoped results, base/candidate Zizmor SARIF digests, and exact hosted status and ruleset evidence
 
 ## Evidence
-- Exact parent base and plan approval; ruleset 23998987 before/during/after snapshots prove only the two named contexts were temporarily absent, all other rules unchanged, strict mode true and bypass actors empty.
-- Preflight record for parent PR #18: all remaining contexts pass, evidence is required and truthful, unrelated main merges are paused, and rollback is ready.
-- Dependency audit evidence: Fastify resolves to 5.12.5, brace-expansion resolves to at least 5.0.12, only the authorized package files changed, and `npm audit --audit-level=high` has zero high/critical advisories.
-- Current child evidence: PR #28 head `cb507e20cd0cb8fdeabfedaece67510a651757b0` has current-head approval (review `5391273930`); Governed Change run `37001565136` passes human-review but fails dependency-review, repository-controls and evidence. Trusted Publish Evidence run `37001721147` fails on protected main `b65c2de` because the deployed resolver rejects the stacked parent base.
-- Resolver output binds source workflow/event/run/attempt to same-repository parent PR, original head/base, merge commit, task/plan PR/head/digest, artifact/report digest and freshness.
-- Protected main workflow_dispatch run and API status response prove trusted-acceptance came from App 5075466 and targets the original PR head only after ready_for_acceptance.
-- Final ruleset state proves repository-controls is 15368 and trusted-acceptance is 5075466; all other fields unchanged and no bypass actor.
-- Focused/full validation outputs, exact test counts, candidate SHA and hosted workflow URLs; if preflight fails, a blocked report and unchanged settings.
+- Exact parent base and fresh plan approval; ruleset 23998987 before/during/after snapshots prove only the two authorized #24 contexts were temporarily absent, every other requirement stayed unchanged, strict mode stayed on, and the bypass list remained empty.
+- Parent PR #18 preflight: all remaining checks pass, evidence remains truthful, unrelated main merges are paused, and the protected publisher is ready on the exact source head. Record current failures as blockers, never acceptance.
+- Dependency audit evidence: Fastify 5.12.5, brace-expansion 5.0.12 or later, only authorized package changes, and npm audit --audit-level=high exits 0 with zero high/critical advisories.
+- Pinned Zizmor 1.30.0 evidence: scanner/image identity, exact approved base and candidate SHAs, both SARIF SHA-256 digests, and finding delta by workflow/rule. Require no new #24 findings; preserve existing #20 findings without suppressions. Non-zero scan is failure, not pass.
+- Focused/full validation outputs, exact command results/counts, dependency versions, candidate SHA, and hosted run URLs. Do not claim parent ready_for_acceptance until #20 and all required hosted checks pass.
 
 ## Decisions and handoffs
-- The user authorized the one-time maximum-60-minute removal of exactly repository-controls and trusted-acceptance for planning; any settings change requires this exact independent plan approval and a passing preflight.
-- Issue #24 was amended on 2026-10-02 to permit only Fastify 5.12.1 to 5.12.5 and the minimum lockfile change for brace-expansion 5.0.12 or later. This changes the task digest; prior plan PR #25 approval is invalid and a fresh approval is required.
-- PR #28 is already on the approved parent base `2ce3cf8a69439c22246de7d5449ce186e23bd584` and has exact-head review `5391273930`. Do not change its base unless the parent advances. A human integrates the reviewed child into parent PR #18 after applicable hosted checks pass; the agent does not merge.
-- The temporary main-target window applies only to parent PR #18 after issue #24 child code and dependent changes are integrated. Current main is `b65c2de5c8224342c72c37eeed7ef9f965ad8a2c`; current approved parent head is `2ce3cf8a69439c22246de7d5449ce186e23bd584`.
-- The final status identities for issue #24 remain repository-controls 15368 and trusted-acceptance 5075466. Issue #22 owns the later repository-controls rebind.
-- Issue #24 is a prerequisite for #22, which blocks #20; dependent plans require refresh and approval after shared-base changes.
+- The owner authorized preparation of the bounded Issue #24 bootstrap plan; settings changes still require fresh independent approval of this exact plan and passing exact-head preflight.
+- Live Issue #24 contract digest: 8763c017e195fc22c2a4b4c3347ad961616eeaa8ee56029a72c2f315e33bf01c. The prior PR #25 review is bound to 2d25fc79ffff1aecd2fef10787233865a54a06d0e96a8313a87fa46c6ca70936; it cannot approve this revision.
+- PR #28 remains on parent base 2ce3cf8a69439c22246de7d5449ce186e23bd584; do not rebase unless the parent advances, then rebind and reapprove. A human integrates the reviewed child; the agent does not merge.
+- Sequence: Issue #24 child integration and its first two-context bootstrap; restore both contexts; then Issue #22 with trusted-acceptance kept required and only repository-controls eligible for its separate window; Issue #20 follows after #22 acceptance. Never overlap settings windows.
+- AC6 requires an exact-base/candidate Zizmor comparison with no new findings; existing findings remain #20 work. No parent ready_for_acceptance until #20 and required hosted checks pass.
+- Original status identities are repository-controls integration 15368 and trusted-acceptance App 5075466. Issue #22 owns its later repository-controls rebind.
 
 ## Risks
-- Temporarily removing two required contexts reduces protection; preserve all other contexts, pause unrelated main merges, cap at 60 minutes and restore immediately on deviation.
-- The post-merge workflow_dispatch could be supplied stale/hostile inputs; re-resolve immutable source run/attempt, PR, base/head, merge, task and plan before artifacts.
-- The online controls audit must observe restored ruleset state; auditing while contexts are absent would yield untrustworthy evidence.
-- A trusted status on the wrong original head/run/plan could satisfy an unintended commit; bind and re-read all immutable identities.
-- Fastify or transitive lockfile remediation could introduce unrelated supply-chain changes; constrain and audit the exact package diff.
-- If the trusted report is not ready_for_acceptance, no success status is allowed and later merges remain blocked.
+- Temporarily removing two required contexts reduces protection; preserve all other contexts, pause unrelated main merges, cap at 60 minutes, and restore immediately on deviation.
+- Dependency changes could introduce unrelated lockfile churn; constrain and audit exact package diffs.
+- Protected publisher dispatch may receive stale or hostile inputs; validate immutable source run/attempt, PR, base/head, merge, task, plan, and artifact identity before import.
+- The online controls audit must observe restored ruleset state.
+- Pre-existing Zizmor findings remain assigned to Issue #20; new findings, suppressions, or false acceptance claims block progress.
+- A trusted status on the wrong original head/run/plan could satisfy an unintended commit; re-read immutable identities.
 
 ## Rollback and escalation
-- Never start the window unless every preflight condition passes and the exact prior ruleset snapshot is saved.
+- Never start a window unless every preflight condition passes and the exact prior ruleset snapshot is saved.
 - Immediately restore repository-controls 15368 and trusted-acceptance 5075466 on any failure, then verify all other rules and the empty bypass list.
+- Any new pinned Zizmor finding, non-zero required scan, stale/failed trusted status, or untruthful evidence means no settings change or success status.
 - Never add a bypass actor, disable ruleset enforcement, lower strictness, remove evidence, expose credentials to PR code, or exceed 60 minutes.
 - If exact restoration cannot be verified, stop all other work and escalate to the repository owner.
 
@@ -127,7 +122,7 @@ Prohibited paths and operations:
 {
   "schema": "northstar/plan/1",
   "taskId": "AES-TRUSTED-ACCEPTANCE-BOOTSTRAP",
-  "contractDigest": "2d25fc79ffff1aecd2fef10787233865a54a06d0e96a8313a87fa46c6ca70936",
+  "contractDigest": "8763c017e195fc22c2a4b4c3347ad961616eeaa8ee56029a72c2f315e33bf01c",
   "baseSha": "2ce3cf8a69439c22246de7d5449ce186e23bd584",
   "baseBranch": "agent/implement/aes-surface-evidence",
   "risk": "high",
@@ -194,7 +189,7 @@ Prohibited paths and operations:
     "security-change"
   ],
   "steps": [
-    "Reconfirm the amended issue digest 2d25fc79ffff1aecd2fef10787233865a54a06d0e96a8313a87fa46c6ca70936, exact parent base 2ce3cf8a69439c22246de7d5449ce186e23bd584, ruleset 23998987 identities, strict mode, empty bypass list, and protected App/environment identities. Record that PR #28 is exactly approved but its current run still fails dependency-review, repository-controls, and evidence; record trusted Publish Evidence run 37001721147 as failing on the deployed main resolver's stacked-base limitation.",
+    "Reconfirm the amended issue digest 8763c017e195fc22c2a4b4c3347ad961616eeaa8ee56029a72c2f315e33bf01c, exact parent base 2ce3cf8a69439c22246de7d5449ce186e23bd584, ruleset 23998987 identities, strict mode, empty bypass list, and protected App/environment identities. Record that PR #28 is exactly approved but its current run still fails dependency-review, repository-controls, and evidence; record trusted Publish Evidence run 37001721147 as failing on the deployed main resolver's stacked-base limitation.",
     "After this amended plan receives a fresh independent native approval, continue PR #28 from its exact approved parent base 2ce3cf8a69439c22246de7d5449ce186e23bd584; do not rebase unless the parent advances. Apply only the permitted dependency updates and rerun focused tests, the full local validation, and hosted checks.",
     "Change only the direct fastify pin from 5.12.1 to 5.12.5. Update package-lock.json only for that Fastify update and to resolve brace-expansion to 5.0.12 or later; make no unrelated dependency changes, additions, overrides, or lockfile churn.",
     "Run npm audit --audit-level=high and require zero high/critical findings; record exact resolved Fastify and brace-expansion versions and the audit output.",
@@ -208,7 +203,7 @@ Prohibited paths and operations:
     "Merge parent PR #18 through the human-reviewed path; the agent does not merge. Immediately restore repository-controls to Actions integration 15368 and trusted-acceptance to App 5075466. Verify all other settings are unchanged before running the protected publisher audit.",
     "After restoration, dispatch the protected publisher from main with the exact source run ID/attempt, parent PR number, and plan PR/head. Revalidate the merged PR, task/approved plan, source artifacts, human review, scope and live controls; publish trusted-acceptance only if the fresh report is ready_for_acceptance. Target the original validated PR head.",
     "Capture exact status creator/context/source-run and final ruleset. If trusted audit/status fails, publish no success, leave the original required contexts intact, block later merges and report the exact blocker.",
-    "Add positive/negative tests for bounded dependency changes, open/stacked and merged PR resolution, original base/head snapshots, merge ancestry, run/attempt/task/plan/artifact binding, App status target, strict restoration, and truthful ready_for_review behavior. Run focused tests, npm run agentic:compile, npm run agentic:zizmor, npm run validate, npm run test:acceptance and npm run validate:all; record exact outcomes, counts, dependency versions and candidate SHA."
+    "Add positive and negative tests for bounded dependency changes, open/stacked and merged same-repository PR resolution, original base/head snapshots, merge ancestry, exact source run/attempt/task/plan/artifact binding, trusted App status target, strict restoration, and truthful ready_for_review behavior. Run npm run validate, npm run test:acceptance, npm audit --audit-level=high, npm run security:secrets, npm run agentic:compile, npm run agentic:zizmor, and npm run validate:all; record exact commands, exit codes, counts, dependency versions, and candidate SHA. Compare pinned Zizmor 1.30.0 on the exact approved base and candidate; record both SARIF digests and finding differences by rule and workflow. Require no new Issue #24 findings, suppress none, and treat non-zero scanner results as failures. Existing findings remain Issue #20 work; do not claim parent ready_for_acceptance until Issue #20 and required hosted checks pass."
   ],
   "requiredChecks": [
     "plan-contract",
@@ -254,8 +249,8 @@ Prohibited paths and operations:
     },
     {
       "id": "AC6",
-      "statement": "The implementation passes focused/full validation and records exact hosted status identity and ruleset restoration",
-      "provenBy": "records complete trusted-acceptance validation"
+      "statement": "The Issue #24 candidate passes focused/unit/acceptance tests, typecheck/build, plan and scope checks, dependency audit with zero high/critical findings, secret scan, and agentic:compile. Pinned Zizmor is compared against the exact approved base and the candidate introduces no new findings. Existing findings remain unresolved and assigned to Issue #20; this criterion does not claim parent ready_for_acceptance until Issue #20 and all required hosted checks pass",
+      "provenBy": "records task-scoped results, base/candidate Zizmor SARIF digests, and exact hosted status and ruleset evidence"
     }
   ],
   "evidence": [
@@ -267,16 +262,20 @@ Prohibited paths and operations:
     "Resolver output binds source workflow/event/run/attempt to same-repository parent PR, original head/base, merge commit, task/plan PR/head/digest, artifact/report digest and freshness.",
     "Protected main workflow_dispatch run and API status response prove trusted-acceptance came from App 5075466 and targets the original PR head only after ready_for_acceptance.",
     "Final ruleset state proves repository-controls is 15368 and trusted-acceptance is 5075466; all other fields unchanged and no bypass actor.",
-    "Focused/full validation outputs, exact test counts, candidate SHA and hosted workflow URLs; if preflight fails, a blocked report and unchanged settings."
+    "Focused/full validation outputs, exact test counts, candidate SHA and hosted workflow URLs; if preflight fails, a blocked report and unchanged settings.",
+    "Pinned Zizmor 1.30.0 comparison at the immutable approved base and candidate: record scanner/image identity, both SARIF SHA-256 digests, and finding delta by workflow and rule. Issue #24 must introduce no findings; preserve pre-existing findings as Issue #20 work without suppressions. This is an evidence expectation, not a completed result.",
+    "Live blocker snapshot: PR #18 2ce3cf8a69439c22246de7d5449ce186e23bd584, REVIEW_REQUIRED, failures=repository-controls,human-review,evidence; PR #28 cb507e20cd0cb8fdeabfedaece67510a651757b0, APPROVED, failures=dependency-review,repository-controls,human-review,evidence; PR #25 1c67b1106f9a8f2a94dfe62185ada6e7b679e24b, draft=true. Re-read before execution."
   ],
   "decisionsAndHandoffs": [
     "The user authorized the one-time maximum-60-minute removal of exactly repository-controls and trusted-acceptance for planning; any settings change requires this exact independent plan approval and a passing preflight.",
     "Issue #24 was amended on 2026-10-02 to permit only Fastify 5.12.1 to 5.12.5 and the minimum lockfile change for brace-expansion 5.0.12 or later. This changes the task digest; prior plan PR #25 approval is invalid and a fresh approval is required.",
     "PR #28 is already on the approved parent base 2ce3cf8a69439c22246de7d5449ce186e23bd584 and has exact-head review 5391273930. Do not change its base unless the parent advances. A human integrates the reviewed child into parent PR #18 after applicable hosted checks pass; the agent does not merge.",
-    "The temporary main-target window applies only to parent PR #18 after issue #24 child code and dependent changes are integrated. Current main is b65c2de5c8224342c72c37eeed7ef9f965ad8a2c and current parent head is 2ce3cf8a69439c22246de7d5449ce186e23bd584.",
     "The current trusted-acceptance failure is pre-bootstrap evidence; the publisher must prove it can issue a fresh success on the original validated head after the merged workflow is restored.",
     "The final status identities for issue #24 remain repository-controls 15368 and trusted-acceptance 5075466. Issue #22 owns the later repository-controls rebind.",
-    "Issue #24 is a prerequisite for #22, which blocks #20; dependent plans require refresh and approval after shared-base changes."
+    "Issue #24 is a prerequisite for #22, which blocks #20; dependent plans require refresh and approval after shared-base changes.",
+    "Live Issue #24 contract digest is 8763c017e195fc22c2a4b4c3347ad961616eeaa8ee56029a72c2f315e33bf01c; prior PR #25 approval is bound to 2d25fc79ffff1aecd2fef10787233865a54a06d0e96a8313a87fa46c6ca70936 and cannot approve this revision.",
+    "The required order is Issue #24 child integration and first two-context bootstrap; restore both original contexts; then Issue #22 with trusted-acceptance kept required and only repository-controls eligible for its separate window; after #22 acceptance, refresh and implement Issue #20. Never overlap windows.",
+    "AC6 requires an exact-base/candidate Zizmor 1.30.0 comparison with no new findings. Existing findings remain Issue #20 work; this task must not claim parent ready_for_acceptance until Issue #20 and all required hosted checks pass."
   ],
   "risks": [
     "Temporarily removing two required contexts reduces protection; preserve all other contexts, pause unrelated main merges, cap at 60 minutes and restore immediately on deviation.",
@@ -285,15 +284,17 @@ Prohibited paths and operations:
     "The online controls audit must observe restored ruleset state; auditing while contexts are absent would yield untrustworthy evidence.",
     "A trusted status on the wrong original head/run/plan could satisfy an unintended commit; bind and re-read all immutable identities.",
     "If the trusted report is not ready_for_acceptance, no success status is allowed and later merges remain blocked.",
-    "The current failed trusted-acceptance status cannot be treated as success; the protected publisher must re-evaluate restored controls after the merge before status publication."
+    "The current failed trusted-acceptance status cannot be treated as success; the protected publisher must re-evaluate restored controls after the merge before status publication.",
+    "Pre-existing Zizmor findings may block acceptance; do not suppress them, downgrade severity, or describe them as passing."
   ],
   "rollbackAndEscalation": [
     "Never start the window unless every preflight condition passes and the exact prior ruleset snapshot is saved. The current trusted-acceptance failure is not a pass or permission to bypass the stop condition.",
     "Immediately restore repository-controls 15368 and trusted-acceptance 5075466 on any failure, then verify all other rules and the empty bypass list.",
     "Never add a bypass actor, disable ruleset enforcement, lower strictness, remove evidence, expose credentials to PR code, or exceed 60 minutes.",
-    "If exact restoration cannot be verified, stop all other work and escalate to the repository owner."
+    "If exact restoration cannot be verified, stop all other work and escalate to the repository owner.",
+    "If the Zizmor comparison finds new Issue #24 findings, a required check fails, or evidence cannot truthfully reach its required state, do not start the settings window; restore both original contexts if active and stop."
   ],
-  "planDigest": "551c11de64117379d4eddda091328f9e317fa17de07f94be2d7eaebc61b822df"
+  "planDigest": "9739850ef9a9421c38fa4f55cfffde7406aba6a64d9557ead8564da39f8f1217"
 }
 ```
 <!-- northstar:plan-contract:end -->
