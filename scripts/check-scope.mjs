@@ -9,12 +9,20 @@ import {
 } from "./task-contract.mjs";
 import { inferRisk, riskRank } from "./risk-policy.mjs";
 import { validateCloudExecution } from "./execution-context.mjs";
-import { canonicalPlan, extractPlanContract, validatePlanContract } from "./plan-contract.mjs";
+import {
+  canonicalPlan,
+  extractPlanContract,
+  planDigest,
+  validatePlanContract,
+} from "./plan-contract.mjs";
 import { readPlanArtifact, validatePlanOnlyFiles } from "./plan-artifact.mjs";
 import { planBranch } from "./publish-plan.mjs";
+import {
+  isResolvedPullRequest,
+  loadResolvedWorkflowRun,
+} from "./resolve-workflow-run.mjs";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
-const SHA = /^[0-9a-f]{40}$/;
 
 function normalize(path) {
   return String(path).replace(/\\/g, "/").replace(/^\.\//, "");
@@ -149,6 +157,9 @@ function main() {
   let planOnly = false;
   if (pr) {
     const expectedHead = valueOf("--expected-head");
+    const migration = process.env.NORTHSTAR_MIGRATION_MODE === "bootstrap-migration"
+      ? loadResolvedWorkflowRun()
+      : null;
     const pull = JSON.parse(
       gh([
         "pr",
@@ -181,6 +192,29 @@ function main() {
     headSha = pull.headRefOid;
     baseBranch = pull.baseRefName;
     headBranch = pull.headRefName;
+    const cloudPull = JSON.parse(gh(["api", `repos/{owner}/{repo}/pulls/${pr}`]));
+    const repository = JSON.parse(gh(["api", "repos/{owner}/{repo}"])).full_name;
+    if (migration) {
+      if (
+        !isResolvedPullRequest(migration, cloudPull) ||
+        migration.repository !== repository ||
+        migration.pullRequest !== Number(pr) ||
+        migration.headSha !== headSha ||
+        migration.baseSha !== plan.baseSha ||
+        migration.baseRef !== plan.baseBranch ||
+        migration.taskId !== contract.id ||
+        migration.contractDigest !== contract.source.bodyDigest ||
+        migration.planDigest !== planDigest(plan) ||
+        process.env.NORTHSTAR_RUN_ID !== migration.sourceRunId ||
+        process.env.NORTHSTAR_RUN_ATTEMPT !== migration.sourceRunAttempt ||
+        process.env.BASE_SHA !== migration.baseSha
+      ) {
+        throw new Error("The closed pull request lacks an exact validated bootstrap resolution.");
+      }
+      baseSha = migration.baseSha;
+      headSha = migration.headSha;
+      baseBranch = migration.baseRef;
+    }
     const comparison = JSON.parse(
       gh([
         "api",
@@ -190,27 +224,26 @@ function main() {
     descendsFromApprovedBase =
       comparison.merge_base_commit?.sha === plan.baseSha &&
       ["ahead", "identical"].includes(comparison.status);
-    const cloudPull = JSON.parse(gh(["api", `repos/{owner}/{repo}/pulls/${pr}`]));
-    const repository = JSON.parse(gh(["api", "repos/{owner}/{repo}"])).full_name;
-    const mergedPull = cloudPull.state === "closed" && cloudPull.merged === true &&
-      typeof cloudPull.merged_at === "string" && SHA.test(cloudPull.merge_commit_sha ?? "");
-    const allowMerged = process.argv.includes("--allow-merged");
-    if (cloudPull.state !== "open" && !(allowMerged && mergedPull)) {
-      throw new Error("Scope validation requires an open PR or an explicitly allowed merged source PR.");
+    if (!migration && cloudPull.state !== "open") {
+      throw new Error("Ordinary scope validation requires an open pull request.");
     }
     if (cloudPull.head?.repo?.full_name !== repository ||
         cloudPull.base?.repo?.full_name !== repository ||
-        cloudPull.base?.ref !== plan.baseBranch) {
+        cloudPull.base?.ref !== baseBranch) {
       throw new Error("Scope validation requires the exact same-repository task and base branch.");
     }
     cloudAuthorized = validateCloudExecution({
       pull: cloudPull, repository, contract, plan, branch: headBranch, headSha,
       descendsFromApprovedBase,
     });
-    if (cloudPull.head.sha !== headSha || cloudPull.base.sha !== baseSha) {
+    if (
+      cloudPull.head.sha !== headSha ||
+      cloudPull.base.ref !== baseBranch ||
+      (!migration && cloudPull.base.sha !== baseSha) ||
+      (migration && !isResolvedPullRequest(migration, cloudPull))
+    ) {
       throw new Error("Pull request identity changed during scope evaluation.");
     }
-    if (mergedPull && allowMerged) baseSha = plan.baseSha;
     if (isPlanOnlyBranch(contract.id, headBranch, plan)) {
       const artifact = readPlanArtifact(headSha, contract.id, { run: gh });
       const committed = extractPlanContract(artifact.body);
@@ -224,17 +257,19 @@ function main() {
       [file.previous_filename, file.filename].filter(Boolean),
     );
     const current = JSON.parse(gh(["api", `repos/{owner}/{repo}/pulls/${pr}`]));
-    const currentIsMerged = current.state === "closed" && current.merged === true &&
-      typeof current.merged_at === "string" &&
-      current.merge_commit_sha === cloudPull.merge_commit_sha;
-    if ((current.state !== "open" && !(allowMerged && currentIsMerged)) ||
-        current.head?.sha !== cloudPull.head?.sha ||
-        current.base?.sha !== cloudPull.base?.sha ||
-        current.base?.ref !== cloudPull.base?.ref ||
-        current.body !== cloudPull.body ||
-        (expectedHead && current.head?.sha !== expectedHead)) {
+    if (
+      (expectedHead && current.head.sha !== expectedHead) ||
+      (migration && !isResolvedPullRequest(migration, current)) ||
+      (!migration && (
+        current.state !== "open" ||
+        current.head.sha !== cloudPull.head.sha ||
+        current.base.sha !== cloudPull.base.sha ||
+        current.base.ref !== cloudPull.base.ref ||
+        current.state !== cloudPull.state
+      ))
+    ) {
       throw new Error(
-        `Pull request identity changed during scope evaluation: expected ${expectedHead}, found ${current.head?.sha}.`,
+        `Pull request identity changed during scope evaluation: expected ${expectedHead}, found ${current.head.sha}.`,
       );
     }
   } else {

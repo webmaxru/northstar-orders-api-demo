@@ -167,6 +167,12 @@ role, preserving the host's session identity and stop-loop flag.
 
 Evidence must bind real artifacts and complete producer identity. Missing,
 modified, stale or mismatched task/plan/base/head/run/attempt evidence fails.
+For compatibility with the browser-plan-canary dispatcher, System Maintenance
+may omit attempt inputs; the resolver reads each current attempt from GitHub
+for the supplied run ID, binds it into the resolution, and rejects a stale
+supplied attempt or any change during revalidation. Its dispatch mode defaults
+to `open-pr`; the protected Publish Evidence bootstrap dispatch selects
+`bootstrap-migration` only on its guarded default-branch path.
 The preliminary Governed Change report may consume only its current-run
 `plan-contract` and `scope-policy` producer records after validating their
 task, plan, source, run, attempt, job and artifact identities. The trusted
@@ -244,6 +250,51 @@ A real CodeQL run exposed valid informational SARIF notifications whose
 still failing absent/wrong-typed diagnostics, error-level notifications,
 unsuccessful invocations and findings. The downloaded original CodeQL result
 was revalidated directly; this is distinct from claiming every hosted gate passed.
+
+The one-time trusted-acceptance bootstrap has a separate protected-default-
+branch `workflow_dispatch` route. It accepts only the exact source run and
+attempt, parent PR #18, and current independently approved issue #24 plan
+revision. Before downloading artifacts, the trusted resolver rechecks the
+source workflow/event, repository, task and plan, the original base/head
+snapshot, the closed-and-merged PR, source-head ancestry in the merge commit,
+and the exact restored ruleset 23998987 status integrations: repository
+controls 15368 and trusted acceptance 5075466. A missing context, changed
+integration, non-strict rule, or bypass actor stops publication before artifact
+download or the online audit. The resolver records a digest of the restored
+ruleset snapshot in its evidence. It selects artifact IDs only when they belong to the exact completed
+producer jobs and attempt; the importer still enforces its path allowlist and
+validates producer provenance. The live post-merge `pull.base.sha` is not used
+as a substitute for the source run's immutable base snapshot.
+
+When the default branch has advanced beyond the original task plan base, the
+migration resolver re-reads the plan-only PR's immutable artifact and native
+review, verifies its task/digest/base and eligible reviewer, and requires that
+review to predate the source implementation run. It does not treat the plan
+PR's now-advanced live base SHA as a new approval or silently rebase the plan.
+After the restored-controls audit, a protected system-maintenance continuation
+re-resolves both the source run and its exact publisher attempt, selects the
+maintenance bundle by its run/job artifact ID before download, and waits for
+that publisher attempt to complete successfully before it can issue a
+ready-for-acceptance report for a control-plane change.
+
+The trusted publisher never checks out or executes PR code. A fresh report and
+the current PR/source-attempt identities are checked again immediately before
+posting `trusted-acceptance`; success is possible only for a complete
+`ready_for_acceptance` report. The publisher records the returned status
+creator, context, original head, App identity, source run/attempt, and report
+digest in `trusted-acceptance-status.json`. This workflow does not alter a
+ruleset. The one-time maximum-60-minute removal/restoration remains a human
+operation gated by the live preflight and must restore the original
+`repository-controls` integration 15368 and `trusted-acceptance` App 5075466.
+
+Issue #24 review evidence compares pinned Zizmor 1.30.0 scans of the immutable
+approved base and candidate workflow trees. The comparison records both SARIF
+digests and the finding delta by rule and workflow; raw Zizmor SARIF stays in
+the job workspace rather than the uploaded summary artifact. A zero-new-
+findings delta proves Issue #24 added no findings, but does not turn a nonzero
+scanner-wrapper result into a pass: existing findings remain assigned to
+Issue #20, and `ready_for_acceptance` stays blocked until that baseline is
+resolved and all hosted acceptance evidence is verified.
 
 ### Adoption settings
 

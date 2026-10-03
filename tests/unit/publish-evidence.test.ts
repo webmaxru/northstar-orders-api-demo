@@ -8,6 +8,7 @@ import { existingCommentId, renderComment } from "../../scripts/publish-evidence
  * decision has to reach the durable layer, not only the expiring one.
  */
 const report = {
+  schema: "northstar/execution-report/4",
   workItem: "WI-1842",
   generatedAt: "2026-08-24T05:00:00.000Z",
   contractSource: { kind: "issue #4", url: "https://example.invalid/issues/4" },
@@ -126,5 +127,57 @@ describe("the durable evidence comment", () => {
         decision: "ready_for_review",
       }),
     ).toContain("LOCAL READY; HOSTED REVIEW REQUIRED");
+  });
+
+  it("publishes Issue24 scanner digests without claiming hosted controls are verified", () => {
+    const issue24Report = {
+      ...report,
+      taskEvidence: {
+        issue24: {
+          localEvidenceComplete: true,
+          dependencies: {
+            fastifyVersion: "5.12.5",
+            braceExpansion: [{ path: "node_modules/brace-expansion", version: "5.0.12" }],
+            high: 0,
+            critical: 0,
+          },
+          zizmor: {
+            version: "1.30.0",
+            baseFindings: 85,
+            candidateFindings: 75,
+            baseScannerExitCode: 0,
+            candidateScannerExitCode: 0,
+            baseWrapperExitCode: 1,
+            candidateWrapperExitCode: 1,
+            newFindingCount: 0,
+            noNewFindings: true,
+            baseSarifDigest: "a".repeat(64),
+            candidateSarifDigest: "b".repeat(64),
+          },
+          repositoryControls: {
+            online: {
+              available: false,
+              lookups: [{ id: "ruleset:23998987", state: "unavailable" }],
+            },
+          },
+          errors: [],
+        },
+      },
+    };
+    const body = renderComment(issue24Report);
+
+    expect(body).toContain("Issue #24 validation evidence");
+    expect(body).toContain("new findings 0");
+    expect(body).toContain("scanner exits 0/0");
+    expect(body).toContain("wrapper exits 1/1");
+    expect(body).toContain(`Base SARIF SHA-256: \`${"a".repeat(64)}\``);
+    expect(body).toContain("Ruleset 23998987 lookup: unavailable");
+    expect(body).toContain("not verified in this workflow context");
+    expect(body).not.toContain("ready_for_acceptance");
+    expect(renderComment({
+      ...issue24Report,
+      decision: "ready_for_review",
+      pendingHostedEvidence: [],
+    })).toContain("ISSUE #20 ZIZMOR REMEDIATION REQUIRED");
   });
 });

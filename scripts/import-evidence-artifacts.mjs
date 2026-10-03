@@ -22,12 +22,19 @@ import {
 } from "./evidence-record.mjs";
 import { githubJson, runGitHub } from "./github-api.mjs";
 import { planDigest, validatePlanContract } from "./plan-contract.mjs";
+import {
+  isResolvedPullRequest,
+  loadResolvedWorkflowRun,
+} from "./resolve-workflow-run.mjs";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 const ALLOWED = new Set([
   "unit-junit.xml",
   "acceptance-junit.xml",
   "dependency-audit.json",
+  "poutine-report.json",
+  "poutine.sarif",
+  "zizmor-comparison.json",
   "governance-report.json",
   "merge-report.json",
   "codeql",
@@ -48,6 +55,9 @@ const MAINTENANCE_ALLOWED = [
   "unit-junit.xml",
   "acceptance-junit.xml",
   "dependency-audit.json",
+  "poutine-report.json",
+  "poutine.sarif",
+  "zizmor-comparison.json",
   "governance-report.json",
   "repository-controls-report.json",
   "merge-report.json",
@@ -178,10 +188,46 @@ export function importWorkflowResults(runId, destination = REPO_ROOT, options = 
   const validation = validatePlanContract(plan, contract);
   if (!validation.ok) throw new Error(`Producer plan does not match the live task: ${validation.errors.join("; ")}`);
 
+  const resolution = env.NORTHSTAR_MIGRATION_MODE
+    ? loadResolvedWorkflowRun(destination)
+    : null;
+  const sourceAttempt = env.NORTHSTAR_RUN_ATTEMPT;
+  if (
+    resolution &&
+    (resolution.mode !== env.NORTHSTAR_MIGRATION_MODE ||
+      resolution.repository !== repository ||
+      resolution.pullRequest !== pullRequest ||
+      resolution.sourceRunId !== runId ||
+      resolution.sourceRunAttempt !== sourceAttempt ||
+      resolution.headSha !== env.NORTHSTAR_HEAD_SHA ||
+      resolution.baseSha !== plan.baseSha ||
+      resolution.baseRef !== plan.baseBranch ||
+      resolution.taskId !== contract.id ||
+      resolution.contractDigest !== contract.source.bodyDigest ||
+      resolution.planDigest !== planDigest(plan) ||
+      env.BASE_SHA !== resolution.baseSha)
+  ) {
+    throw new Error("The imported task or plan does not match the trusted source-run resolution.");
+  }
   const api = (route) => githubJson(route, { run: runCommand });
-  const run = api(`repos/${repository}/actions/runs/${runId}`);
+  const run = api(
+    resolution
+      ? `repos/${repository}/actions/runs/${runId}/attempts/${sourceAttempt}`
+      : `repos/${repository}/actions/runs/${runId}`,
+  );
+  const latestRun = resolution
+    ? api(`repos/${repository}/actions/runs/${runId}`)
+    : null;
   const pull = api(`repos/${repository}/pulls/${pullRequest}`);
   const associated = run.pull_requests?.filter(({ number }) => number === pullRequest) ?? [];
+  const pullIsResolved = resolution
+    ? isResolvedPullRequest(resolution, pull)
+    : pull.state === "open" &&
+      pull.head?.sha === run.head_sha &&
+      pull.head?.repo?.full_name === repository &&
+      pull.base?.repo?.full_name === repository &&
+      pull.base?.sha === plan.baseSha &&
+      pull.base?.ref === plan.baseBranch;
   if (String(run.id) !== runId || run.repository?.full_name !== repository ||
     run.head_repository?.full_name !== repository ||
     run.name !== "Governed Change" || run.path !== ".github/workflows/governed-change.yml" ||
@@ -190,10 +236,16 @@ export function importWorkflowResults(runId, destination = REPO_ROOT, options = 
     typeof run.actor?.login !== "string" || !run.actor.login ||
     associated.length !== 1 || associated[0].head?.sha !== run.head_sha ||
     associated[0].base?.sha !== plan.baseSha ||
-    pull.number !== pullRequest || pull.head?.sha !== run.head_sha || pull.base?.sha !== plan.baseSha ||
-    pull.head?.repo?.full_name !== repository || pull.base?.repo?.full_name !== repository ||
+    associated[0].base?.ref !== plan.baseBranch ||
+    pull.number !== pullRequest || !pullIsResolved ||
+    (resolution && (
+      Number(run.run_attempt) !== Number(sourceAttempt) ||
+      latestRun?.run_attempt !== Number(sourceAttempt) ||
+      latestRun?.head_sha !== run.head_sha ||
+      latestRun?.status !== "completed"
+    )) ||
     (env.BASE_SHA && env.BASE_SHA !== plan.baseSha) ||
-    (env.NORTHSTAR_RUN_ATTEMPT && env.NORTHSTAR_RUN_ATTEMPT !== String(run.run_attempt))) {
+    (sourceAttempt && sourceAttempt !== String(run.run_attempt))) {
     throw new Error("Workflow producer identity does not match the current task, PR, base, HEAD, or attempt.");
   }
   if (env.GITHUB_EVENT_PATH && env.GITHUB_EVENT_NAME === "workflow_run") {
@@ -255,6 +307,10 @@ export function importWorkflowResults(runId, destination = REPO_ROOT, options = 
     schema: "northstar/source-run/1", repository, pullRequest,
     taskId: contract.id, contractDigest: contract.source.bodyDigest, planDigest: planDigest(plan),
     runId, runAttempt: String(run.run_attempt), headSha: run.head_sha, baseSha: plan.baseSha,
+    mode: resolution?.mode ?? null,
+    mergeCommitSha: resolution?.mergeCommitSha ?? null,
+    rulesetSnapshotDigest: resolution?.restoredRuleset?.snapshotDigest ?? null,
+    artifactIds: resolution?.artifactIds ?? null,
   };
   for (const record of imported) writeCheckRecord(record, undefined, destination);
   writeFileSync(evidencePath(SOURCE_RUN_PATH, destination), `${JSON.stringify(sourceRun, null, 2)}\n`);

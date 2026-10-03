@@ -10,6 +10,7 @@ import {
   parseJUnit,
   readJUnit,
 } from "../../scripts/build-execution-report.mjs";
+import { ZIZMOR_IMAGE, ZIZMOR_VERSION } from "../../scripts/check-sarif.mjs";
 import {
   CHECK_ARTIFACTS,
   createCheckRecord,
@@ -60,6 +61,30 @@ const plan: PlanContract = {
   rollbackAndEscalation: ["Rollback."],
 };
 plan.planDigest = planDigest(plan);
+const issue24Contract: TaskContract = {
+  ...trustedContract,
+  id: "AES-TRUSTED-ACCEPTANCE-BOOTSTRAP",
+  source: {
+    ...trustedContract.source,
+    kind: "issue #24",
+    issue: 24,
+    url: "https://github.com/webmaxru/northstar-orders-api-demo/issues/24",
+    bodyDigest: "c".repeat(64),
+  },
+  successCriteria: [{
+    id: "AC6",
+    statement: "Record exact Issue #24 validation evidence.",
+    provenBy: "records Issue #24 validation evidence",
+  }],
+};
+const issue24Plan: PlanContract = {
+  ...plan,
+  taskId: issue24Contract.id,
+  contractDigest: issue24Contract.source.bodyDigest,
+  baseBranch: "agent/implement/aes-surface-evidence",
+  successCriteria: issue24Contract.successCriteria.map(({ id, provenBy }) => ({ id, provenBy })),
+};
+issue24Plan.planDigest = planDigest(issue24Plan);
 let headSha: string;
 let localEnv: Record<string, string | undefined>;
 let hostedEnv: Record<string, string | undefined>;
@@ -75,12 +100,115 @@ function junit(names = contract.successCriteria.map(({ provenBy }) => provenBy))
   }</testsuite></testsuites>`;
 }
 
+function writeIssue24SupportingEvidence({
+  baselineZizmorFinding = false,
+  onlineControlsAvailable = false,
+}: {
+  baselineZizmorFinding?: boolean;
+  onlineControlsAvailable?: boolean;
+} = {}) {
+  write("artifacts/plan.json", JSON.stringify(issue24Plan));
+  write("artifacts/approved-plan.json", JSON.stringify(issue24Plan));
+  write("artifacts/candidate-plan.json", JSON.stringify(issue24Plan));
+  write("artifacts/scope-report.json", JSON.stringify({
+    schema: "northstar/scope-report/1",
+    taskId: issue24Contract.id,
+    contractDigest: issue24Contract.source.bodyDigest,
+    paths: [],
+    violations: [],
+    ok: true,
+  }));
+  write("artifacts/dependency-audit.json", JSON.stringify({
+    metadata: { vulnerabilities: { high: 0, critical: 0 } },
+  }));
+  write("package-lock.json", JSON.stringify({
+    packages: {
+      "": { dependencies: { fastify: "5.12.5" } },
+      "node_modules/fastify": { version: "5.12.5" },
+      "node_modules/brace-expansion": { version: "5.0.12" },
+    },
+  }));
+  const controlsPath = CHECK_ARTIFACTS["repository-controls"]?.[0];
+  if (!controlsPath) throw new Error("The repository-controls artifact path is required.");
+  write(controlsPath, JSON.stringify({
+    schema: "northstar/governance-report/1",
+    sourceControlsReady: true,
+    checks: [{ id: "source", ok: true }],
+    online: {
+      available: onlineControlsAvailable,
+      ready: onlineControlsAvailable,
+      rulesetCount: onlineControlsAvailable ? 1 : 0,
+      checks: [{
+        id: "hosted:branch-controls",
+        ok: onlineControlsAvailable,
+        status: onlineControlsAvailable ? "pass" : "unavailable",
+      }],
+      lookups: [{
+        id: "ruleset:23998987",
+        state: onlineControlsAvailable ? "available" : "unavailable",
+      }],
+    },
+    externalControls: {
+      requiredStatusChecks: onlineControlsAvailable ? "verified" : "not-verified",
+    },
+  }));
+
+  const poutineSarif = JSON.stringify({
+    version: "2.1.0",
+    runs: [{
+      tool: { driver: { name: "poutine", semanticVersion: "1.1.6", rules: [] } },
+      results: [],
+    }],
+  });
+  write("artifacts/poutine.sarif", poutineSarif);
+  write("artifacts/poutine-report.json", JSON.stringify({
+    ok: true,
+    sourceDigest: "e".repeat(64),
+    artifact: "artifacts/poutine.sarif",
+    tools: [{ name: "poutine", version: "1.1.6" }],
+    errors: [],
+    findings: [],
+    exitCode: 0,
+  }));
+
+  const findingCount = baselineZizmorFinding ? 1 : 0;
+  const wrapperExitCode = findingCount > 0 ? 1 : 0;
+  const comparison = {
+    schema: "northstar/zizmor-comparison/1",
+    baseSha: issue24Plan.baseSha,
+    candidateSha: headSha,
+    tool: { name: "zizmor", version: ZIZMOR_VERSION, image: ZIZMOR_IMAGE },
+    base: {
+      sourceDigest: "d".repeat(64),
+      sarifDigest: "a".repeat(64),
+      scannerExitCode: 0,
+      wrapperExitCode,
+      findingCount,
+    },
+    candidate: {
+      sourceDigest: "e".repeat(64),
+      sarifDigest: "b".repeat(64),
+      scannerExitCode: 0,
+      wrapperExitCode,
+      findingCount,
+    },
+    findingDeltaByWorkflowRule: [],
+    newFindings: [],
+    newFindingCount: 0,
+    suppressionChanges: [],
+    noNewFindings: true,
+    comparisonPassed: true,
+    errors: [],
+  };
+  write("artifacts/zizmor-comparison.json", JSON.stringify(comparison));
+}
+
 beforeAll(() => {
   const git = (args: string[]) => execFileSync("git", args, {
     cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
   }).trim();
   git(["init", "--quiet"]);
-  write(".gitignore", "artifacts/\n");
+  write(".gitignore", "artifacts/\npackage-lock.json\n");
   write("source.txt", "committed source\n");
   git(["add", ".gitignore", "source.txt"]);
   git(["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
@@ -308,6 +436,17 @@ describe("fail-closed execution evidence", () => {
     });
     expect(publisherContext.checks.find(({ id }) => id === "plan-contract")?.reasons)
       .toContain("trusted current-run revalidation missing");
+  });
+
+  it("never reports hosted acceptance while repository controls remain unverified", () => {
+    const incomplete = records(true).map((record) =>
+      record.id === "repository-controls"
+        ? { ...record, status: "fail" as const }
+        : record,
+    );
+    const result = report({ records: incomplete, hosted: true });
+    expect(result.decision).toBe("ready_for_review");
+    expect(result.pendingHostedEvidence).toContain("repository-controls");
   });
 
   it("matches proving tests by stable leaf name, not substring", () => {
@@ -552,6 +691,66 @@ describe("fail-closed execution evidence", () => {
       decision: "ready_for_review",
       pendingHostedEvidence: ["plan-approval", "codeql", "validation-authority", "repository-controls", "human-review"],
     });
+  });
+
+  it("proves Issue #24 AC6 only when its bound scanner and compile evidence is complete", () => {
+    writeIssue24SupportingEvidence();
+    const issue24Records = records(false, issue24Plan, issue24Contract);
+    const result = report({
+      contract: issue24Contract,
+      plan: issue24Plan,
+      records: issue24Records,
+    });
+
+    expect(result.decision).toBe("ready_for_review");
+    expect(result.successCriteria.find(({ id }) => id === "AC6")?.proven).toBe(true);
+
+    writeIssue24SupportingEvidence({
+      baselineZizmorFinding: true,
+      onlineControlsAvailable: true,
+    });
+    const hostedBaseline = report({
+      contract: issue24Contract,
+      plan: issue24Plan,
+      records: records(true, issue24Plan, issue24Contract),
+      hosted: true,
+    });
+    expect(hostedBaseline.pendingHostedEvidence).toEqual([]);
+    expect(hostedBaseline.successCriteria.find(({ id }) => id === "AC6")?.proven).toBe(true);
+    expect(hostedBaseline.decision).toBe("ready_for_review");
+    expect(hostedBaseline.limits).toContain(
+      "Pinned Zizmor reported 1 existing candidate findings; the exact-base comparison introduced none, but Issue #20 must resolve the baseline before acceptance.",
+    );
+
+    writeIssue24SupportingEvidence({ onlineControlsAvailable: true });
+    const fullyValidated = report({
+      contract: issue24Contract,
+      plan: issue24Plan,
+      records: records(true, issue24Plan, issue24Contract),
+      hosted: true,
+    });
+    expect(fullyValidated.failedLocalChecks).toEqual([]);
+    expect(fullyValidated.pendingHostedEvidence).toEqual([]);
+    expect(fullyValidated.decision).toBe("ready_for_acceptance");
+
+    writeIssue24SupportingEvidence({ onlineControlsAvailable: true });
+    const currentRecords = records(true, issue24Plan, issue24Contract);
+    write("artifacts/zizmor-comparison.json", JSON.stringify({
+      ...JSON.parse(readFileSync(join(root, "artifacts/zizmor-comparison.json"), "utf8")),
+      noNewFindings: false,
+      comparisonPassed: false,
+      newFindingCount: 1,
+    }));
+    const incomplete = report({
+      contract: issue24Contract,
+      plan: issue24Plan,
+      records: currentRecords,
+      hosted: true,
+    });
+
+    expect(incomplete.decision).toBe("review_required");
+    expect(incomplete.successCriteria.find(({ id }) => id === "AC6")?.proven).toBe(false);
+    expect(incomplete.unprovenCriteria).toContain("AC6");
   });
 
   it("preserves explicitly untrusted fixture rehearsal without granting hosted acceptance", () => {

@@ -187,6 +187,14 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      - name: Install the pinned Agentic Workflows compiler
+        uses: github/gh-aw-actions/setup-cli@ba6380cc6e5be5d21677bebe04d52fb48e3abec7 # v0.81.6
+        with:
+          version: v0.81.6
+      - name: Pull the pinned Zizmor scanner image
+        run: |
+          ZIZMOR_IMAGE="$(node --input-type=module -e 'import { ZIZMOR_IMAGE } from "./scripts/check-sarif.mjs"; process.stdout.write(ZIZMOR_IMAGE)')"
+          docker pull "$ZIZMOR_IMAGE"
       - id: quality
         continue-on-error: true
         run: |
@@ -196,12 +204,46 @@ jobs:
           npm run typecheck
           npm run build
           npm run test:unit:ci
+          npm run agentic:compile
+      - id: zizmor-delta
+        if: always() && (github.event_name == 'pull_request' || github.event_name == 'pull_request_review')
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          BASE_ROOT="$RUNNER_TEMP/northstar-zizmor-base-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          git worktree add --detach "$BASE_ROOT" "$BASE_SHA"
+          trap 'git worktree remove --force "$BASE_ROOT" >/dev/null 2>&1 || true' EXIT
+
+          set +e
+          npm run --silent agentic:zizmor > artifacts/zizmor-candidate-report.json
+          CANDIDATE_PROCESS_EXIT=$?
+          node --input-type=module -e '
+            import { scanWorkflows } from "./scripts/check-sarif.mjs";
+            const report = scanWorkflows({ root: process.argv[1] });
+            process.stdout.write(`${JSON.stringify(report)}\n`);
+            process.exitCode = report.exitCode;
+          ' "$BASE_ROOT" > artifacts/zizmor-base-report.json
+          BASE_PROCESS_EXIT=$?
+          set -e
+
+          if [ ! -f "$BASE_ROOT/artifacts/zizmor.sarif" ]; then
+            echo "Base Zizmor scan did not produce SARIF." >&2
+            exit 1
+          fi
+          cp "$BASE_ROOT/artifacts/zizmor.sarif" artifacts/zizmor-base.sarif
+          echo "base_scanner_exit=$BASE_PROCESS_EXIT candidate_scanner_exit=$CANDIDATE_PROCESS_EXIT"
+          node scripts/build-execution-report.mjs \
+            --compare-zizmor \
+            --base-sha "$BASE_SHA" \
+            --candidate-sha "$NORTHSTAR_HEAD_SHA"
       - if: always()
         run: >-
           node scripts/evidence-record.mjs
           --id quality
           --category execution
-          --status "${{ steps.quality.outcome == 'success' && 'pass' || 'fail' }}"
+          --status "${{ steps.quality.outcome == 'success' && (steps.zizmor-delta.outcome == 'success' || steps.zizmor-delta.outcome == 'skipped') && 'pass' || 'fail' }}"
           --artifact artifacts/unit-junit.xml
       - uses: actions/upload-artifact@v7
         if: always()
@@ -210,10 +252,13 @@ jobs:
           path: |
             artifacts/unit-junit.xml
             artifacts/quality-governance-report.json
+            artifacts/poutine-report.json
+            artifacts/poutine.sarif
+            artifacts/zizmor-comparison.json
             artifacts/checks/quality.json
           if-no-files-found: warn
           retention-days: 90
-      - if: steps.quality.outcome != 'success'
+      - if: steps.quality.outcome != 'success' || (steps.zizmor-delta.outcome != 'success' && steps.zizmor-delta.outcome != 'skipped')
         run: exit 1
 
   acceptance:

@@ -8,6 +8,12 @@ import { githubJson, runGitHub } from "./github-api.mjs";
 import { canonicalPlan, extractPlanContract, planDigest, validatePlanContract } from "./plan-contract.mjs";
 import { extractPlanSection, fetchApprovedPlan, fetchProposedPlan } from "./publish-plan.mjs";
 import { linkedIssue } from "./resolve-pr-task.mjs";
+import {
+  fetchHistoricalPlanApproval,
+  isResolvedPullRequest,
+  loadResolvedWorkflowRun,
+  revalidateWorkflowRun,
+} from "./resolve-workflow-run.mjs";
 import { approvalPolicyForRisk } from "./risk-policy.mjs";
 import { cacheContract, contractFromIssue, loadTaskContract } from "./task-contract.mjs";
 
@@ -34,20 +40,52 @@ export function executionPlanRequirements(contract, plan) {
 }
 
 function readCandidatePull(contract, candidate, {
-  pullRequest, expectedHead, run, allowMerged = false,
+  pullRequest,
+  expectedHead,
+  run,
+  readHistoricalPlan,
 }) {
   if (!Number.isSafeInteger(pullRequest) || pullRequest < 1 || !SHA.test(expectedHead ?? "")) {
     throw new Error("Hosted plan selection requires an explicit PR and immutable expected head.");
   }
   const requirements = executionPlanRequirements(contract, candidate);
+  let migration = null;
+  if (process.env.NORTHSTAR_MIGRATION_MODE === "bootstrap-migration") {
+    migration = revalidateWorkflowRun(loadResolvedWorkflowRun(), {
+      run,
+      readTask: (issue) =>
+        Number(issue) === Number(contract.source.issue)
+          ? contract
+          : contractFromIssue(Number(issue)),
+      readApproved: fetchApprovedPlan,
+      readHistoricalApproval: readHistoricalPlan,
+    });
+    if (
+      migration.mode !== "bootstrap-migration" ||
+      Number(migration.pullRequest) !== pullRequest ||
+      migration.headSha !== expectedHead ||
+      migration.baseSha !== candidate.baseSha ||
+      migration.baseRef !== candidate.baseBranch ||
+      migration.repository !== requirements.repository ||
+      migration.taskId !== contract.id ||
+      migration.contractDigest !== contract.source.bodyDigest ||
+      migration.planDigest !== requirements.planDigest ||
+      process.env.NORTHSTAR_RUN_ID !== migration.sourceRunId ||
+      process.env.NORTHSTAR_RUN_ATTEMPT !== migration.sourceRunAttempt ||
+      process.env.BASE_SHA !== migration.baseSha
+    ) {
+      throw new Error("The closed pull request lacks an exact validated bootstrap resolution.");
+    }
+  }
   const pull = githubJson(`repos/{owner}/{repo}/pulls/${pullRequest}`, { run });
-  const isOpen = pull.state === "open";
-  const isMerged = allowMerged && pull.state === "closed" && pull.merged === true &&
-    typeof pull.merged_at === "string" && SHA.test(pull.merge_commit_sha ?? "");
-  if (pull.number !== pullRequest || (!isOpen && !isMerged) ||
-    pull.head?.sha !== expectedHead || (isOpen && pull.base?.sha !== candidate.baseSha) ||
+  const pullStateValid = migration
+    ? isResolvedPullRequest(migration, pull)
+    : pull.state === "open";
+  if (pull.number !== pullRequest || !pullStateValid ||
+    pull.head?.sha !== expectedHead ||
+    (!migration && pull.base?.sha !== candidate.baseSha) ||
     pull.base?.ref !== candidate.baseBranch ||
-    pull.head?.repo?.full_name !== requirements.repository ||
+    (!migration && pull.head?.repo?.full_name !== requirements.repository) ||
     pull.base?.repo?.full_name !== requirements.repository ||
     linkedIssue(pull.body) !== contract.source.issue) {
     throw new Error("The implementation PR does not match the selected task, repository, base, or head.");
@@ -61,18 +99,33 @@ function readCandidatePull(contract, candidate, {
   if (comparison.merge_base_commit?.sha !== candidate.baseSha || !["ahead", "identical"].includes(comparison.status)) {
     throw new Error("The implementation head does not descend from the exact plan base.");
   }
-  return { requirements, pull };
+  return { requirements, pull, migration };
 }
 
-function approvedSelection(contract, candidate, { run, readApprovedPlan, pullRequest }) {
+function approvedSelection(contract, candidate, {
+  run,
+  readApprovedPlan,
+  readHistoricalPlan,
+  historicalResolution,
+  pullRequest,
+}) {
   const canaryPlan = Boolean(candidate?.canaryFor);
-  if (canaryPlan && (!Number.isSafeInteger(pullRequest) || pullRequest < 1)) {
+  if (canaryPlan &&
+      (!Number.isSafeInteger(pullRequest) || pullRequest < 1 || historicalResolution)) {
     throw new Error("Canary plan approval requires its explicit current plan PR.");
   }
-  const resolved = readApprovedPlan(contract, {
-    run,
-    ...(canaryPlan ? { planPrNumber: pullRequest } : {}),
-  });
+  const resolved = historicalResolution
+    ? readHistoricalPlan({
+        contract,
+        plan: candidate,
+        repository: historicalResolution.repository,
+        sourceRunStartedAt: historicalResolution.sourceRunStartedAt,
+        run,
+      })
+    : readApprovedPlan(contract, {
+        run,
+        ...(canaryPlan ? { planPrNumber: pullRequest } : {}),
+      });
   if (!resolved) throw new Error("No current independent plan-only approval matches this task.");
   const requirements = executionPlanRequirements(contract, resolved.plan);
   const approval = resolved.approval;
@@ -96,8 +149,11 @@ function approvedSelection(contract, candidate, { run, readApprovedPlan, pullReq
 export function selectExecutionPlan({
   contract, candidate, pullRequest, expectedHead,
 }, {
-  run = runGitHub, readApprovedPlan = fetchApprovedPlan, readProposedPlan = fetchProposedPlan,
-  requirementsOnly = false, approvalOnly = false, allowMerged = false,
+  run = runGitHub,
+  readApprovedPlan = fetchApprovedPlan,
+  readHistoricalPlan = fetchHistoricalPlanApproval,
+  readProposedPlan = fetchProposedPlan,
+  requirementsOnly = false, approvalOnly = false,
 } = {}) {
   if (requirementsOnly && approvalOnly) {
     throw new Error("An approval-only operation cannot bypass live approval resolution.");
@@ -107,10 +163,18 @@ export function selectExecutionPlan({
       const requirements = executionPlanRequirements(contract, candidate);
       if (!requirements.approvalRequired) throw new Error("Plan-only approval is not required for this combined plan.");
     }
-    return approvedSelection(contract, candidate, { run, readApprovedPlan, pullRequest });
+    return approvedSelection(contract, candidate, {
+      run,
+      readApprovedPlan,
+      readHistoricalPlan,
+      pullRequest,
+    });
   }
-  const { requirements, pull } = readCandidatePull(contract, candidate, {
-    pullRequest, expectedHead, run, allowMerged,
+  const { requirements, pull, migration } = readCandidatePull(contract, candidate, {
+    pullRequest,
+    expectedHead,
+    run,
+    readHistoricalPlan,
   });
   if (approvalOnly && !requirements.approvalRequired) {
     throw new Error("Plan-only approval is not required; select the same-PR proposed plan instead.");
@@ -123,7 +187,13 @@ export function selectExecutionPlan({
       body: extractPlanSection(pull.body),
     };
   } else if (requirements.approvalRequired) {
-    selected = approvedSelection(contract, candidate, { run, readApprovedPlan, pullRequest });
+    selected = approvedSelection(contract, candidate, {
+      run,
+      readApprovedPlan,
+      readHistoricalPlan,
+      historicalResolution: migration,
+      pullRequest,
+    });
   } else {
     const proposed = readProposedPlan(contract, { pullRequest, expectedHead, run });
     if (!proposed || proposed.approval !== null || Object.hasOwn(proposed.plan, "approval") ||
@@ -139,13 +209,14 @@ export function selectExecutionPlan({
     };
   }
   const after = githubJson(`repos/{owner}/{repo}/pulls/${pullRequest}`, { run });
-  const stillOpen = after.state === "open";
-  const stillMerged = allowMerged && after.state === "closed" && after.merged === true &&
-    typeof after.merged_at === "string" && after.merge_commit_sha === pull.merge_commit_sha;
-  if ((!stillOpen && !stillMerged) || after.head?.sha !== expectedHead ||
-    (stillOpen && after.base?.sha !== pull.base.sha) ||
+  const afterStateValid = migration
+    ? isResolvedPullRequest(migration, after)
+    : after.state === "open";
+  if (!afterStateValid || after.head?.sha !== expectedHead ||
+    (!migration && after.base?.sha !== pull.base.sha) ||
     after.base?.ref !== pull.base.ref || after.body !== pull.body ||
-    after.head?.repo?.full_name !== requirements.repository || after.base?.repo?.full_name !== requirements.repository) {
+    (!migration && after.head?.repo?.full_name !== requirements.repository) ||
+    after.base?.repo?.full_name !== requirements.repository) {
     throw new Error("The implementation PR changed during execution-plan selection.");
   }
   return selected;

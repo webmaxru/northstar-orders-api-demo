@@ -253,7 +253,7 @@ describe("risk-aware hosted execution-plan selection", { timeout: 90000 }, () =>
     expect(f.candidate.baseSha).toBe(baseSha);
   });
 
-  it("accepts an explicitly allowed merged source PR without rebasing its approved plan", () => {
+  it("does not accept a merged source PR through a caller-supplied allowMerged flag", () => {
     const f = fixture("high");
     f.pull.state = "closed";
     Object.assign(f.pull, {
@@ -263,18 +263,14 @@ describe("risk-aware hosted execution-plan selection", { timeout: 90000 }, () =>
     });
     f.pull.base.sha = "e".repeat(40);
     const readApprovedPlan = vi.fn(() => f.approved);
+    const options = Object.assign(
+      { run: f.run, readApprovedPlan },
+      { allowMerged: true },
+    );
 
-    expect(() =>
-      selectExecutionPlan(f.input, { run: f.run, readApprovedPlan }),
-    ).toThrow(/does not match the selected task/);
-    expect(
-      selectExecutionPlan(f.input, {
-        run: f.run,
-        readApprovedPlan,
-        allowMerged: true,
-      }),
-    ).toMatchObject({ approvalState: "approved", planDigest: f.candidate.planDigest });
-    expect(readApprovedPlan).toHaveBeenCalledTimes(1);
+    expect(() => selectExecutionPlan(f.input, options))
+      .toThrow(/does not match the selected task/);
+    expect(readApprovedPlan).not.toHaveBeenCalled();
   });
 
   it.each(["head", "repository", "task", "base-branch", "plan-body"] as const)("rejects mismatched %s identity", (field) => {
@@ -464,5 +460,80 @@ describe("combined-mode hosted workflow wiring", () => {
       expect(source).not.toContain("node scripts/fetch-approved-plan.mjs");
       expect(source).toContain('[ "$SELECTION_STATUS" -eq 0 ]');
     }
+  });
+
+  it("publisher never executes pull request code", () => {
+    const source = workflow("publish-evidence.yml");
+    const resolver = source.indexOf("node scripts/resolve-workflow-run.mjs");
+    const download = source.indexOf("uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131");
+    expect(source).toContain("workflow_dispatch:");
+    expect(source).toContain("source-run-attempt:");
+    expect(source).toContain("parent-pr-number:");
+    expect(source).toContain("bootstrap-plan-pr-number:");
+    expect(source).toContain("bootstrap-plan-head-sha:");
+    expect(source).toContain("github.actor == vars.SYSTEM_MAINTENANCE_DISPATCH_APP_LOGIN");
+    expect(source).toContain(
+      "NORTHSTAR_MIGRATION_MODE: ${{ github.event_name == 'workflow_dispatch' && 'bootstrap-migration' || '' }}",
+    );
+    expect(source).toContain("github.ref == format('refs/heads/{0}', github.event.repository.default_branch)");
+    expect(resolver).toBeGreaterThanOrEqual(0);
+    expect(download).toBeGreaterThan(resolver);
+    expect(source).toContain("artifact-ids: ${{ steps.resolve.outputs.artifact_ids }}");
+    expect(source).toContain("ref: main");
+    expect(source).toContain('DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}');
+    expect(source).toContain('--ref "$DEFAULT_BRANCH"');
+    expect(source).not.toMatch(/^ {10}ref:.*(?:head_sha|head_ref|head\.sha)/m);
+    expect(source).toContain("github.actor == vars.SYSTEM_MAINTENANCE_DISPATCH_APP_LOGIN");
+
+    const publisher = readFileSync(
+      join(import.meta.dirname, "..", "..", "scripts", "publish-evidence.mjs"),
+      "utf8",
+    );
+    expect(publisher).toContain("revalidateWorkflowRun(loadResolvedWorkflowRun())");
+    expect(publisher).toContain("isResolvedPullRequest(resolution, pull)");
+    const status = readFileSync(
+      join(import.meta.dirname, "..", "..", "scripts", "publish-acceptance-status.mjs"),
+      "utf8",
+    );
+    expect(status).toContain('const TRUSTED_PUBLISHER_APP_ID = "5075466"');
+    expect(status).toContain("context=trusted-acceptance");
+
+    const maintenance = workflow("system-maintenance-approval.yml");
+    const maintenanceResolver = maintenance.indexOf("node scripts/resolve-workflow-run.mjs");
+    const maintenanceDownload = maintenance.indexOf(
+      "uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131",
+    );
+    expect(maintenance).toContain("source-run-attempt:");
+    expect(maintenance).toContain("evidence-run-attempt:");
+    expect(maintenance).toContain("bootstrap-plan-pr-number:");
+    expect(maintenance).toContain("artifact-ids: ${{ steps.resolve.outputs.maintenance_artifact_id }}");
+    expect(maintenance).toContain("persist-credentials: false");
+    expect(maintenanceResolver).toBeGreaterThanOrEqual(0);
+    expect(maintenanceDownload).toBeGreaterThan(maintenanceResolver);
+
+    const governed = workflow("governed-change.yml");
+    expect(governed).not.toContain("TRUSTED_PUBLISHER_APP_PRIVATE_KEY");
+    expect(governed).not.toContain("SYSTEM_MAINTENANCE_DISPATCH_APP_PRIVATE_KEY");
+  });
+
+  it("preserves browser-canary dispatches while resolving exact run attempts from GitHub", () => {
+    const maintenance = workflow("system-maintenance-approval.yml");
+    expect(maintenance).toContain("default: open-pr");
+    expect(maintenance).toMatch(
+      /source-run-attempt:\r?\n\s+description: Exact Governed Change source attempt\r?\n\s+required: false/,
+    );
+    expect(maintenance).toMatch(
+      /evidence-run-attempt:\r?\n\s+description: Exact Publish Evidence workflow attempt\r?\n\s+required: false/,
+    );
+    expect(maintenance).toContain("NORTHSTAR_SOURCE_RUN_ATTEMPT: ${{ inputs.source-run-attempt }}");
+    expect(maintenance).toContain("EVIDENCE_RUN_ATTEMPT: ${{ inputs.evidence-run-attempt }}");
+
+    const browserCanaryDispatcher = readFileSync(
+      join(import.meta.dirname, "..", "..", "scripts", "dispatch-browser-plan-canary.mjs"),
+      "utf8",
+    );
+    expect(browserCanaryDispatcher).toContain('"workflow", "run", "system-maintenance-approval.yml"');
+    expect(browserCanaryDispatcher).not.toContain("source-run-attempt=");
+    expect(browserCanaryDispatcher).not.toContain("evidence-run-attempt=");
   });
 });

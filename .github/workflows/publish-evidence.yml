@@ -4,6 +4,28 @@ on:
   workflow_run:
     workflows: ["Governed Change"]
     types: [completed]
+  workflow_dispatch:
+    inputs:
+      source-run-id:
+        description: Exact completed Governed Change run ID
+        required: true
+        type: string
+      source-run-attempt:
+        description: Exact source workflow attempt number
+        required: true
+        type: string
+      parent-pr-number:
+        description: Merged parent pull request number (issue #24 bootstrap only)
+        required: true
+        type: string
+      bootstrap-plan-pr-number:
+        description: Independently approved issue #24 plan PR number
+        required: true
+        type: string
+      bootstrap-plan-head-sha:
+        description: Immutable head SHA of the approved issue #24 plan PR
+        required: true
+        type: string
 
 permissions:
   actions: read
@@ -12,14 +34,22 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch || inputs.parent-pr-number || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
   publish:
     if: >-
-      (github.event.workflow_run.event == 'pull_request' ||
-      github.event.workflow_run.event == 'pull_request_review')
+      (
+        github.event_name == 'workflow_run' &&
+        (github.event.workflow_run.event == 'pull_request' ||
+        github.event.workflow_run.event == 'pull_request_review')
+      ) ||
+      (
+        github.event_name == 'workflow_dispatch' &&
+        github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+        github.actor == vars.SYSTEM_MAINTENANCE_DISPATCH_APP_LOGIN
+      )
     runs-on: ubuntu-latest
     environment: trusted-publisher
     outputs:
@@ -27,9 +57,10 @@ jobs:
       pull_request: ${{ steps.resolve.outputs.pull_request }}
       report_decision: ${{ steps.decision.outputs.value }}
     env:
-      PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+      PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number || inputs.parent-pr-number }}
       NORTHSTAR_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-      NORTHSTAR_RUN_ID: ${{ github.event.workflow_run.id }}
+      NORTHSTAR_RUN_ID: ${{ github.event.workflow_run.id || inputs.source-run-id }}
+      NORTHSTAR_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt || inputs.source-run-attempt }}
       NORTHSTAR_TRUSTED_PUBLISHER_APP_ID: ${{ vars.TRUSTED_PUBLISHER_APP_ID }}
       NORTHSTAR_TRUSTED_PUBLISHER_APP_LOGIN: ${{ vars.TRUSTED_PUBLISHER_APP_LOGIN }}
       NORTHSTAR_DISPATCH_APP_ID: ${{ vars.SYSTEM_MAINTENANCE_DISPATCH_APP_ID }}
@@ -42,7 +73,8 @@ jobs:
           # CUSTOMIZE to the exact protected default branch; never a PR/event ref.
           # A literal makes the trusted checkout boundary inspectable by scanners.
           ref: main
-      - uses: actions/setup-node@v7
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -81,17 +113,25 @@ jobs:
           permission-actions: write
       - run: npm ci
       - id: resolve
-        name: Resolve the associated pull request
+        name: Resolve the exact source run, PR, plan, and artifacts
         env:
           GH_TOKEN: ${{ steps.publisher-token.outputs.token }}
-        run: node scripts/resolve-workflow-pr.mjs --sha "$NORTHSTAR_HEAD_SHA"
-      - uses: actions/download-artifact@v7
+          NORTHSTAR_SOURCE_RUN_ID: ${{ github.event.workflow_run.id || inputs.source-run-id }}
+          NORTHSTAR_SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt || inputs.source-run-attempt }}
+          NORTHSTAR_PARENT_PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number || inputs.parent-pr-number }}
+          NORTHSTAR_BOOTSTRAP_PLAN_PR_NUMBER: ${{ inputs.bootstrap-plan-pr-number }}
+          NORTHSTAR_BOOTSTRAP_PLAN_HEAD_SHA: ${{ inputs.bootstrap-plan-head-sha }}
+          NORTHSTAR_MIGRATION_MODE: ${{ github.event_name == 'workflow_dispatch' && 'bootstrap-migration' || '' }}
+          NORTHSTAR_DISPATCH_APP_LOGIN: ${{ vars.SYSTEM_MAINTENANCE_DISPATCH_APP_LOGIN }}
+        run: node scripts/resolve-workflow-run.mjs
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
-          pattern: northstar-*
+          artifact-ids: ${{ steps.resolve.outputs.artifact_ids }}
           path: incoming-evidence
-          merge-multiple: true
-          run-id: ${{ github.event.workflow_run.id }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.resolve.outputs.source_run_id }}
           github-token: ${{ github.token }}
+          merge-multiple: true
       - run: node scripts/import-evidence-artifacts.mjs --from incoming-evidence
       - env:
           GH_TOKEN: ${{ steps.publisher-token.outputs.token }}
@@ -226,7 +266,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.publisher-token.outputs.token }}
         run: node scripts/publish-evidence.mjs --pr "$PR_NUMBER"
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: northstar-trusted-execution-report
           path: artifacts/report.json
@@ -237,7 +277,7 @@ jobs:
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: node scripts/maintenance-manifest.mjs
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always() && steps.authority.outputs.changed == 'true'
         with:
           name: northstar-system-maintenance-evidence
@@ -248,6 +288,9 @@ jobs:
             artifacts/unit-junit.xml
             artifacts/acceptance-junit.xml
             artifacts/dependency-audit.json
+            artifacts/poutine-report.json
+            artifacts/poutine.sarif
+            artifacts/zizmor-comparison.json
             artifacts/governance-report.json
             artifacts/repository-controls-report.json
             artifacts/merge-report.json
@@ -262,6 +305,15 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.publisher-token.outputs.token }}
         run: node scripts/publish-acceptance-status.mjs
+      - if: always() && hashFiles('artifacts/trusted-acceptance-status.json') != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: northstar-trusted-acceptance-status
+          path: |
+            artifacts/trusted-acceptance-status.json
+            artifacts/resolved-workflow-run.json
+          if-no-files-found: error
+          retention-days: 90
       - name: Dispatch protected system-maintenance approval
         if: >-
           steps.authority.outputs.changed == 'true' &&
@@ -276,7 +328,12 @@ jobs:
             -f pull-request="$PR_NUMBER" \
             -f head-sha="$NORTHSTAR_HEAD_SHA" \
             -f evidence-run-id="${{ github.run_id }}" \
-            -f source-run-id="$NORTHSTAR_RUN_ID"
+            -f evidence-run-attempt="${{ github.run_attempt }}" \
+            -f source-run-id="$NORTHSTAR_RUN_ID" \
+            -f source-run-attempt="$NORTHSTAR_RUN_ATTEMPT" \
+            -f migration-mode="$NORTHSTAR_MIGRATION_MODE" \
+            -f bootstrap-plan-pr-number="$NORTHSTAR_BOOTSTRAP_PLAN_PR_NUMBER" \
+            -f bootstrap-plan-head-sha="$NORTHSTAR_BOOTSTRAP_PLAN_HEAD_SHA"
       - name: Dispatch the approved browser-plan canary
         if: steps.execution-plan.outcome == 'success'
         env:
