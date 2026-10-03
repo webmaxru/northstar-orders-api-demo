@@ -1,5 +1,4 @@
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -154,13 +153,19 @@ function writeIssue24SupportingEvidence({
     },
   }));
 
-  const poutineSarif = '{"version":"2.1.0","runs":[]}';
+  const poutineSarif = JSON.stringify({
+    version: "2.1.0",
+    runs: [{
+      tool: { driver: { name: "poutine", semanticVersion: "1.1.6", rules: [] } },
+      results: [],
+    }],
+  });
   write("artifacts/poutine.sarif", poutineSarif);
   write("artifacts/poutine-report.json", JSON.stringify({
     ok: true,
     sourceDigest: "e".repeat(64),
     artifact: "artifacts/poutine.sarif",
-    artifactDigest: createHash("sha256").update(poutineSarif).digest("hex"),
+    tools: [{ name: "poutine", version: "1.1.6" }],
     errors: [],
     findings: [],
     exitCode: 0,

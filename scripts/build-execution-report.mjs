@@ -614,10 +614,13 @@ export function buildIssue24ValidationEvidence({
   } catch (error) {
     errors.push(`Issue #24 agentic:compile evidence is unavailable (${error.code ?? error.message}).`);
   }
+  let poutineSarifDigest = null;
   if (
     compile?.ok !== true ||
     !Array.isArray(compile.errors) || compile.errors.length > 0 ||
     !Array.isArray(compile.findings) || compile.findings.length > 0 ||
+    !Array.isArray(compile.tools) ||
+    !compile.tools.some(({ name }) => typeof name === "string" && /poutine/i.test(name)) ||
     compile.artifact !== "artifacts/poutine.sarif" ||
     compile.exitCode !== 0 ||
     !SHA256.test(compile.sourceDigest ?? "")
@@ -626,7 +629,21 @@ export function buildIssue24ValidationEvidence({
   }
   try {
     const poutineSarif = readRegularArtifact("artifacts/poutine.sarif", root);
-    if (compile?.artifactDigest !== sha256(poutineSarif)) {
+    poutineSarifDigest = sha256(poutineSarif);
+    const poutineValidation = validateSarif(
+      JSON.parse(poutineSarif.toString("utf8")),
+      "artifacts/poutine.sarif",
+    );
+    if (
+      !poutineValidation.ok ||
+      !poutineValidation.tools.some(({ name }) => /poutine/i.test(name)) ||
+      poutineValidation.tools.length !== compile?.tools?.length ||
+      JSON.stringify(poutineValidation.tools) !== JSON.stringify(compile?.tools) ||
+      poutineValidation.findings.length !== compile?.findings?.length
+    ) {
+      errors.push("Issue #24 agentic:compile SARIF does not match its scanner report.");
+    }
+    if (compile?.artifactDigest && compile.artifactDigest !== poutineSarifDigest) {
       errors.push("Issue #24 agentic:compile SARIF digest does not match its report.");
     }
   } catch (error) {
@@ -771,7 +788,7 @@ export function buildIssue24ValidationEvidence({
     agenticCompile: compile ? {
       ok: compile.ok === true,
       sourceDigest: compile.sourceDigest ?? null,
-      artifactDigest: compile.artifactDigest ?? null,
+      artifactDigest: poutineSarifDigest ?? compile.artifactDigest ?? null,
       findings: compile.findings?.length ?? null,
     } : null,
     zizmor: comparison ? {
