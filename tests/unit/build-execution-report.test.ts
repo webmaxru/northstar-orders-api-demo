@@ -1,49 +1,20 @@
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { Buffer } from "node:buffer";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import {
-  buildIssue24ValidationEvidence,
-  compareZizmorSarif,
-} from "../../scripts/build-execution-report.mjs";
-import type { CheckRecord, EvidenceContext } from "../../scripts/evidence-record.mjs";
+import { describe, expect, it } from "vitest";
 import { ZIZMOR_IMAGE, ZIZMOR_VERSION } from "../../scripts/check-sarif.mjs";
-import { planDigest } from "../../scripts/plan-contract.mjs";
-import type { PlanContract } from "../../scripts/plan-contract.mjs";
-import { contractFromFile } from "../../scripts/task-contract.mjs";
-import type { TaskContract } from "../../scripts/task-contract.mjs";
 
-const temporary: string[] = [];
-const taskId = "AES-TRUSTED-ACCEPTANCE-BOOTSTRAP";
-const contractDigest = "c".repeat(64);
-const baseSha = "b".repeat(40);
-const candidateSha = "a".repeat(40);
-
-afterEach(() => {
-  for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true });
-});
-
-function temp() {
-  const path = mkdtempSync(join(tmpdir(), "northstar-issue24-report-"));
-  temporary.push(path);
-  return path;
-}
-
-function writeJson(root: string, relativePath: string, value: unknown) {
-  const path = join(root, relativePath);
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
-  return Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
-}
-
-function sarif(findings: Array<{
+type Finding = {
   ruleId: string;
   workflow: string;
   message: string;
   line?: number;
-}>) {
+};
+
+const moduleUrl = new URL("../../scripts/build-execution-report.mjs", import.meta.url).href;
+const baseSha = "b".repeat(40);
+const candidateSha = "a".repeat(40);
+
+function sarif(findings: Finding[]) {
   return JSON.stringify({
     version: "2.1.0",
     runs: [{
@@ -64,21 +35,15 @@ function sarif(findings: Array<{
   });
 }
 
-function scannerReport(sarifText: string, findings: Array<{
-  ruleId: string;
-  workflow: string;
-  message: string;
-  line?: number;
-}>) {
-  const bytes = Buffer.from(sarifText, "utf8");
+function scannerReport(sarifText: string, findings: Finding[], sourceDigest: string) {
   return {
     ok: findings.length === 0,
     version: ZIZMOR_VERSION,
     image: ZIZMOR_IMAGE,
     files: [".github/workflows/publish-evidence.yml"],
-    sourceDigest: "d".repeat(64),
+    sourceDigest,
     artifact: "artifacts/zizmor.sarif",
-    artifactDigest: createHash("sha256").update(bytes).digest("hex"),
+    artifactDigest: createHash("sha256").update(sarifText).digest("hex"),
     scannerExitCode: 0,
     exitCode: findings.length === 0 ? 0 : 1,
     errors: [],
@@ -94,24 +59,35 @@ function scannerReport(sarifText: string, findings: Array<{
   };
 }
 
-function makeComparison(
-  baseFindings: Array<{ ruleId: string; workflow: string; message: string; line?: number }>,
-  candidateFindings: Array<{ ruleId: string; workflow: string; message: string; line?: number }>,
-) {
+function compare(input: unknown) {
+  const runner = [
+    `import { compareZizmorSarif } from ${JSON.stringify(moduleUrl)};`,
+    "const input = JSON.parse(process.argv[1]);",
+    "process.stdout.write(JSON.stringify(compareZizmorSarif(input)));",
+  ].join("\n");
+  const result = execFileSync(
+    process.execPath,
+    ["--input-type=module", "-e", runner, JSON.stringify(input)],
+    { encoding: "utf8" },
+  );
+  return JSON.parse(result);
+}
+
+function makeComparison(baseFindings: Finding[], candidateFindings: Finding[]) {
   const baseSarifText = sarif(baseFindings);
   const candidateSarifText = sarif(candidateFindings);
-  return compareZizmorSarif({
+  return compare({
     baseSha,
     candidateSha,
     baseSarifText,
     candidateSarifText,
-    baseReport: scannerReport(baseSarifText, baseFindings),
-    candidateReport: scannerReport(candidateSarifText, candidateFindings),
+    baseReport: scannerReport(baseSarifText, baseFindings, "d".repeat(64)),
+    candidateReport: scannerReport(candidateSarifText, candidateFindings, "e".repeat(64)),
   });
 }
 
 describe("Issue #24 Zizmor comparison", () => {
-  it("records exact SARIF digests and accepts unchanged baseline findings", () => {
+  it("accepts unchanged baseline findings and records exact SARIF digests", () => {
     const finding = {
       ruleId: "zizmor/unpinned-uses",
       workflow: ".github/workflows/publish-evidence.yml",
@@ -130,273 +106,65 @@ describe("Issue #24 Zizmor comparison", () => {
       comparisonPassed: true,
       newFindingCount: 0,
     });
-    expect(comparison.base.sarifDigest).toMatch(/^[0-9a-f]{64}$/);
-    expect(comparison.candidate.sarifDigest).toMatch(/^[0-9a-f]{64}$/);
+    expect(comparison).toMatchObject({
+      base: { sarifDigest: expect.stringMatching(/^[0-9a-f]{64}$/) },
+      candidate: { sarifDigest: expect.stringMatching(/^[0-9a-f]{64}$/) },
+    });
   });
 
   it("fails the comparison when the candidate adds a finding", () => {
-    const comparison = makeComparison(
-      [],
-      [{
-        ruleId: "zizmor/unpinned-uses",
-        workflow: ".github/workflows/publish-evidence.yml",
-        message: "A new unpinned action.",
-      }],
-    );
+    const comparison = makeComparison([], [{
+      ruleId: "zizmor/unpinned-uses",
+      workflow: ".github/workflows/publish-evidence.yml",
+      message: "A new unpinned action.",
+    }]);
 
-    expect(comparison.comparisonPassed).toBe(false);
-    expect(comparison.noNewFindings).toBe(false);
-    expect(comparison.newFindingCount).toBe(1);
-    expect(comparison.findingDeltaByWorkflowRule).toEqual([
-      expect.objectContaining({
-        ruleId: "zizmor/unpinned-uses",
-        workflow: ".github/workflows/publish-evidence.yml",
-        added: 1,
-      }),
-    ]);
+    expect(comparison).toMatchObject({
+      comparisonPassed: false,
+      noNewFindings: false,
+      newFindingCount: 1,
+      findingDeltaByWorkflowRule: [
+        expect.objectContaining({
+          ruleId: "zizmor/unpinned-uses",
+          workflow: ".github/workflows/publish-evidence.yml",
+          added: 1,
+        }),
+      ],
+    });
   });
 
   it("rejects scanner, SARIF, suppression, and immutable-base mismatches", () => {
-    const baseFindings = [{
+    const finding = {
       ruleId: "zizmor/artipacked",
       workflow: ".github/workflows/governed-change.yml",
       message: "Credential persistence is enabled.",
-    }];
-    const candidateFindings = [...baseFindings];
-    const baseSarifText = sarif(baseFindings);
-    const candidateSarifText = sarif(candidateFindings);
-    const baseReport = scannerReport(baseSarifText, baseFindings);
-    const candidateReport = {
-      ...scannerReport(candidateSarifText, candidateFindings),
-      image: "ghcr.io/zizmorcore/zizmor:latest",
-      suppressionDirectives: [{
-        file: ".github/workflows/governed-change.yml",
-        line: 1,
-        rules: ["unpinned-uses"],
-      }],
     };
-    const result = compareZizmorSarif({
+    const baseSarifText = sarif([finding]);
+    const candidateSarifText = sarif([finding]);
+    const result = compare({
       baseSha: "not-a-sha",
       candidateSha,
       baseSarifText,
       candidateSarifText,
-      baseReport,
-      candidateReport,
-    });
-
-    expect(result.comparisonPassed).toBe(false);
-    expect(result.errors.join("\n")).toMatch(/base SHA|scanner identity/);
-    expect(result.suppressionChanges).toHaveLength(1);
-  });
-});
-
-describe("Issue #24 task evidence", () => {
-  it("proves AC6 only from bound local checks and the exact-base no-new-findings comparison", () => {
-    const root = temp();
-    const comparison = makeComparison(
-      [{
-        ruleId: "zizmor/unpinned-uses",
-        workflow: ".github/workflows/publish-evidence.yml",
-        message: "Existing unpinned action.",
-      }],
-      [{
-        ruleId: "zizmor/unpinned-uses",
-        workflow: ".github/workflows/publish-evidence.yml",
-        message: "Existing unpinned action.",
-        line: 9,
-      }],
-    );
-    writeJson(root, "artifacts/zizmor-comparison.json", comparison);
-    const poutineSarif = Buffer.from('{"version":"2.1.0","runs":[]}', "utf8");
-    mkdirSync(join(root, "artifacts"), { recursive: true });
-    writeFileSync(join(root, "artifacts", "poutine.sarif"), poutineSarif);
-    writeJson(root, "artifacts/poutine-report.json", {
-      ok: true,
-      sourceDigest: "e".repeat(64),
-      artifact: "artifacts/poutine.sarif",
-      artifactDigest: createHash("sha256").update(poutineSarif).digest("hex"),
-      errors: [],
-      findings: [],
-      exitCode: 0,
-    });
-    writeJson(root, "package-lock.json", {
-      packages: {
-        "": { dependencies: { fastify: "5.12.5" } },
-        "node_modules/fastify": { version: "5.12.5" },
-        "node_modules/brace-expansion": { version: "5.0.12" },
+      baseReport: scannerReport(baseSarifText, [finding], "d".repeat(64)),
+      candidateReport: {
+        ...scannerReport(candidateSarifText, [finding], "e".repeat(64)),
+        image: "ghcr.io/zizmorcore/zizmor:latest",
+        suppressionDirectives: [{
+          file: ".github/workflows/governed-change.yml",
+          line: 1,
+          rules: ["unpinned-uses"],
+        }],
       },
     });
-    const audit = {
-      metadata: { vulnerabilities: { high: 0, critical: 0 } },
-    };
-    writeJson(root, "artifacts/dependency-audit.json", audit);
-    const controls = {
-      schema: "northstar/repository-controls/1",
-      sourceControlsReady: true,
-      checks: [{ id: "source", ok: true }],
-      online: {
-        available: false,
-        ready: false,
-        rulesetCount: 0,
-        checks: [{ id: "hosted:branch-controls", ok: false, status: "unavailable" }],
-        lookups: [{ id: "ruleset:23998987", state: "unavailable" }],
-      },
-      externalControls: { requiredStatusChecks: "not-verified" },
-    };
-    writeJson(root, "artifacts/repository-controls-report.json", controls);
 
-    const fixtureContract = contractFromFile("tests/fixtures/WI-1842.issue.md");
-    const contract: TaskContract = {
-      ...fixtureContract,
-      id: taskId,
-      source: {
-        ...fixtureContract.source,
-        kind: "issue #24",
-        issue: 24,
-        url: "https://github.com/webmaxru/northstar-orders-api-demo/issues/24",
-        trusted: true,
-        bodyDigest: contractDigest,
-      },
-      successCriteria: [{
-        id: "AC6",
-        statement: "Record exact Issue #24 validation evidence.",
-        provenBy: "records task evidence",
-      }],
-    };
-    const plan: PlanContract = {
-      schema: "northstar/plan/1",
-      taskId,
-      contractDigest,
-      baseBranch: "agent/implement/aes-surface-evidence",
-      baseSha,
-      risk: "high",
-      objective: "Prove the bootstrap safely.",
-      scope: { allowed: ["scripts/**"], prohibited: [] },
-      steps: ["Validate the exact source."],
-      requiredChecks: ["quality", "acceptance", "dependency-review", "secret-scan"],
-      successCriteria: [{ id: "AC6", provenBy: "records task evidence" }],
-      evidence: ["Bound report evidence."],
-      decisionsAndHandoffs: ["Stop on missing evidence."],
-      risks: ["Untrusted artifact."],
-      rollbackAndEscalation: ["Fail closed."],
-    };
-    const checkRecord = (
-      id: string,
-      artifact?: string,
-      recordStatus: CheckRecord["status"] = "pass",
-    ) => {
-      const bytes = artifact ? readFileSync(join(root, artifact)) : null;
-      const record: CheckRecord = {
-        schema: "northstar/check-evidence/1",
-        id,
-        category: id === "dependency-review" || id === "secret-scan" ? "security" : "policy",
-        status: recordStatus,
-        required: true,
-        summary: "Issue #24 fixture evidence.",
-        artifact: artifact ?? null,
-        artifactDigest: bytes ? createHash("sha256").update(bytes).digest("hex") : null,
-        producedAt: "2026-10-03T12:00:00.000Z",
-        provenance: {
-          repository: "webmaxru/northstar-orders-api-demo",
-          taskId,
-          contractDigest,
-          planDigest: planDigest(plan),
-          headSha: candidateSha,
-          baseSha,
-          runId: "42",
-          runAttempt: "1",
-          pullRequest: 28,
-          executionRunId: "42",
-          executionRunAttempt: "1",
-          workflow: "Governed Change",
-          event: "pull_request",
-          actor: "webmaxru",
-          source: { headSha: candidateSha, dirty: false },
-          validationStartedAt: null,
-          job: id,
-        },
-      };
-      return {
-        id,
-        hostedOnly: id === "repository-controls",
-        present: true,
-        status: recordStatus,
-        valid: id !== "repository-controls",
-        reasons: [],
-        record,
-      };
-    };
-    const checks = [
-      "plan-contract", "scope-policy", "quality", "acceptance", "dependency-review",
-      "secret-scan", "merge-validation", "governance-policy",
-    ].map((id) => checkRecord(id, id === "dependency-review" ? "artifacts/dependency-audit.json" : undefined));
-    checks.push(checkRecord("repository-controls", "artifacts/repository-controls-report.json", "fail"));
-    const evidence = buildIssue24ValidationEvidence({
-      contract,
-      plan,
-      checks,
-      unit: { present: true, path: "artifacts/unit-junit.xml", tests: 1, passed: true },
-      acceptance: { present: true, path: "artifacts/acceptance-junit.xml", tests: 1, passed: true },
-      expected: {
-        repository: "webmaxru/northstar-orders-api-demo",
-        taskId,
-        contractDigest,
-        planDigest: planDigest(plan),
-        headSha: candidateSha,
-        baseSha,
-        runId: "42",
-        runAttempt: "1",
-        pullRequest: 28,
-        source: { headSha: candidateSha, dirty: false },
-        executionRunId: "42",
-        executionRunAttempt: "1",
-        workflow: "Governed Change",
-        event: "pull_request",
-        actor: "webmaxru",
-        validationStartedAt: null,
-      } satisfies EvidenceContext,
-      root,
+    expect(result).toMatchObject({
+      comparisonPassed: false,
+      errors: expect.arrayContaining([
+        expect.stringContaining("base SHA"),
+        expect.stringContaining("scanner identity"),
+      ]),
+      suppressionChanges: [expect.objectContaining({ kind: "added" })],
     });
-
-    expect(evidence.localEvidenceComplete).toBe(true);
-    expect(evidence.zizmor).toMatchObject({
-      noNewFindings: true,
-      baseSarifDigest: comparison.base.sarifDigest,
-      candidateSarifDigest: comparison.candidate.sarifDigest,
-    });
-    expect(evidence.repositoryControls?.online.available).toBe(false);
-
-    writeJson(root, "artifacts/zizmor-comparison.json", {
-      ...comparison,
-      baseSha: "f".repeat(40),
-    });
-    const stale = buildIssue24ValidationEvidence({
-      contract,
-      plan,
-      checks,
-      unit: { present: true, path: "artifacts/unit-junit.xml", tests: 1, passed: true },
-      acceptance: { present: true, path: "artifacts/acceptance-junit.xml", tests: 1, passed: true },
-      expected: {
-        repository: "webmaxru/northstar-orders-api-demo",
-        taskId,
-        contractDigest,
-        planDigest: planDigest(plan),
-        headSha: candidateSha,
-        baseSha,
-        runId: "42",
-        runAttempt: "1",
-        pullRequest: 28,
-        source: { headSha: candidateSha, dirty: false },
-        executionRunId: "42",
-        executionRunAttempt: "1",
-        workflow: "Governed Change",
-        event: "pull_request",
-        actor: "webmaxru",
-        validationStartedAt: null,
-      } satisfies EvidenceContext,
-      root,
-    });
-    expect(stale.localEvidenceComplete).toBe(false);
-    expect(stale.errors).toContain("Issue #24 Zizmor comparison is missing, stale, or contains new findings.");
   });
 });

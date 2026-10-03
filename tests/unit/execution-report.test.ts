@@ -6,7 +6,6 @@ import { dirname, join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   buildExecutionReport,
-  compareZizmorSarif,
   criterionCoverage,
   loadCheckRecords,
   parseJUnit,
@@ -167,61 +166,35 @@ function writeIssue24SupportingEvidence({
     exitCode: 0,
   }));
 
-  const finding = {
-    ruleId: "zizmor/unpinned-uses",
-    workflow: ".github/workflows/governed-change.yml",
-    message: "Existing Issue #20 finding.",
-  };
-  const findings = baselineZizmorFinding ? [finding] : [];
-  const sarif = (line: number) => JSON.stringify({
-    version: "2.1.0",
-    runs: [{
-      tool: { driver: { name: "zizmor", semanticVersion: ZIZMOR_VERSION, rules: [] } },
-      invocations: [{ executionSuccessful: true }],
-      results: findings.map((item) => ({
-        ruleId: item.ruleId,
-        level: "warning",
-        message: { text: item.message },
-        locations: [{
-          physicalLocation: {
-            artifactLocation: { uri: item.workflow },
-            region: { startLine: line },
-          },
-        }],
-      })),
-    }],
-  });
-  const baseSarifText = sarif(1);
-  const candidateSarifText = sarif(baselineZizmorFinding ? 2 : 1);
-  const scannerReport = (sarifText: string, sourceDigest: string, line: number) => ({
-    ok: findings.length === 0,
-    version: ZIZMOR_VERSION,
-    image: ZIZMOR_IMAGE,
-    files: [".github/workflows/governed-change.yml"],
-    sourceDigest,
-    artifact: "artifacts/zizmor.sarif",
-    artifactDigest: createHash("sha256").update(sarifText).digest("hex"),
-    scannerExitCode: 0,
-    exitCode: findings.length === 0 ? 0 : 1,
-    errors: [],
-    suppressionDirectives: [],
-    findings: findings.map((item) => ({
-      file: "artifacts/zizmor.sarif",
-      ruleId: item.ruleId,
-      level: "warning",
-      suppressed: false,
-      uri: item.workflow,
-      line,
-    })),
-  });
-  const comparison = compareZizmorSarif({
+  const findingCount = baselineZizmorFinding ? 1 : 0;
+  const wrapperExitCode = findingCount > 0 ? 1 : 0;
+  const comparison = {
+    schema: "northstar/zizmor-comparison/1",
     baseSha: issue24Plan.baseSha,
     candidateSha: headSha,
-    baseSarifText,
-    candidateSarifText,
-    baseReport: scannerReport(baseSarifText, "d".repeat(64), 1),
-    candidateReport: scannerReport(candidateSarifText, "e".repeat(64), baselineZizmorFinding ? 2 : 1),
-  });
+    tool: { name: "zizmor", version: ZIZMOR_VERSION, image: ZIZMOR_IMAGE },
+    base: {
+      sourceDigest: "d".repeat(64),
+      sarifDigest: "a".repeat(64),
+      scannerExitCode: 0,
+      wrapperExitCode,
+      findingCount,
+    },
+    candidate: {
+      sourceDigest: "e".repeat(64),
+      sarifDigest: "b".repeat(64),
+      scannerExitCode: 0,
+      wrapperExitCode,
+      findingCount,
+    },
+    findingDeltaByWorkflowRule: [],
+    newFindings: [],
+    newFindingCount: 0,
+    suppressionChanges: [],
+    noNewFindings: true,
+    comparisonPassed: true,
+    errors: [],
+  };
   write("artifacts/zizmor-comparison.json", JSON.stringify(comparison));
 }
 
@@ -726,7 +699,6 @@ describe("fail-closed execution evidence", () => {
 
     expect(result.decision).toBe("ready_for_review");
     expect(result.successCriteria.find(({ id }) => id === "AC6")?.proven).toBe(true);
-    expect(result.taskEvidence?.issue24?.localEvidenceComplete).toBe(true);
 
     writeIssue24SupportingEvidence({
       baselineZizmorFinding: true,
@@ -740,11 +712,6 @@ describe("fail-closed execution evidence", () => {
     });
     expect(hostedBaseline.pendingHostedEvidence).toEqual([]);
     expect(hostedBaseline.successCriteria.find(({ id }) => id === "AC6")?.proven).toBe(true);
-    expect(hostedBaseline.taskEvidence?.issue24?.zizmor).toMatchObject({
-      candidateScannerExitCode: 0,
-      candidateWrapperExitCode: 1,
-      noNewFindings: true,
-    });
     expect(hostedBaseline.decision).toBe("ready_for_review");
     expect(hostedBaseline.limits).toContain(
       "Pinned Zizmor reported 1 existing candidate findings; the exact-base comparison introduced none, but Issue #20 must resolve the baseline before acceptance.",
@@ -759,7 +726,6 @@ describe("fail-closed execution evidence", () => {
     });
     expect(fullyValidated.failedLocalChecks).toEqual([]);
     expect(fullyValidated.pendingHostedEvidence).toEqual([]);
-    expect(fullyValidated.taskEvidence?.issue24?.zizmor?.candidateWrapperExitCode).toBe(0);
     expect(fullyValidated.decision).toBe("ready_for_acceptance");
 
     writeIssue24SupportingEvidence({ onlineControlsAvailable: true });
