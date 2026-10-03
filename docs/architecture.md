@@ -52,6 +52,26 @@ numbers, dots, underscores, colons, or hyphens.
 | Invalid input or key | `400` | not applicable |
 | Unexpected failure | `500` | not applicable |
 
+### `GET /orders/:id`
+
+WI-1843 adds read-only retrieval through the same `OrderService` abstraction.
+The identifier is normalized as a UUID before either repository access or SQL.
+The in-memory service uses the existing repository lookup; the PostgreSQL
+service uses one parameterized `SELECT` from `orders` and maps `created_at`
+back to the existing ISO timestamp field.
+
+Existing IDs return the unchanged `Order` representation. Malformed IDs return
+`400 invalid_order_id`, absent IDs return `404 order_not_found`, and unexpected
+failures use the existing generic `500 internal_error` boundary. GET does not
+write order or idempotency state and does not claim an idempotent replay header.
+
+The draft WI-1843 candidate implements this bounded medium-risk feature with
+its plan and code in one PR; it does not require the high-risk plan-first
+approval sequence. The candidate remains unaccepted pending current validation, independent
+review and hosted evidence. See the
+[paired demo runbooks](demos/README.md) for exact source/evidence boundaries
+and currently unverified hosted/controller behavior.
+
 ## Idempotency transaction
 
 For a request with an idempotency key:
