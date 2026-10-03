@@ -32,6 +32,10 @@ as the contract hides the fact that the real issue was never read.
 If `artifacts/task-contract.json` is absent, stop and say so. Do not substitute
 a seed file, and do not guess which task is meant.
 
+If startup reports an owner conflict or unowned task authority artifacts, stop.
+Do not use residual caches as the contract or plan, and do not clear them.
+Unowned-cache cleanup is an explicit human recovery action, not part of planning.
+
 Return, in this order:
 
 1. Assumptions and ambiguities, each marked resolved or unresolved.

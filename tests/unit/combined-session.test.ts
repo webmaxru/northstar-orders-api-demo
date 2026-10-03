@@ -69,6 +69,7 @@ describe("single-PR proposed execution", () => {
     writeFileSync(join(root, "artifacts", "plan-proposal.md"), renderPlanContract(plan));
     const result = resolveTask(4, {
       root, cloud: false, role: "implement", combined: true, sessionId: "session-17",
+      env: { GITHUB_REPOSITORY: repository },
       proposalPath: "artifacts/plan-proposal.md",
       readContract: () => contract,
       readApprovedPlan: () => { throw new Error("Must not require a plan-first lookup."); },
@@ -86,6 +87,8 @@ describe("single-PR proposed execution", () => {
     const root = temp();
     const result = resolveTask(4, {
       root, cloud: true, role: "implement", combined: true, pullRequest: 19,
+      sessionId: "cloud-session-19",
+      env: { GITHUB_REPOSITORY: repository },
       readContract: () => contract,
       readProposedPlan: () => ({
         body: renderPlanContract(plan), plan, approval: null,
@@ -106,12 +109,75 @@ describe("single-PR proposed execution", () => {
     expect(() => readFileSync(join(root, "artifacts", "approved-plan.json"))).toThrow();
   });
 
+  it("rejects a cloud PR that differs from the explicitly selected Task PR", () => {
+    const root = temp();
+    expect(() => resolveTask(4, {
+      root, cloud: true, role: "implement", combined: true, pullRequest: 19,
+      taskPRSelected: true, sessionId: "cloud-session-19",
+      env: { GITHUB_REPOSITORY: repository },
+      readTaskPRDetails: () => ({
+        number: 19, issue: 4, repository,
+        baseBranch: "main", baseSha: plan.baseSha,
+        headBranch: pull.head.ref, headSha: head,
+      }),
+      readContract: () => contract,
+      readProposedPlan: () => ({
+        body: renderPlanContract(plan), plan, approval: null,
+        pr: { number: 19, url: pull.html_url, body: pull.body, author: { login: "author" },
+          headRefOid: head, baseRefOid: plan.baseSha, isDraft: true },
+      }),
+      readWorkspace: () => ({ branch: "copilot/feature", headSha: head }),
+      readCloudContext: (_contract, selected) => ({
+        schema: "northstar/execution-context/1", host: "cloud", repository,
+        pullRequest: 20, branch: "copilot/feature", headSha: head, baseSha: plan.baseSha,
+        baseBranch: "main", taskId: contract.id, contractDigest: contract.source.bodyDigest,
+        planDigest: planDigest(selected),
+      }),
+    })).toThrow(/does not match explicitly selected Task PR #19/);
+  });
+
+  it("binds a local Task PR to the worktree branch and approved base", () => {
+    const root = temp();
+    const readTaskPRDetails = (baseSha = plan.baseSha) => () => ({
+      number: 19, issue: 4, repository,
+      baseBranch: "main", baseSha,
+      headBranch: pull.head.ref, headSha: head,
+    });
+    const dependencies = {
+      root, role: "implement" as const, combined: true,
+      pullRequest: 19, taskPRSelected: true,
+      sessionId: "local-session-19", env: { GITHUB_REPOSITORY: repository },
+      readContract: () => contract,
+      readProposedPlan: () => ({
+        body: renderPlanContract(plan), plan, approval: null,
+        pr: { number: 19, url: pull.html_url, body: pull.body, author: { login: "author" },
+          headRefOid: head, baseRefOid: plan.baseSha, isDraft: true },
+      }),
+      readTaskPRDetails: readTaskPRDetails(),
+      readWorkspace: () => ({ branch: pull.head.ref, headSha: head }),
+    };
+
+    expect(resolveTask(4, dependencies).approvalState).toBe("proposed");
+    expect(() => resolveTask(4, {
+      ...dependencies,
+      root: temp(),
+      readWorkspace: () => ({ branch: "agent/implement/wrong-task", headSha: head }),
+    })).toThrow(/worktree branch does not match/);
+    expect(() => resolveTask(4, {
+      ...dependencies,
+      root: temp(),
+      readTaskPRDetails: readTaskPRDetails("c".repeat(40)),
+    })).toThrow(/base does not match/);
+  });
+
   it("captures an explicitly selected plan before clearing old runtime authority", () => {
     const root = temp();
     mkdirSync(join(root, "artifacts"));
     writeFileSync(join(root, "artifacts", "plan.json"), JSON.stringify({ ...plan, planDigest: planDigest(plan) }));
     const result = resolveTask(4, {
       root, cloud: false, role: "implement", combined: true,
+      sessionId: "session-selected-plan",
+      env: { GITHUB_REPOSITORY: repository },
       proposalPath: "artifacts/plan.json",
       readContract: () => contract,
       readWorkspace: () => ({ branch: pull.head.ref, headSha: plan.baseSha }),
@@ -123,12 +189,13 @@ describe("single-PR proposed execution", () => {
   it("lets a selected local combined session write only its proposal before validation", () => {
     const context = {
       taskId: contract.id, trustedContract: true, role: "implement" as const,
-      scope: contract.inputs.scope, canPropose: true,
+      scope: contract.inputs.scope, canPropose: true, sessionId: "session-17",
     };
     expect(evaluateToolCall({ toolName: "edit", toolArgs: { path: "artifacts/plan-proposal.md" } }, context).permissionDecision).toBe("allow");
     expect(evaluateToolCall({ toolName: "edit", toolArgs: { path: "src/app.ts" } }, context).permissionDecision).toBe("deny");
     expect(evaluateToolCall({ toolName: "edit", toolArgs: { path: "artifacts/approved-plan.json" } }, context).permissionDecision).toBe("deny");
-    expect(evaluateToolCall({ toolName: "bash", toolArgs: { command: "npm run plan:materialize -- --file artifacts/plan-proposal.md --execute-proposed" } }, context).permissionDecision).toBe("allow");
+    expect(evaluateToolCall({ toolName: "bash", toolArgs: { command: "npm run plan:materialize -- --file artifacts/plan-proposal.md --execute-proposed --session-id session-17" } }, context).permissionDecision).toBe("allow");
+    expect(evaluateToolCall({ toolName: "bash", toolArgs: { command: "npm run plan:materialize -- --file artifacts/plan-proposal.md --execute-proposed --session-id other-session" } }, context).permissionDecision).toBe("deny");
     expect(evaluateToolCall({ toolName: "edit", toolArgs: { path: "artifacts/plan-proposal.md" } }, { ...context, role: "plan" }).permissionDecision).toBe("deny");
   });
 

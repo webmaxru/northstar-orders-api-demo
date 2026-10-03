@@ -3,12 +3,13 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { resolveSessionId } from "./workspace-owner.mjs";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 
-export function selectStopHandler(session, payload) {
+export function selectStopHandler(session, payload, env = process.env) {
   if (!session || !["plan", "implement"].includes(session.role)) return null;
-  const sessionId = payload.session_id ?? payload.sessionId ?? null;
+  const sessionId = resolveSessionId({ payload, env });
   if (session.sessionId && session.sessionId !== sessionId) {
     throw new Error("The Stop event does not match the task session.");
   }

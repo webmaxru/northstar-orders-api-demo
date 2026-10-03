@@ -3,6 +3,7 @@ export interface GitHubDeps {
 }
 export interface GitHubRunOptions {
   token?: string;
+  cwd?: string;
 }
 export declare function runGitHub(args: string[], options?: GitHubRunOptions): string;
 export declare function githubJson<T = unknown>(route: string, deps?: GitHubDeps): T;

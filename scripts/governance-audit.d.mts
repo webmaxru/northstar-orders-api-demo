@@ -81,6 +81,15 @@ export declare function governedRepositoryControlsHaveAppIdentity(
 export declare function governedScopeUsesPullRequestContext(
   workflow: string,
 ): boolean;
+export declare function governedRepositoryControlsHaveAppIdentity(
+  workflow: string,
+): boolean;
+export declare function summarizeOnlineFailures(
+  online: {
+    checks: Array<{ id: string; ok: boolean; status?: string }>;
+    lookups: Array<{ id: string; state: string; detail?: string }>;
+  } | null | undefined,
+): string[];
 export declare function governedMergedArtifactsHaveUniquePaths(
   workflow: string,
 ): boolean;

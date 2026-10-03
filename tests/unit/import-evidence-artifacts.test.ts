@@ -498,6 +498,22 @@ describe("producer-preserving workflow fan-in", { timeout: 60000 }, () => {
     expect(readdirSync(join(f.root, "artifacts/checks"))).toEqual([]);
   });
 
+  it("rejects cross-task and cross-run parallel evidence", () => {
+    for (const [field, value] of [["taskId", "other-task"], ["runId", "41"]] as const) {
+      const f = fixture();
+      const quality = f.producers.find(({ id }) => id === "quality");
+      if (!quality) throw new Error("The producer fixture is missing quality evidence.");
+      f.json("artifacts/producer-checks/quality.json", {
+        ...quality,
+        provenance: { ...quality.provenance, [field]: value },
+      });
+
+      expect(() => importWorkflowResults("42", f.root, { env: f.env, run: f.run }))
+        .toThrow(/Invalid producer evidence/);
+      expect(readdirSync(join(f.root, "artifacts/checks"))).toEqual([]);
+    }
+  });
+
   it("rejects missing and changed artifacts instead of rehashing them into a passing envelope", () => {
     const f = fixture();
     f.write("artifacts/unit-junit.xml", "different result");

@@ -76,3 +76,7 @@ export declare function buildExecutionReport(input: {
   env?: Record<string, string | undefined>;
   root?: string;
 }): ExecutionReport;
+export declare function checkFailureDiagnostics(
+  checks: Array<Pick<ExecutionReport["checks"][number], "id" | "status" | "reasons">>,
+  failedIds: string[],
+): string[];

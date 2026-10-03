@@ -1012,6 +1012,26 @@ export function buildExecutionReport({
   };
 }
 
+/**
+ * Emit stable failure labels rather than arbitrary producer-supplied text.
+ * @param {Array<{id: string, status: string, reasons: string[]}>} checks
+ * @param {string[]} failedIds
+ */
+export function checkFailureDiagnostics(checks, failedIds) {
+  const selected = new Set(failedIds);
+  return checks
+    .filter(({ id }) => selected.has(id))
+    .map(({ id, status, reasons }) => {
+      const codes = reasons
+        .map((reason) => String(reason).split(":")[0]
+          .replace(/[^A-Za-z0-9._ -]/g, "")
+          .replace(/\s+/g, " ")
+          .trim())
+        .filter(Boolean);
+      return `${id}: ${codes.length > 0 ? codes.join(", ") : `status ${status}`}`;
+    });
+}
+
 function valueOf(flag) {
   const index = process.argv.indexOf(flag);
   return index === -1 ? undefined : process.argv[index + 1];
@@ -1063,8 +1083,11 @@ function main() {
   }
 
   if (report.decision === "review_required") {
+    const failedIds = [...report.failedLocalChecks, ...report.pendingHostedEvidence];
+    const diagnostics = checkFailureDiagnostics(report.checks, failedIds);
     process.stdout.write(
       `failed local checks: ${report.failedLocalChecks.join(", ") || "none"}; ` +
+        `check diagnostics: ${diagnostics.join("; ") || "none"}; ` +
         `unproven criteria: ${report.unprovenCriteria.join(", ") || "none"}\n`,
     );
     process.exitCode = 1;

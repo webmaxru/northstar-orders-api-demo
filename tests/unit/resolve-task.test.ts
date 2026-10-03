@@ -7,11 +7,51 @@ import {
   decide,
   extractIssue,
   isTaskInvocation,
+  linkedIssue,
+  resolveTaskPRDetails,
+  resolveTaskPRIssue,
   resolveTask,
   clearTaskState,
+  taskInputs,
+  taskRole,
 } from "../../scripts/resolve-task.mjs";
 import { contractFromFile } from "../../scripts/task-contract.mjs";
-import { resolveIssueNumber } from "../../scripts/session-start.mjs";
+import {
+  clearUnselectedTaskState,
+  resolveIssueNumber,
+} from "../../scripts/session-start.mjs";
+import {
+  claimWorkspaceOwner,
+  readWorkspaceOwner,
+  releaseTaskWorkspace,
+  releaseWorkspaceClaim,
+  WORKSPACE_OWNER_PATH,
+} from "../../scripts/workspace-owner.mjs";
+
+const fixtureEnv = { GITHUB_REPOSITORY: "fixture/northstar" };
+
+describe("task-resolution hook budgets", () => {
+  it("bounds live issue and approved-plan resolution without weakening fast write authorization", () => {
+    const hooks = JSON.parse(readFileSync(
+      join(import.meta.dirname, "..", "..", ".github", "hooks", "agent-boundary.json"),
+      "utf8",
+    )).hooks;
+    expect(hooks.SessionStart).toHaveLength(1);
+    expect(hooks.SessionStart[0]).toMatchObject({
+      command: "node scripts/session-start.mjs",
+      timeout: 90,
+    });
+    expect(hooks.UserPromptSubmit).toHaveLength(1);
+    expect(hooks.UserPromptSubmit[0]).toMatchObject({
+      command: "node scripts/resolve-task.mjs",
+      timeout: 90,
+    });
+    expect(hooks.PreToolUse[0]).toMatchObject({
+      command: "node scripts/authorize-tool.mjs",
+      timeout: 10,
+    });
+  });
+});
 
 describe("the issue number is an argument, not a guess", () => {
   it("recognizes the raw slash invocation", () => {
@@ -19,8 +59,98 @@ describe("the issue number is an argument, not a guess", () => {
     expect(isTaskInvocation("/implement 4")).toBe(true);
   });
 
+  it("uses a Task PR selector as an explicit implementation task", () => {
+    expect(isTaskInvocation("Task PR: #27")).toBe(true);
+    expect(taskRole("Task PR: #27")).toBe("implement");
+    expect(taskInputs("Task PR: #27").pullRequest).toBe(27);
+    expect(decide("Task PR: #27", {
+      readTaskPR: (pullRequest) => {
+        expect(pullRequest).toBe(27);
+        return 16;
+      },
+    })).toEqual({ action: "resolve", issue: 16, pullRequest: 27 });
+    expect(() => resolveTask(16, {
+      role: "plan",
+      pullRequest: 27,
+      taskPRSelected: true,
+    })).toThrow(/requires the implementation role/);
+  });
+
+  it("rejects a Task PR whose linked issue conflicts with the explicit issue", () => {
+    expect(decide("/implement 17\nTask PR: #27", {
+      readTaskPR: () => 16,
+    })).toMatchObject({ action: "stop", reason: /links issue #16, not explicitly selected issue #17/ });
+  });
+
+  it("fails closed when a Task PR cannot be resolved to a live issue", () => {
+    expect(decide("Task PR: #27")).toMatchObject({
+      action: "stop",
+      reason: /requires a live same-repository pull-request resolver/,
+    });
+    expect(decide("Task PR: #27", {
+      readTaskPR: () => 0,
+    })).toMatchObject({
+      action: "stop",
+      reason: /did not resolve to one live task issue/,
+    });
+  });
+
+  it("resolves a Task PR only when it is open, same-repository, and linked once", () => {
+    const pull = {
+      number: 27,
+      state: "open",
+      base: {
+        ref: "agent/implement/aes-surface-evidence",
+        sha: "a".repeat(40),
+        repo: { full_name: "webmaxru/northstar-orders-api-demo" },
+      },
+      head: {
+        ref: "agent/implement/aes-parallel-isolation",
+        sha: "b".repeat(40),
+        repo: { full_name: "webmaxru/northstar-orders-api-demo" },
+      },
+      body: "Closes #16",
+    };
+    const run = (args: string[], options: { cwd: string }) => {
+      expect(args).toEqual(["api", "repos/{owner}/{repo}/pulls/27"]);
+      expect(options).toEqual({ cwd: "C:\\repo" });
+      return JSON.stringify(pull);
+    };
+    expect(resolveTaskPRDetails(27, { root: "C:\\repo", run })).toEqual({
+      number: 27,
+      issue: 16,
+      repository: "webmaxru/northstar-orders-api-demo",
+      baseBranch: "agent/implement/aes-surface-evidence",
+      baseSha: "a".repeat(40),
+      headBranch: "agent/implement/aes-parallel-isolation",
+      headSha: "b".repeat(40),
+    });
+    expect(resolveTaskPRIssue(27, { root: "C:\\repo", run })).toBe(16);
+    expect(linkedIssue("Closes #16\nFixes #16")).toBe(16);
+    expect(() => resolveTaskPRIssue(27, {
+      root: "C:\\repo",
+      run: () => JSON.stringify({ ...pull, state: "closed" }),
+    })).toThrow(/not open/);
+    expect(() => resolveTaskPRIssue(27, {
+      root: "C:\\repo",
+      run: () => JSON.stringify({
+        ...pull,
+        head: { repo: { full_name: "contributor/fork" } },
+      }),
+    })).toThrow(/same-repository/);
+    expect(() => resolveTaskPRIssue(27, {
+      root: "C:\\repo",
+      run: () => JSON.stringify({ ...pull, body: "No task link" }),
+    })).toThrow(/link exactly one task issue/);
+    expect(() => resolveTaskPRDetails(27, {
+      root: "C:\\repo",
+      run: () => JSON.stringify({ ...pull, head: { ...pull.head, sha: "invalid" } }),
+    })).toThrow(/invalid branch metadata/);
+    expect(() => linkedIssue("Closes #16\nFixes #17")).toThrow(/Multiple task issues/);
+  });
+
   describe("fresh task authority", () => {
-    it("clears stale authority when task resolution fails", () => {
+    it("clears stale authority when task resolution fails", async () => {
       const root = mkdtempSync(join(tmpdir(), "northstar-resolution-test-"));
       const files = ["task-contract.json", "task-plan.md", "plan.json", "approved-plan.json", "task-session.json", "execution-context.json"];
       const stale = () => {
@@ -28,9 +158,16 @@ describe("the issue number is an argument, not a guess", () => {
         for (const file of files) writeFileSync(join(root, "artifacts", file), "stale");
       };
       try {
+        const owner = claimWorkspaceOwner({
+          root,
+          issue: 14,
+          sessionId: "session-14",
+          env: fixtureEnv,
+        });
+        releaseWorkspaceClaim(owner);
         stale();
         expect(() => resolveTask(14, {
-          root, cloud: false,
+          root, cloud: false, sessionId: "session-14", env: fixtureEnv,
           readContract: () => { throw new Error("Repository read denied."); },
         })).toThrow(/denied/);
         for (const file of files) expect(existsSync(join(root, "artifacts", file))).toBe(false);
@@ -39,19 +176,194 @@ describe("the issue number is an argument, not a guess", () => {
         const contract = { ...fixture, source: { ...fixture.source, trusted: true, issue: 14 } };
         stale();
         expect(() => resolveTask(14, {
-          root, cloud: false, readContract: () => contract,
+          root, cloud: false, sessionId: "session-14", env: fixtureEnv, readContract: () => contract,
           readApprovedPlan: () => { throw new Error("Approval lookup failed."); },
         })).toThrow(/Approval lookup/);
         for (const file of files) expect(existsSync(join(root, "artifacts", file))).toBe(false);
 
         resolveTask(14, {
-          root, cloud: false, readContract: () => contract, readApprovedPlan: () => null,
-          role: "plan", sessionId: "new-session",
+          root, cloud: false, env: fixtureEnv, readContract: () => contract, readApprovedPlan: () => null,
+          role: "plan", sessionId: "session-14",
         });
         expect(JSON.parse(readFileSync(join(root, "artifacts", "task-contract.json"), "utf8")).source.issue).toBe(14);
-        expect(JSON.parse(readFileSync(join(root, "artifacts", "task-session.json"), "utf8")).sessionId).toBe("new-session");
+        expect(JSON.parse(readFileSync(join(root, "artifacts", "task-session.json"), "utf8")).sessionId).toBe("session-14");
         expect(existsSync(join(root, "artifacts", "approved-plan.json"))).toBe(false);
-        clearTaskState(root);
+        await releaseTaskWorkspace({
+          root, issue: 14, sessionId: "session-14", env: fixtureEnv,
+        }, { clearTaskState });
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it("preserves unowned task artifacts until explicit orphan cleanup", async () => {
+      const root = mkdtempSync(join(tmpdir(), "northstar-orphaned-task-"));
+      const contractPath = join(root, "artifacts", "task-contract.json");
+      try {
+        mkdirSync(join(root, "artifacts"), { recursive: true });
+        writeFileSync(contractPath, '{"old":"task"}');
+        writeFileSync(join(root, "artifacts", "unrelated.txt"), "preserve");
+
+        expect(() => resolveTask(14, {
+          root,
+          sessionId: "new-session",
+          env: fixtureEnv,
+          readContract: () => { throw new Error("must not fetch while orphaned state exists"); },
+        })).toThrow(/Unowned task authority artifacts were preserved/);
+        await expect(clearUnselectedTaskState({
+          root,
+          sessionId: "new-session",
+          env: fixtureEnv,
+        })).rejects.toThrow(/Unowned task authority artifacts were preserved/);
+        expect(readFileSync(contractPath, "utf8")).toBe('{"old":"task"}');
+        expect(readWorkspaceOwner(root)).toBeNull();
+
+        await releaseTaskWorkspace(
+          {
+            root,
+            issue: 14,
+            sessionId: "new-session",
+            env: fixtureEnv,
+            allowUnownedState: true,
+          },
+          { clearTaskState },
+        );
+        expect(existsSync(contractPath)).toBe(false);
+        expect(readFileSync(join(root, "artifacts", "unrelated.txt"), "utf8")).toBe("preserve");
+        expect(readWorkspaceOwner(root)).toBeNull();
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it("releases only same-session task authority when no task is selected", async () => {
+      const root = mkdtempSync(join(tmpdir(), "northstar-session-start-"));
+      try {
+        const fixture = contractFromFile("tests/fixtures/WI-1842.issue.md");
+        const contract = {
+          ...fixture,
+          source: {
+            ...fixture.source,
+            trusted: true,
+            issue: 14,
+            bodyDigest: "a".repeat(64),
+          },
+        };
+        resolveTask(14, {
+          root,
+          cloud: false,
+          role: "plan",
+          sessionId: "session-14",
+          env: fixtureEnv,
+          readContract: () => contract,
+          readApprovedPlan: () => null,
+        });
+
+        await expect(clearUnselectedTaskState({
+          root,
+          sessionId: "session-14",
+          env: fixtureEnv,
+        })).resolves.toMatchObject({ status: "released" });
+        expect(readWorkspaceOwner(root)).toBeNull();
+        expect(existsSync(join(root, WORKSPACE_OWNER_PATH))).toBe(false);
+        expect(existsSync(join(root, "artifacts", "task-contract.json"))).toBe(false);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it("contains failure and cleanup within the owning task", async () => {
+      const root = mkdtempSync(join(tmpdir(), "northstar-session-start-"));
+      try {
+        const fixture = contractFromFile("tests/fixtures/WI-1842.issue.md");
+        const contract = {
+          ...fixture,
+          source: {
+            ...fixture.source,
+            trusted: true,
+            issue: 14,
+            bodyDigest: "a".repeat(64),
+          },
+        };
+        resolveTask(14, {
+          root,
+          cloud: false,
+          role: "plan",
+          sessionId: "owner-session",
+          env: fixtureEnv,
+          readContract: () => contract,
+          readApprovedPlan: () => null,
+        });
+        const contractBefore = readFileSync(join(root, "artifacts", "task-contract.json"));
+
+        expect(() => resolveTask(14, {
+          root,
+          cloud: false,
+          role: "plan",
+          sessionId: "other-session",
+          env: fixtureEnv,
+          readContract: () => { throw new Error("the conflicting session must not resolve a contract"); },
+        })).toThrow(/already owned/);
+        expect(readFileSync(join(root, "artifacts", "task-contract.json"))).toEqual(contractBefore);
+
+        const result = await clearUnselectedTaskState({
+          root,
+          sessionId: "other-session",
+          env: fixtureEnv,
+        });
+        expect(result.status).toBe("preserved");
+        expect(result.reason).toMatch(/already owned/);
+        expect(readWorkspaceOwner(root)).toMatchObject({
+          issue: 14,
+          taskId: contract.id,
+          contractDigest: "a".repeat(64),
+        });
+        expect(readFileSync(join(root, "artifacts", "task-contract.json"))).toEqual(contractBefore);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it("refreshes a changed contract digest for the same task owner", async () => {
+      const root = mkdtempSync(join(tmpdir(), "northstar-session-start-"));
+      try {
+        const fixture = contractFromFile("tests/fixtures/WI-1842.issue.md");
+        const contract = (bodyDigest: string) => ({
+          ...fixture,
+          source: { ...fixture.source, trusted: true, issue: 14, bodyDigest },
+        });
+        resolveTask(14, {
+          root,
+          cloud: false,
+          role: "plan",
+          sessionId: "owner-session",
+          env: fixtureEnv,
+          readContract: () => contract("a".repeat(64)),
+          readApprovedPlan: () => null,
+        });
+        resolveTask(14, {
+          root,
+          cloud: false,
+          role: "plan",
+          sessionId: "owner-session",
+          env: fixtureEnv,
+          readContract: () => contract("b".repeat(64)),
+          readApprovedPlan: () => null,
+        });
+
+        expect(readWorkspaceOwner(root)).toMatchObject({
+          issue: 14,
+          taskId: fixture.id,
+          contractDigest: "b".repeat(64),
+        });
+        expect(JSON.parse(readFileSync(
+          join(root, "artifacts", "task-contract.json"),
+          "utf8",
+        )).source.bodyDigest).toBe("b".repeat(64));
+        await releaseTaskWorkspace(
+          { root, issue: 14, sessionId: "owner-session", env: fixtureEnv },
+          { clearTaskState },
+        );
       } finally {
         rmSync(root, { recursive: true, force: true });
       }
@@ -63,8 +375,23 @@ describe("the issue number is an argument, not a guess", () => {
       });
       expect(resolveIssueNumber({ env: {}, payload: { initialPrompt: "/implement 14" } }).number).toBe(14);
       expect(resolveIssueNumber({ env: { COPILOT_AGENT_PROMPT: "Task issue: #14\nTask role: implement" } }).number).toBe(14);
+      expect(resolveIssueNumber({
+        env: {},
+        payload: { initial_prompt: "Task PR: #27" },
+        readTaskPR: (pullRequest) => {
+          expect(pullRequest).toBe(27);
+          return 16;
+        },
+      })).toEqual({
+        number: 16, how: "initial_prompt", pullRequest: 27,
+      });
       expect(() => resolveIssueNumber({
         env: { AGENT_TASK_ISSUE: "4", COPILOT_AGENT_PROMPT: "/implement 14" },
+      })).toThrow(/Conflicting/);
+      expect(() => resolveIssueNumber({
+        env: { AGENT_TASK_ISSUE: "17" },
+        payload: { initial_prompt: "Task PR: #27" },
+        readTaskPR: () => 16,
       })).toThrow(/Conflicting/);
       expect(() => resolveIssueNumber({ env: { AGENT_TASK_ISSUE: "-1" } })).toThrow(/positive/);
       expect(resolveIssueNumber({ env: { COPILOT_AGENT_PROMPT: "Explain this example:\n```\n/plan 4\n```" } }).number).toBeNull();

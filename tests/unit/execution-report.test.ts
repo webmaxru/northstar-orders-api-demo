@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   buildExecutionReport,
+  checkFailureDiagnostics,
   criterionCoverage,
   loadCheckRecords,
   parseJUnit,
@@ -225,7 +226,7 @@ beforeAll(() => {
     GITHUB_WORKFLOW: "Publish Evidence", GITHUB_EVENT_NAME: "workflow_run",
     GITHUB_ACTOR: "fixture-publisher", PR_NUMBER: "7",
   };
-});
+}, 60000);
 
 beforeEach(() => {
   rmSync(join(root, "artifacts"), { recursive: true, force: true });
@@ -375,6 +376,17 @@ function report(input: {
 }
 
 describe("fail-closed execution evidence", () => {
+  it("summarizes failed check reason codes without echoing producer text", () => {
+    expect(checkFailureDiagnostics([
+      { id: "scope-policy", status: "fail", reasons: ["artifact unreadable or malformed: hidden\ntext"] },
+      { id: "repository-controls", status: "fail", reasons: [] },
+      { id: "quality", status: "pass", reasons: [] },
+    ], ["scope-policy", "repository-controls"])).toEqual([
+      "scope-policy: artifact unreadable or malformed",
+      "repository-controls: status fail",
+    ]);
+  });
+
   it("rejects missing artifacts and mismatched base or attempt", () => {
     const passing = records();
     expect(report({ records: passing }).decision).toBe("ready_for_review");

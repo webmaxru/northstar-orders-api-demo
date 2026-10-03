@@ -28,6 +28,12 @@ import {
 import { planDigest, validatePlanContract } from "./plan-contract.mjs";
 import { planArtifactPath } from "./plan-artifact.mjs";
 import { approvalPolicyForRisk } from "./risk-policy.mjs";
+import {
+  assertWorkspaceOwner,
+  readWorkspaceOwner,
+  resolveSessionId,
+  workspaceOwnerIdentity,
+} from "./workspace-owner.mjs";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 
@@ -41,7 +47,7 @@ const ALLOWED_COMMANDS = [
   // Resolving the contract must be allowed, or the agent cannot bootstrap the
   // very boundary that governs it. It only reads an issue and writes into
   // artifacts/, so it grants no authority over the working tree.
-  /^npm run contract:fetch -- --issue \d+$/,
+  /^npm run contract:fetch -- --issue [1-9]\d*(?: --session-id [A-Za-z0-9._-]+)?$/,
   /^npm run plan:show$/,
   /^npm run plan:gate -- --pr \d+$/,
   /^npm run lint$/,
@@ -49,6 +55,8 @@ const ALLOWED_COMMANDS = [
   /^npm run build$/,
   /^npm run test:unit$/,
   /^npm run test:unit -- (?:tests\/unit\/[A-Za-z0-9._/-]+\.test\.ts)(?: tests\/unit\/[A-Za-z0-9._/-]+\.test\.ts)*$/,
+  /^npm run workspace:prepare -- --issue [1-9]\d* --path \S+ --session-id [A-Za-z0-9._-]+$/,
+  /^npm run workspace:release -- --issue [1-9]\d* --session-id [A-Za-z0-9._-]+(?: --clear-unowned)?$/,
   /^npm run test:acceptance$/,
   /^npm run governance:check$/,
   /^npm run security:secrets$/,
@@ -347,7 +355,13 @@ export function normalizeToolCall(call) {
 
 /**
  * @param {{toolName?: string, tool_name?: string, toolArgs?: Record<string, unknown>, tool_input?: Record<string, unknown>}} call
- * @param {{scope?: {allowed: string[]}, taskId?: string}} [context]
+ * @param {{
+ *   scope?: {allowed: string[]}, taskId?: string, issue?: number,
+ *   sessionId?: string, workspaceOwnerMatches?: boolean,
+ *   trustedContract?: boolean, approvedPlan?: boolean, validPlan?: boolean,
+ *   requirePlanApproval?: boolean, branchAuthorized?: boolean, role?: string,
+ *   canPropose?: boolean, planScope?: {allowed: string[]}, repoRoot?: string
+ * }} [context]
  */
 export function evaluateToolCall(call, context = {}) {
   let normalized;
@@ -476,12 +490,83 @@ export function evaluateToolCall(call, context = {}) {
         `"${rawName}" may execute but named no command this policy can check`,
       );
     }
-    if (canPropose && command === "npm run plan:materialize -- --file artifacts/plan-proposal.md --execute-proposed") {
+    const contractFetch =
+      /^npm run contract:fetch -- --issue ([1-9]\d*)(?: --session-id ([A-Za-z0-9._-]+))?$/.exec(command);
+    if (contractFetch) {
+      if (typeof context.sessionId !== "string" || !context.sessionId.trim() ||
+          (contractFetch[2] && contractFetch[2] !== context.sessionId) ||
+          (context.issue && Number(contractFetch[1]) !== context.issue)) {
+        return deny("task contract bootstrap must use the current explicit issue and session identity");
+      }
+      return allow("resolve the explicit task under the current session identity; the owner check precedes cache changes");
+    }
+    if (command === "npm run plan:approved") {
+      if (
+        context.role !== "implement" ||
+        !trusted ||
+        !branchAuthorized ||
+        context.workspaceOwnerMatches !== true ||
+        !Number.isSafeInteger(context.issue) ||
+        context.issue < 1 ||
+        typeof context.taskId !== "string" ||
+        !context.taskId.trim() ||
+        typeof context.sessionId !== "string" ||
+        !context.sessionId.trim() ||
+        context.validPlan !== true ||
+        context.requirePlanApproval !== true
+      ) {
+        return deny(
+          "approved-plan refresh requires a valid high-risk plan in the current trusted, owned implementation session",
+        );
+      }
+      return allow(
+        "resolve the exact independent plan-only approval for the current owned implementation task",
+      );
+    }
+    const materializeProposal =
+      /^npm run plan:materialize -- --file artifacts\/plan-proposal\.md --execute-proposed --session-id ([A-Za-z0-9._-]+)$/.exec(command);
+    if (canPropose && materializeProposal) {
+      if (materializeProposal[1] !== context.sessionId) {
+        return deny("plan materialization must use the current task session identity");
+      }
       return allow("validate the exact lower-risk proposal against the live task and isolated base");
+    }
+    const workspaceRelease =
+      /^npm run workspace:release -- --issue ([1-9]\d*) --session-id ([A-Za-z0-9._-]+)( --clear-unowned)?$/.exec(command);
+    if (workspaceRelease) {
+      if (workspaceRelease[3]) {
+        if (workspaceRelease[2] !== context.sessionId ||
+            context.workspaceOwnerMatches === true) {
+          return deny("orphaned task cleanup requires the current session and no active workspace owner");
+        }
+        return ask(
+          "this explicit recovery removes unowned task authority caches; verify they are obsolete before cleanup",
+        );
+      }
+      if (context.role === "plan" || !trusted || !canExecute || !branchAuthorized ||
+          Number(workspaceRelease[1]) !== context.issue ||
+          workspaceRelease[2] !== context.sessionId ||
+          context.workspaceOwnerMatches !== true) {
+        return deny("workspace release must match the approved task, current session, and owned workspace");
+      }
+      return allow("release only the current session's owned task workspace");
+    }
+    const workspacePreparation =
+      /^npm run workspace:prepare -- --issue ([1-9]\d*) --path (\S+) --session-id ([A-Za-z0-9._-]+)$/.exec(command);
+    if (workspacePreparation) {
+      if (context.role === "plan" || !trusted || !canExecute || !branchAuthorized) {
+        return deny("workspace preparation requires a trusted task, approved plan, and dedicated implementation branch");
+      }
+      if (Number(workspacePreparation[1]) !== context.issue ||
+          workspacePreparation[3] !== context.sessionId ||
+          context.workspaceOwnerMatches !== true) {
+        return deny("workspace preparation must match the current task issue, session, and owned workspace");
+      }
+      return allow("prepare a new dedicated worktree from the approved immutable base without switching this checkout");
     }
     if (ALLOWED_COMMANDS.some((pattern) => pattern.test(command))) {
       if (
-        /^npm run (contract:fetch|plan:show)\b/.test(command) ||
+        /^npm run plan:show\b/.test(command) ||
         /^git (status|diff|log)\b/.test(command)
       ) {
         return allow("command is in the validation allowlist");
@@ -689,14 +774,39 @@ async function main() {
       } catch (error) {
         if (error.code !== "ENOENT") throw error;
       }
-      const sessionId = parsed.value?.session_id ?? parsed.value?.sessionId;
-      const sessionMatches = !sessionId || (
+      const sessionId = resolveSessionId({
+        payload: parsed.value,
+        env: process.env,
+      });
+      const workspaceOwner = readWorkspaceOwner(REPO_ROOT);
+      let workspaceOwnerMatches = false;
+      if (workspaceOwner && typeof sessionId === "string" && sessionId.trim() &&
+          contract?.source?.trusted === true) {
+        const expectedOwner = workspaceOwnerIdentity({
+          root: REPO_ROOT,
+          issue: contract.source.issue,
+          taskId: contract.id,
+          contractDigest: contract.source.bodyDigest,
+          sessionId,
+          env: process.env,
+          contract,
+        });
+        const currentOwner = assertWorkspaceOwner(REPO_ROOT, expectedOwner);
+        workspaceOwnerMatches = currentOwner?.ownerKey === workspaceOwner.ownerKey &&
+          currentOwner.taskId === contract.id &&
+          currentOwner.contractDigest === contract.source.bodyDigest;
+      }
+      const sessionMatches = workspaceOwnerMatches && Boolean(sessionId) && (
         session?.sessionId === sessionId && session?.taskId === contract?.id &&
-        session?.contractDigest === contract?.source?.bodyDigest
+        session?.contractDigest === contract?.source?.bodyDigest &&
+        session?.workspaceOwner === workspaceOwner?.ownerKey
       );
       decision = evaluateToolCall(parsed.value, {
         scope: taskScope(contract),
         taskId: contract?.id,
+        issue: contract?.source?.issue,
+        sessionId,
+        workspaceOwnerMatches,
         trustedContract: contract?.source?.trusted === true && sessionMatches,
         approvedPlan,
         validPlan: validation.ok,

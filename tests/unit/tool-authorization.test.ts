@@ -6,6 +6,7 @@ import {
   parsePayload,
   renderDecision,
 } from "../../scripts/authorize-tool.mjs";
+import type { AuthorizationContext } from "../../scripts/authorize-tool.mjs";
 import { contractFromFile, isPathPattern } from "../../scripts/task-contract.mjs";
 
 // The contract comes from the issue. Tests parse the seed file that creates it.
@@ -245,6 +246,65 @@ describe("works with both harness schemas", () => {
     ).toMatchObject({ permissionDecision: "allow" });
   });
 
+  it("allows explicit worktree preparation only for the current owned task session", () => {
+    const sessionId = "session-16";
+    const workspaceContext = {
+      ...context,
+      issue: 16,
+      sessionId,
+      workspaceOwnerMatches: true,
+    };
+    const command =
+      "npm run workspace:prepare -- --issue 16 --path C:\\worktrees\\task-16 --session-id session-16";
+    expect(evaluateToolCall({ toolName: "bash", toolArgs: { command } }, workspaceContext))
+      .toMatchObject({ permissionDecision: "allow" });
+    expect(evaluateToolCall({ toolName: "bash", toolArgs: { command } }, {
+      ...workspaceContext, workspaceOwnerMatches: false,
+    })).toMatchObject({ permissionDecision: "deny" });
+    expect(evaluateToolCall({ toolName: "bash", toolArgs: { command } }, {
+      ...workspaceContext, sessionId: "another-session",
+    })).toMatchObject({ permissionDecision: "deny" });
+  });
+
+  it("allows workspace release only for the current approved owner", () => {
+    const workspaceContext = {
+      ...context,
+      issue: 16,
+      sessionId: "session-16",
+      workspaceOwnerMatches: true,
+    };
+    const command =
+      "npm run workspace:release -- --issue 16 --session-id session-16";
+    expect(evaluateToolCall({ toolName: "bash", toolArgs: { command } }, workspaceContext))
+      .toMatchObject({ permissionDecision: "allow" });
+    expect(evaluateToolCall({ toolName: "bash", toolArgs: { command } }, {
+      ...workspaceContext, workspaceOwnerMatches: false,
+    })).toMatchObject({ permissionDecision: "deny" });
+    expect(evaluateToolCall({ toolName: "bash", toolArgs: { command } }, {
+      ...workspaceContext, sessionId: "another-session",
+    })).toMatchObject({ permissionDecision: "deny" });
+  });
+
+  it("asks before clearing unowned task authority caches", () => {
+    const command =
+      "npm run workspace:release -- --issue 16 --session-id session-16 --clear-unowned";
+    expect(evaluateToolCall({ toolName: "bash", toolArgs: { command } }, {
+      ...context,
+      sessionId: "session-16",
+      workspaceOwnerMatches: false,
+    })).toMatchObject({ permissionDecision: "ask" });
+    expect(evaluateToolCall({ toolName: "bash", toolArgs: { command } }, {
+      ...context,
+      sessionId: "another-session",
+      workspaceOwnerMatches: false,
+    })).toMatchObject({ permissionDecision: "deny" });
+    expect(evaluateToolCall({ toolName: "bash", toolArgs: { command } }, {
+      ...context,
+      sessionId: "session-16",
+      workspaceOwnerMatches: true,
+    })).toMatchObject({ permissionDecision: "deny" });
+  });
+
   it("emits both the flat and the hookSpecificOutput shapes", () => {
     const rendered = renderDecision(
       evaluateToolCall({ toolName: "read", toolArgs: { path: "AGENTS.md" } }, context),
@@ -312,9 +372,27 @@ describe("capability boundary during normal work", () => {
     expect(
       evaluateToolCall(
         { toolName: "bash", toolArgs: { command: "npm run contract:fetch -- --issue 4" } },
-        context,
+        { ...context, issue: 4, sessionId: "session-4" },
       ),
     ).toMatchObject({ permissionDecision: "allow" });
+    expect(
+      evaluateToolCall(
+        {
+          toolName: "bash",
+          toolArgs: { command: "npm run contract:fetch -- --issue 4 --session-id session-4" },
+        },
+        { ...context, issue: 4, sessionId: "session-4" },
+      ),
+    ).toMatchObject({ permissionDecision: "allow" });
+    expect(
+      evaluateToolCall(
+        {
+          toolName: "bash",
+          toolArgs: { command: "npm run contract:fetch -- --issue 4 --session-id other-session" },
+        },
+        { ...context, issue: 4, sessionId: "session-4" },
+      ),
+    ).toMatchObject({ permissionDecision: "deny" });
     expect(
       evaluateToolCall(
         {
@@ -327,6 +405,50 @@ describe("capability boundary during normal work", () => {
         context,
       ),
     ).toMatchObject({ permissionDecision: "deny" });
+  });
+
+  it("refreshes an approved plan only for the current owned high-risk implementation session", () => {
+    const call = {
+      toolName: "bash",
+      toolArgs: { command: "npm run plan:approved" },
+    };
+    const refreshContext: AuthorizationContext = {
+      ...context,
+      taskId: "AES-PARALLEL-ISOLATION",
+      issue: 16,
+      sessionId: "session-16",
+      role: "implement" as const,
+      workspaceOwnerMatches: true,
+      approvedPlan: false,
+      validPlan: true,
+      requirePlanApproval: true,
+    };
+    const invalidContexts: Partial<AuthorizationContext>[] = [
+      { role: "plan" },
+      { role: null },
+      { trustedContract: false },
+      { branchAuthorized: false },
+      { workspaceOwnerMatches: false },
+      { issue: 0 },
+      { sessionId: "" },
+      { taskId: "" },
+      { validPlan: false },
+      { requirePlanApproval: false },
+    ];
+
+    expect(evaluateToolCall(call, refreshContext)).toMatchObject({
+      permissionDecision: "allow",
+      permissionDecisionReason: expect.stringMatching(/independent plan-only approval/),
+    });
+    for (const invalidContext of invalidContexts) {
+      expect(evaluateToolCall(call, { ...refreshContext, ...invalidContext })).toMatchObject({
+        permissionDecision: "deny",
+      });
+    }
+    expect(evaluateToolCall({
+      toolName: "bash",
+      toolArgs: { command: "npm run plan:approved -- --issue 16" },
+    }, refreshContext)).toMatchObject({ permissionDecision: "deny" });
   });
 
   it("allows read and search", () => {
@@ -490,12 +612,27 @@ describe("an ungoverned session is not judged against someone else's task", () =
     ).toMatchObject({ permissionDecision: "deny" });
   });
 
-  it("allows only read-only bootstrap commands before a contract resolves", () => {
+  it("allows task bootstrap only with a session identity before a contract resolves", () => {
+    const bootstrapContext = { issue: 4, sessionId: "session-4" };
     expect(
       evaluateToolCall({
         tool_name: "runInTerminal",
         tool_input: { command: "npm run contract:fetch -- --issue 4" },
       }),
+    ).toMatchObject({ permissionDecision: "deny" });
+    expect(
+      evaluateToolCall({
+        tool_name: "runInTerminal",
+        tool_input: { command: "npm run contract:fetch -- --issue 4" },
+      }, bootstrapContext),
+    ).toMatchObject({ permissionDecision: "allow" });
+    expect(
+      evaluateToolCall({
+        tool_name: "runInTerminal",
+        tool_input: {
+          command: "npm run contract:fetch -- --issue 4 --session-id session-4",
+        },
+      }, bootstrapContext),
     ).toMatchObject({ permissionDecision: "allow" });
     expect(
       evaluateToolCall({

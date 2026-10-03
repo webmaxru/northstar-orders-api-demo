@@ -241,22 +241,44 @@ export function governedAcceptanceDatabaseUrlIsSafe(workflow) {
   );
 }
 
+function workflowJobBlock(workflow, name) {
+  const source = String(workflow);
+  return new RegExp(
+    `^ {2}${name}:\\r?\\n([\\s\\S]*?)(?=^ {2}[a-z][a-z-]*:|$(?![\\s\\S]))`,
+    "m",
+  ).exec(source)?.[1] ?? "";
+}
+
 export function governedArtifactsTargetExpectedDirectory(workflow) {
+  const source = String(workflow);
   const downloadSteps =
-    String(workflow).match(
+    source.match(
       /^ {6}- uses: actions\/download-artifact@[^\r\n]+\r?\n(?: {8,}[^\r\n]*(?:\r?\n|$))*/gm,
     ) ?? [];
+  const evidenceJob = workflowJobBlock(source, "evidence");
+  const policyJobs = ["plan-approval", "scope-policy", "human-review"]
+    .map((name) => workflowJobBlock(source, name));
+  const planContract = workflowJobBlock(source, "plan-contract");
+  const planContext = /name: northstar-plan-context\r?\n[\s\S]*?\r?\n {10}retention-days: 90/
+    .exec(planContract)?.[0] ?? "";
   return (
-    downloadSteps.length === 4 &&
-    downloadSteps.every((step) =>
-      /^\s{10}path:\s*artifacts\s*$/m.test(step),
-    )
+    downloadSteps.length === 1 &&
+    evidenceJob.includes("pattern: northstar-check-*") &&
+    /^\s{10}path:\s*artifacts\s*$/m.test(downloadSteps[0]) &&
+    /^\s{10}merge-multiple:\s*true\s*$/m.test(downloadSteps[0]) &&
+    policyJobs.every((job) => job && !job.includes("actions/download-artifact@")) &&
+    planContext.includes("artifacts/plan.json") &&
+    !planContext.includes("artifacts/task-contract.json") &&
+    !planContext.includes("artifacts/checks/plan-contract.json")
   );
 }
 
 export function governedSingleCheckArtifactsPreserveDirectory(workflow) {
   const text = String(workflow);
   return [
+    ["northstar-check-plan-contract", "plan-contract"],
+    ["northstar-check-plan-approval", "plan-approval"],
+    ["northstar-check-scope", "scope-policy"],
     ["northstar-check-secret", "secret-scan"],
     ["northstar-check-review", "human-review"],
   ].every(([artifact, check]) =>
@@ -287,9 +309,9 @@ export function governedEvidenceTaskLookupPermissionsAreSafe(workflow) {
 }
 
 export function governedScopeUsesPullRequestContext(workflow) {
-  const scopeJob = /^ {2}scope-policy:\r?\n([\s\S]*?)(?=^ {2}quality:\r?$)/m.exec(
-    String(workflow),
-  )?.[1];
+  const scopeJob = workflowJobBlock(workflow, "scope-policy");
+  const scopeStep = /^ {6}- id: scope\r?\n([\s\S]*?)(?=^ {6}- |$(?![\s\S]))/m
+    .exec(scopeJob)?.[1] ?? "";
   const permissionBlock = scopeJob
     ? /^ {4}permissions:\r?\n((?: {6}[^\r\n]+\r?\n)+)/m.exec(scopeJob)?.[1]
     : null;
@@ -300,8 +322,11 @@ export function governedScopeUsesPullRequestContext(workflow) {
     .map((line) => line.trim())
     .filter(Boolean);
   return (
-    exactStringSet(permissions, ["contents: read", "pull-requests: read"]) &&
-    /env:\r?\n {10}GH_TOKEN: \$\{\{ github\.token \}\}/m.test(scopeJob) &&
+    exactStringSet(permissions, ["contents: read", "issues: read", "pull-requests: read"]) &&
+    /env:\r?\n {10}GH_TOKEN: \$\{\{ github\.token \}\}/m.test(scopeStep) &&
+    scopeJob.includes('npm run contract:from-pr -- --pr "$PR_NUMBER"') &&
+    scopeJob.includes('npm run plan:gate -- --pr "$PR_NUMBER" --expected-head "$NORTHSTAR_HEAD_SHA"') &&
+    scopeJob.includes("node scripts/select-execution-plan.mjs") &&
     /npm run scope:check --\s+--pr "\$PR_NUMBER"\s+--expected-head "\$NORTHSTAR_HEAD_SHA"/m.test(
       scopeJob,
     )
@@ -309,14 +334,28 @@ export function governedScopeUsesPullRequestContext(workflow) {
 }
 
 export function governedRepositoryControlsHaveAppIdentity(workflow) {
-  const controlsJob = /^ {2}repository-controls:\r?\n([\s\S]*?)(?=^ {2}human-review:\r?$)/m
-    .exec(String(workflow))?.[1] ?? "";
+  const controlsJob = workflowJobBlock(workflow, "repository-controls");
   return [
     "NORTHSTAR_TRUSTED_PUBLISHER_APP_ID: ${{ vars.TRUSTED_PUBLISHER_APP_ID }}",
     "NORTHSTAR_TRUSTED_PUBLISHER_APP_LOGIN: ${{ vars.TRUSTED_PUBLISHER_APP_LOGIN }}",
     "NORTHSTAR_DISPATCH_APP_ID: ${{ vars.SYSTEM_MAINTENANCE_DISPATCH_APP_ID }}",
     "NORTHSTAR_DISPATCH_APP_LOGIN: ${{ vars.SYSTEM_MAINTENANCE_DISPATCH_APP_LOGIN }}",
   ].every((setting) => controlsJob.includes(setting));
+}
+
+/** @param {{checks: Array<{id: string, ok: boolean, status?: string}>, lookups: Array<{id: string, state: string, detail?: string}>} | null | undefined} online */
+export function summarizeOnlineFailures(online) {
+  if (!online) return [];
+  const checks = online.checks
+    .filter(({ ok }) => !ok)
+    .map(({ id, status }) => `${id}=${status ?? "fail"}`);
+  const lookups = online.lookups
+    .filter(({ state }) => state === "unavailable")
+    .map(({ id, detail }) => {
+      const status = /\(HTTP (\d{3})\)/i.exec(detail ?? "")?.[1];
+      return `lookup:${id}=unavailable${status ? `-http-${status}` : ""}`;
+    });
+  return [...new Set([...checks, ...lookups])].sort();
 }
 
 export function governedMergedArtifactsHaveUniquePaths(workflow) {
@@ -495,7 +534,7 @@ export function auditSourceTree({ root = REPO_ROOT, policy = GOVERNANCE_POLICY, 
       check(
         governedArtifactsTargetExpectedDirectory(workflow),
         "workflow:artifact-handoff",
-        "Downloaded evidence is restored under the artifacts directory consumed by policy scripts.",
+        "Policy jobs resolve live task authority; evidence fan-in downloads check artifacts only.",
       ),
       check(
         governedSingleCheckArtifactsPreserveDirectory(workflow),
@@ -926,21 +965,6 @@ export function onlineControls({ env = process.env, run = runGitHub, policy = GO
       ? "Required controls were evaluated; an unused alternative API may still be unavailable."
       : "Some controls remain unverified. Successful checks are retained; separate administrator/App access may be required.",
   };
-}
-
-/** @param {{checks: Array<{id: string, ok: boolean, status?: string}>, lookups: Array<{id: string, state: string, detail?: string}>} | null | undefined} online */
-export function summarizeOnlineFailures(online) {
-  if (!online) return [];
-  const checks = online.checks
-    .filter(({ ok }) => !ok)
-    .map(({ id, status }) => `${id}=${status ?? "fail"}`);
-  const lookups = online.lookups
-    .filter(({ state }) => state === "unavailable")
-    .map(({ id, detail }) => {
-      const status = /\(HTTP (\d{3})\)/i.exec(detail ?? "")?.[1];
-      return `lookup:${id}=unavailable${status ? `-http-${status}` : ""}`;
-    });
-  return [...new Set([...checks, ...lookups])].sort();
 }
 
 function valueOf(flag) {

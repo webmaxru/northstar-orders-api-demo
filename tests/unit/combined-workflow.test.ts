@@ -16,6 +16,7 @@ import { renderPlan } from "../../scripts/publish-plan.mjs";
 import { requiredChecksForRisk } from "../../scripts/risk-policy.mjs";
 import type { Risk } from "../../scripts/risk-policy.mjs";
 import { parseIssueBody } from "../../scripts/task-contract.mjs";
+import { claimWorkspaceOwner, releaseWorkspaceClaim } from "../../scripts/workspace-owner.mjs";
 
 const root = mkdtempSync(join(tmpdir(), "northstar-combined-workflow-"));
 const repository = "fixture/northstar";
@@ -65,7 +66,17 @@ beforeAll(() => {
     "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "Offline combined-workflow fixture"]);
   headSha = git(["rev-parse", "HEAD"]);
 }, 60000);
-beforeEach(() => rmSync(join(root, "artifacts"), { recursive: true, force: true }), 60000);
+beforeEach(() => {
+  rmSync(join(root, "artifacts"), { recursive: true, force: true });
+  const owner = claimWorkspaceOwner({
+    root,
+    issue,
+    taskId: contract.id,
+    contractDigest: contract.source.bodyDigest,
+    env: hostedEnv(),
+  });
+  releaseWorkspaceClaim(owner);
+}, 60000);
 afterAll(() => rmSync(root, { recursive: true, force: true }), 60000);
 
 function fixture(risk: Risk = "medium") {
@@ -337,9 +348,9 @@ describe("risk-aware hosted execution-plan selection", { timeout: 90000 }, () =>
 
   it("keeps candidate bytes stable when a later source fan-in selects the approved plan", () => {
     const f = fixture("high");
-    cacheExecutionPlan(f.input, { root, env: {}, run: f.run, requirementsOnly: true });
+    cacheExecutionPlan(f.input, { root, env: hostedEnv(), run: f.run, requirementsOnly: true });
     const producerBytes = readFileSync(join(root, "artifacts", "plan.json"), "utf8");
-    cacheExecutionPlan(f.input, { root, env: {}, run: f.run, readApprovedPlan: () => f.approved });
+    cacheExecutionPlan(f.input, { root, env: hostedEnv(), run: f.run, readApprovedPlan: () => f.approved });
     expect(readFileSync(join(root, "artifacts", "candidate-plan.json"), "utf8")).toBe(producerBytes);
     expect(readJson("artifacts/approved-plan.json")).toMatchObject({ approval: f.approved.approval });
   });
@@ -365,7 +376,9 @@ describe("risk-aware hosted execution-plan selection", { timeout: 90000 }, () =>
     const f = fixture();
     expect(() => cacheExecutionPlan(f.input, {
       root, run: f.run, env: { ...hostedEnv(), [key]: value },
-    })).toThrow(/workflow execution context differs/);
+    })).toThrow(key === "GITHUB_REPOSITORY"
+      ? /already owned/
+      : /workflow execution context differs/);
     expect(existsSync(join(root, "artifacts", "plan.json"))).toBe(false);
     expect(existsSync(join(root, "artifacts", "approved-plan.json"))).toBe(false);
   });
@@ -422,6 +435,42 @@ describe("combined-mode hosted workflow wiring", () => {
     expect(job(source, "plan-contract")).toContain("--requirements-only");
     expect(job(source, "plan-approval")).toContain("needs.plan-contract.outputs.approval_required == 'true'");
     expect(job(source, "plan-approval")).toContain('--expected-head "$NORTHSTAR_HEAD_SHA"');
+  });
+
+  it("resolves live task authority in policy jobs and quarantines producer plan caches", () => {
+    const source = workflow("governed-change.yml");
+    for (const name of ["plan-approval", "scope-policy", "human-review"]) {
+      const policyJob = job(source, name);
+      expect(policyJob).not.toContain("actions/download-artifact@v7");
+      expect(policyJob).toContain("issues: read");
+      expect(policyJob).toContain('npm run contract:from-pr -- --pr "$PR_NUMBER"');
+      expect(policyJob).toContain('npm run plan:gate -- --pr "$PR_NUMBER" --expected-head "$NORTHSTAR_HEAD_SHA"');
+      expect(policyJob).toContain("node scripts/select-execution-plan.mjs");
+    }
+
+    const planContract = job(source, "plan-contract");
+    const planContextUpload = /name: northstar-plan-context\r?\n[\s\S]*?\r?\n {10}retention-days: 90/
+      .exec(planContract)?.[0] ?? "";
+    expect(planContextUpload).toContain("artifacts/plan.json");
+    expect(planContextUpload).not.toContain("artifacts/task-contract.json");
+    expect(planContextUpload).not.toContain("artifacts/checks/plan-contract.json");
+    expect(planContract).toContain("name: northstar-check-plan-contract");
+    expect(planContract).toContain("path: artifacts/**/plan-contract.json");
+
+    const approvalUpload = /name: northstar-check-plan-approval\r?\n[\s\S]*?\r?\n {10}retention-days: 90/
+      .exec(job(source, "plan-approval"))?.[0] ?? "";
+    expect(approvalUpload).toContain("path: artifacts/**/plan-approval.json");
+    expect(approvalUpload).not.toContain("artifacts/approved-plan.json");
+
+    const scopePolicy = job(source, "scope-policy");
+    expect(scopePolicy).toContain("name: northstar-check-scope");
+    expect(scopePolicy).toContain("path: artifacts/**/scope-policy.json");
+    expect(scopePolicy).toContain("name: northstar-check-scope-report");
+    expect(scopePolicy).toContain("path: artifacts/scope-report.json");
+
+    const evidence = job(source, "evidence");
+    expect(evidence).toContain("pattern: northstar-check-*");
+    expect(evidence).not.toContain("pattern: northstar-*");
   });
 
   it.each(["governed-change.yml", "publish-evidence.yml", "system-maintenance-approval.yml"])(

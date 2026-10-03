@@ -9,4 +9,17 @@ describe("single role-aware Stop dispatcher", () => {
     expect(selectStopHandler({ role: "review" }, {})).toBeNull();
     expect(() => selectStopHandler({ role: "implement", sessionId: "old" }, { session_id: "new" })).toThrow(/does not match/);
   });
+
+  it("uses the host-provided identity when the Stop payload omits it", () => {
+    expect(selectStopHandler(
+      { role: "implement", sessionId: "cloud-session" },
+      {},
+      { COPILOT_SESSION_ID: "cloud-session" },
+    )).toBe("agent-stop.mjs");
+    expect(() => selectStopHandler(
+      { role: "implement", sessionId: "task-session" },
+      {},
+      { COPILOT_SESSION_ID: "different-session" },
+    )).toThrow(/does not match/);
+  });
 });

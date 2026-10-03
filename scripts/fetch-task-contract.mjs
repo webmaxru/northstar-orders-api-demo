@@ -9,8 +9,10 @@
  * and demos; the resolved contract records that it is not trusted authority.
  */
 
-import { cacheContract, contractFromFile } from "./task-contract.mjs";
-import { clearTaskState, resolveTask } from "./resolve-task.mjs";
+import { CONTRACT_CACHE, contractFromFile } from "./task-contract.mjs";
+import { resolveTask } from "./resolve-task.mjs";
+import { resolveSessionId } from "./workspace-owner.mjs";
+import { resolve } from "node:path";
 
 function valueOf(flag) {
   const index = process.argv.indexOf(flag);
@@ -28,20 +30,22 @@ if (!issue && !file) {
 }
 
 let contract;
+let target;
 try {
   if (issue) {
-    contract = resolveTask(Number(issue)).contract;
+    const result = resolveTask(Number(issue), {
+      sessionId: resolveSessionId({ explicit: valueOf("--session-id") }),
+    });
+    contract = result.contract;
+    target = resolve(import.meta.dirname, "..", CONTRACT_CACHE);
   } else {
-    clearTaskState();
     contract = contractFromFile(file);
+    target = null;
   }
 } catch (error) {
-  clearTaskState();
   process.stderr.write(`${/** @type {Error} */ (error).message}\n`);
   process.exit(1);
 }
-
-const target = cacheContract(contract);
 
 process.stdout.write(
   [
@@ -49,5 +53,5 @@ process.stdout.write(
     `source=${contract.source.kind}`,
     `scope=${contract.inputs.scope.allowed.join(" ")}`,
     `criteria=${contract.successCriteria.length}`,
-  ].join("  ") + `\n${target}\n`,
+  ].join("  ") + `\n${target ?? "offline fixture parsed only; untrusted fixture was not cached"}\n`,
 );

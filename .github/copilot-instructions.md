@@ -91,8 +91,9 @@ Low and medium work may execute a validated, explicitly handed-off plan before
 plan approval, with the risk's required checks and final review still required.
 Use `/work <issue>` for the explicit combined route. A fresh local session may
 write only `artifacts/plan-proposal.md` until `plan:materialize` with
-`--execute-proposed` validates the task, scope, risk and exact base. This does
-not create an approval. To resume, explicitly select the implementation
+`--execute-proposed --session-id <current-session-id>` validates the owner,
+task, scope, risk and exact base. This does not create an approval. To resume,
+explicitly select the implementation
 `Task PR: #<number>` or local `Task plan: artifacts/plan.json`; startup never
 adopts an arbitrary remaining file. The combined PR carries plan and code
 together, and the hosted selector requires independent plan approval only for
@@ -125,8 +126,21 @@ Narrative confidence cannot lower the required controls.
 - **Security reviewer:** runs and interprets security evidence; does not edit.
 - **Risk reviewer:** reads the diff and evidence; does not edit or repair.
 
-Parallel work is allowed only on isolated paths and branches. Sequential work
-uses durable artifacts and explicit handoffs, not hidden agent-to-agent state.
+Parallel work is allowed only on isolated paths and branches. Each write-capable
+Copilot CLI or cloud-agent task uses its own Git worktree; a shared worktree is
+not made safe by separating artifact filenames. Use
+`npm run workspace:prepare -- --issue <number> --path <absolute-path> --session-id <current-session-id>`
+to create or select the approved task worktree without switching this checkout.
+The owner record binds the worktree to its issue, contract, repository, and
+session/run identity. A conflicting owner is rejected before task state changes.
+
+Use `npm run workspace:release -- --issue <number> --session-id <current-session-id>`
+only to release the exact matching owner. If task authority files exist without
+an owner, preserve them and stop; never adopt or delete them as a default.
+`workspace:release --clear-unowned` is an explicit recovery that removes only
+the known orphaned task authority files and requires human confirmation.
+Sequential work uses durable artifacts and explicit handoffs, not hidden
+agent-to-agent state.
 
 ## GitHub as the system of record and control plane
 
@@ -166,7 +180,9 @@ become deny decisions. Keep pre-tool policy deterministic and fast. Hook
 compatibility is host-specific; a schema unit test is not a live host canary.
 The SessionStart resolver accepts explicit `AGENT_TASK_ISSUE`, documented
 `initial_prompt`/`initialPrompt`, or `COPILOT_AGENT_PROMPT` task input.
-Conflicting selectors and failed resolution clear all cached authority.
+Conflicting selectors and failed resolution clear only state owned by the
+current session. Foreign-owner conflicts and unowned legacy authority are
+preserved and fail closed.
 UserPromptSubmit output cannot reliably halt every host; PreToolUse still
 denies writes without matching task, plan, isolation and session identity.
 

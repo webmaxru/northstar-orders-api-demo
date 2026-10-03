@@ -29,11 +29,29 @@ import {
   resolveTask,
   taskRole,
   taskInputs,
+  resolveTaskPRIssue,
+  isTaskInvocation,
   renderResult,
 } from "./resolve-task.mjs";
+import {
+  readWorkspaceOwner,
+  releaseTaskWorkspace,
+  resolveSessionId,
+} from "./workspace-owner.mjs";
 
-export function resolveIssueNumber({ env = process.env, payload = {} } = {}) {
+export function resolveIssueNumber({
+  env = process.env,
+  payload = {},
+  readTaskPR = resolveTaskPRIssue,
+} = {}) {
   const candidates = [];
+  const resolvedPRs = new Map();
+  const resolvePR = (pullRequest) => {
+    if (!resolvedPRs.has(pullRequest)) {
+      resolvedPRs.set(pullRequest, readTaskPR(pullRequest));
+    }
+    return resolvedPRs.get(pullRequest);
+  };
   if (env.AGENT_TASK_ISSUE !== undefined && env.AGENT_TASK_ISSUE !== "") {
     if (!/^[1-9]\d*$/.test(env.AGENT_TASK_ISSUE) ||
         !Number.isSafeInteger(Number(env.AGENT_TASK_ISSUE))) {
@@ -48,14 +66,34 @@ export function resolveIssueNumber({ env = process.env, payload = {} } = {}) {
   ]) {
     if (prompt === undefined) continue;
     if (typeof prompt !== "string") throw new Error(`${how} must be text.`);
-    const decision = decide(prompt);
+    const decision = decide(prompt, { readTaskPR: resolvePR });
     if (decision.action === "stop") throw new Error(decision.reason);
-    if (decision.action === "resolve") candidates.push({ number: decision.issue, how });
+    if (decision.action === "resolve") {
+      candidates.push({
+        number: decision.issue,
+        how,
+        ...(decision.pullRequest !== undefined ? { pullRequest: decision.pullRequest } : {}),
+      });
+    }
   }
   if (new Set(candidates.map(({ number }) => number)).size > 1) {
     throw new Error("Conflicting explicit task selectors; cached authority was cleared.");
   }
-  return candidates[0] ?? { number: null, how: "nothing" };
+  const pullRequests = new Set(
+    candidates.flatMap(({ pullRequest }) =>
+      pullRequest === undefined ? [] : [pullRequest]),
+  );
+  if (pullRequests.size > 1) {
+    throw new Error("Conflicting explicit task PR selectors; cached authority was cleared.");
+  }
+  const selected = candidates[0];
+  return selected
+    ? {
+        number: selected.number,
+        how: selected.how,
+        ...(pullRequests.size === 1 ? { pullRequest: [...pullRequests][0] } : {}),
+      }
+    : { number: null, how: "nothing" };
 }
 
 function summarize(contract, how, plan, approvalState) {
@@ -118,8 +156,40 @@ function emit(additionalContext) {
   );
 }
 
+export async function clearUnselectedTaskState({
+  root = process.cwd(),
+  sessionId = null,
+  env = process.env,
+} = {}) {
+  const owner = readWorkspaceOwner(root);
+  if (!owner) {
+    clearTaskState(root);
+    return { status: "cleared" };
+  }
+  if (owner.issue === null || typeof sessionId !== "string" || !sessionId.trim()) {
+    return {
+      status: "preserved",
+      reason: "An active task workspace was preserved because this hook has no matching explicit session identity.",
+    };
+  }
+  try {
+    await releaseTaskWorkspace(
+      { root, issue: owner.issue, sessionId, env },
+      { clearTaskState },
+    );
+    return { status: "released" };
+  } catch (error) {
+    if (/^(?:Task workspace is already owned|Another resolver currently owns)/.test(error.message)) {
+      return {
+        status: "preserved",
+        reason: `An active task workspace was preserved: ${error.message}`,
+      };
+    }
+    throw error;
+  }
+}
+
 async function main() {
-  clearTaskState();
   try {
     const chunks = [];
     if (!process.stdin.isTTY) {
@@ -128,25 +198,45 @@ async function main() {
     const raw = Buffer.concat(chunks).toString("utf8").trim();
     const payload = raw ? JSON.parse(raw) : {};
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("Invalid session hook envelope.");
+    const sessionId = resolveSessionId({ payload, env: process.env });
     const resolution = resolveIssueNumber({ payload });
     if (!resolution.number) {
-      emit("No explicit task issue was supplied. Reads remain available; writes are denied. " +
-        "Supply `/plan <issue>`, `/implement <issue>`, or AGENT_TASK_ISSUE. No cached task or fixture was adopted.");
+      const cleanup = await clearUnselectedTaskState({
+        root: process.cwd(),
+        sessionId,
+      });
+      emit("No explicit task issue was supplied. Reads remain available. The PreToolUse authorizer denies writes when it runs to completion, but command-hook timeouts are fail-open. " +
+        "Supply `/plan <issue>`, `/implement <issue>`, or AGENT_TASK_ISSUE. No cached task or fixture was adopted." +
+        (cleanup.status === "preserved" ? ` ${cleanup.reason}` : ""));
       return;
     }
-    const prompt = payload.initial_prompt ?? payload.initialPrompt ?? process.env.COPILOT_AGENT_PROMPT ?? "";
+    const prompts = [
+      payload.initial_prompt,
+      payload.initialPrompt,
+      process.env.COPILOT_AGENT_PROMPT,
+    ].filter((candidate) => typeof candidate === "string");
+    const prompt = prompts.find((candidate) => taskRole(candidate) !== null) ??
+      prompts.find(isTaskInvocation) ?? "";
+    const inputs = taskInputs(prompt);
     const { contract, plan, approvalState } = resolveTask(resolution.number, {
       role: taskRole(prompt),
-      sessionId: payload.session_id ?? payload.sessionId ?? null,
-      ...taskInputs(prompt),
+      sessionId,
+      ...inputs,
+      pullRequest: resolution.pullRequest ?? inputs.pullRequest,
+      taskPRSelected: resolution.pullRequest !== undefined,
     });
     emit(summarize(contract, resolution.how, plan, approvalState));
   } catch (error) {
-    clearTaskState();
+    let preserved = "";
+    try {
+      clearTaskState();
+    } catch (cleanupError) {
+      preserved = ` Existing owned workspace state was preserved: ${/** @type {Error} */ (cleanupError).message}`;
+    }
     emit(
-      "Task resolution failed; cached authority was cleared and writes remain denied: " +
+      `Task resolution failed; the PreToolUse authorizer denies writes when it runs to completion, but command-hook timeouts are fail-open: ` +
         `${/** @type {Error} */ (error).message.split("\n")[0]} ` +
-        "Fix the issue body to match .github/ISSUE_TEMPLATE/agent-task.yml.",
+        "Fix the issue body to match .github/ISSUE_TEMPLATE/agent-task.yml." + preserved,
     );
   }
 }
