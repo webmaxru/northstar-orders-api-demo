@@ -54,7 +54,7 @@
   "author": "Maxim Salnikov",
   "license": "MIT",
   "dependencies": {
-    "fastify": "5.12.1",
+    "fastify": "5.12.5",
     "pg": "^8.23.0"
   },
   "devDependencies": {

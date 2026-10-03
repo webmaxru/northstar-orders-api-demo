@@ -73,7 +73,8 @@ jobs:
           # CUSTOMIZE to the exact protected default branch; never a PR/event ref.
           # A literal makes the trusted checkout boundary inspectable by scanners.
           ref: main
-      - uses: actions/setup-node@v7
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -265,7 +266,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.publisher-token.outputs.token }}
         run: node scripts/publish-evidence.mjs --pr "$PR_NUMBER"
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: northstar-trusted-execution-report
           path: artifacts/report.json
@@ -276,7 +277,7 @@ jobs:
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: node scripts/maintenance-manifest.mjs
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always() && steps.authority.outputs.changed == 'true'
         with:
           name: northstar-system-maintenance-evidence
