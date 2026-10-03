@@ -7,4 +7,5 @@ export interface IssueResolution {
 
 export declare function resolveIssueNumber(options?: {
   env?: Record<string, string | undefined>;
+  payload?: { initial_prompt?: string; initialPrompt?: string };
 }): IssueResolution;
