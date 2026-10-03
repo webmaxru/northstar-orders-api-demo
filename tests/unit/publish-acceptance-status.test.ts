@@ -219,7 +219,7 @@ function maintenanceResolution(
 
 function report(decision: string = "ready_for_acceptance") {
   return {
-    schema: "northstar/execution-report/3",
+    schema: "northstar/execution-report/4",
     workItem: "AES-SURFACE-EVIDENCE",
     validationLevel: "hosted-integration",
     decision,
@@ -364,6 +364,20 @@ describe("trusted acceptance status publication", () => {
       sourceRunId: "42",
       sourceRunAttempt: "2",
     });
+  });
+
+  it("rejects obsolete execution reports after the report schema advances", async () => {
+    const { acceptanceStatusExpectation } = await statusModule();
+    expect(() =>
+      acceptanceStatusExpectation({
+        report: { ...report(), schema: "northstar/execution-report/3" },
+        resolution: resolution(),
+        pull: pull(),
+        repository,
+        defaultBranch: "main",
+        env: environment(),
+      }),
+    ).toThrow(/exact publisher, source run, PR, and head/);
   });
 
   it("publishes failure, not success, while trusted hosted evidence is incomplete", async () => {

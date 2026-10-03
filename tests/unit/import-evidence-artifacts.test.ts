@@ -55,6 +55,31 @@ describe("isolated evidence import", () => {
     expect(existsSync(join(destination, "artifacts", "checks", "quality.json"))).toBe(false);
   });
 
+  it("imports Issue24 compile and Zizmor comparison summaries without raw Zizmor SARIF", () => {
+    const source = temp();
+    const destination = temp();
+    writeFileSync(join(source, "poutine-report.json"), "{}");
+    writeFileSync(join(source, "poutine.sarif"), "{}");
+    writeFileSync(join(source, "zizmor-comparison.json"), "{}");
+
+    expect(importEvidenceArtifacts(source, destination)).toEqual([
+      "artifacts/poutine-report.json",
+      "artifacts/poutine.sarif",
+      "artifacts/zizmor-comparison.json",
+    ]);
+    expect(existsSync(join(destination, "artifacts", "poutine-report.json"))).toBe(true);
+    expect(existsSync(join(destination, "artifacts", "zizmor-comparison.json"))).toBe(true);
+  });
+
+  it("does not import raw Zizmor SARIF that may contain workflow snippets", () => {
+    const source = temp();
+    const destination = temp();
+    writeFileSync(join(source, "zizmor.sarif"), '{"version":"2.1.0"}');
+
+    expect(() => importEvidenceArtifacts(source, destination)).toThrow(/unexpected paths.*zizmor\.sarif/);
+    expect(existsSync(join(destination, "artifacts"))).toBe(false);
+  });
+
   it("rejects files that could overwrite trusted publisher code", () => {
     const source = temp();
     const destination = temp();

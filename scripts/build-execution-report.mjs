@@ -9,8 +9,11 @@
  */
 
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { Buffer } from "node:buffer";
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -31,8 +34,13 @@ import {
   validatePlanContract,
 } from "./plan-contract.mjs";
 import { loadTaskContract } from "./task-contract.mjs";
+import { validateSarif, ZIZMOR_IMAGE, ZIZMOR_VERSION } from "./check-sarif.mjs";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
+const ISSUE24_TASK_ID = "AES-TRUSTED-ACCEPTANCE-BOOTSTRAP";
+const ISSUE24_COMPARISON_SCHEMA = "northstar/zizmor-comparison/1";
+const SHA = /^[0-9a-f]{40}$/;
+const SHA256 = /^[0-9a-f]{64}$/;
 const HOSTED_ONLY_CHECKS = new Set([
   "plan-approval",
   "codeql",
@@ -205,6 +213,588 @@ export function loadCheckRecords(directory = "artifacts/checks", root = REPO_ROO
     .map((name) => readEvidenceJson(resolve(absolute, name), root));
 }
 
+function readRegularArtifact(relativePath, root) {
+  const path = evidencePath(relativePath, root);
+  const stat = lstatSync(path);
+  if (!stat.isFile() || stat.isSymbolicLink()) {
+    throw new Error(`${relativePath} must be a regular file.`);
+  }
+  const bytes = readFileSync(path);
+  if (bytes.length === 0) throw new Error(`${relativePath} is empty.`);
+  return bytes;
+}
+
+function sha256(bytes) {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+function findingRows(sarif, label, errors) {
+  const validation = validateSarif(sarif, label);
+  errors.push(...validation.errors);
+  return (sarif.runs ?? []).flatMap((run) => (run.results ?? []).map((result) => {
+    const location = result.locations?.find(({ physicalLocation }) =>
+      typeof physicalLocation?.artifactLocation?.uri === "string");
+    const workflow = location?.physicalLocation?.artifactLocation?.uri?.replace(/^\.\/+/, "");
+    const ruleId = result.ruleId ?? run.tool?.driver?.rules?.[result.ruleIndex]?.id;
+    const message = result.message?.text ?? result.message?.markdown ?? result.message?.id;
+    const level = result.level ?? "warning";
+    if (
+      typeof workflow !== "string" || !workflow.startsWith(".github/workflows/") ||
+      typeof ruleId !== "string" || !ruleId.trim() ||
+      typeof message !== "string" || !message.trim()
+    ) {
+      errors.push(`${label}: every Zizmor finding must bind a workflow, rule, and message.`);
+    }
+    return {
+      ruleId: typeof ruleId === "string" ? ruleId : "<invalid-rule>",
+      workflow: typeof workflow === "string" ? workflow : "<invalid-workflow>",
+      level,
+      message,
+      messageDigest: sha256(Buffer.from(String(message ?? ""), "utf8")),
+      suppressed: Array.isArray(result.suppressions) && result.suppressions.length > 0,
+    };
+  }));
+}
+
+function scannerSummaryFindings(report) {
+  return (report.findings ?? []).map((finding) => ({
+    ruleId: finding.ruleId,
+    workflow: String(finding.uri ?? "").replace(/^\.\/+/, ""),
+    level: finding.level ?? "warning",
+    suppressed: finding.suppressed === true,
+    line: Number.isSafeInteger(finding.line) ? finding.line : null,
+  }));
+}
+
+function sarifSummaryFindings(sarif, label, errors) {
+  const validation = validateSarif(sarif, label);
+  errors.push(...validation.errors);
+  return validation.findings.map((finding) => ({
+    ruleId: finding.ruleId,
+    workflow: String(finding.uri ?? "").replace(/^\.\/+/, ""),
+    level: finding.level ?? "warning",
+    suppressed: finding.suppressed === true,
+    line: Number.isSafeInteger(finding.line) ? finding.line : null,
+  }));
+}
+
+function sameRows(left, right) {
+  const canonical = (rows) => rows
+    .map(({ ruleId, workflow, level, suppressed, line }) =>
+      JSON.stringify([ruleId, workflow, level, suppressed, line]))
+    .sort();
+  return JSON.stringify(canonical(left)) === JSON.stringify(canonical(right));
+}
+
+function suppressionKeys(report, label, errors) {
+  if (!Array.isArray(report.suppressionDirectives)) {
+    errors.push(`${label}: suppression directive inventory is missing.`);
+    return [];
+  }
+  const keys = [];
+  for (const directive of report.suppressionDirectives) {
+    if (
+      typeof directive?.file !== "string" ||
+      !Number.isSafeInteger(directive.line) || directive.line < 1 ||
+      !Array.isArray(directive.rules) ||
+      directive.rules.some((rule) => typeof rule !== "string" || !rule.trim())
+    ) {
+      errors.push(`${label}: malformed suppression directive inventory.`);
+      continue;
+    }
+    keys.push(JSON.stringify([
+      directive.file.replace(/\\/g, "/"),
+      [...directive.rules].sort(),
+    ]));
+  }
+  return keys.sort();
+}
+
+function validateZizmorScan(report, label, bytes, sarif, errors) {
+  if (!report || typeof report !== "object" || Array.isArray(report)) {
+    errors.push(`${label}: scanner report is missing or malformed.`);
+    return;
+  }
+  if (report.version !== ZIZMOR_VERSION || report.image !== ZIZMOR_IMAGE) {
+    errors.push(`${label}: scanner identity does not match pinned Zizmor ${ZIZMOR_VERSION}.`);
+  }
+  if (!SHA256.test(report.sourceDigest ?? "")) errors.push(`${label}: source digest is missing.`);
+  if (report.artifact !== "artifacts/zizmor.sarif") errors.push(`${label}: SARIF artifact path is unexpected.`);
+  if (!SHA256.test(report.artifactDigest ?? "") || report.artifactDigest !== sha256(bytes)) {
+    errors.push(`${label}: SARIF digest does not match the scanner report.`);
+  }
+  if (report.scannerExitCode !== 0) errors.push(`${label}: Zizmor did not complete successfully.`);
+  if (!Array.isArray(report.errors) || report.errors.length > 0) errors.push(`${label}: scanner reported errors.`);
+  if (!Array.isArray(report.findings) || !Array.isArray(report.files) || report.files.length === 0) {
+    errors.push(`${label}: scanner file or finding inventory is missing.`);
+  }
+  if (
+    !Array.isArray(sarif.runs) || sarif.runs.length === 0 ||
+    sarif.runs.some((run) =>
+      !Array.isArray(run.invocations) ||
+      run.invocations.length === 0 ||
+      run.invocations.some((invocation) => invocation.executionSuccessful !== true))
+  ) {
+    errors.push(`${label}: SARIF does not attest successful scanner execution.`);
+  }
+  if (
+    !Number.isSafeInteger(report.exitCode) ||
+    report.exitCode !== (report.findings?.length > 0 || report.errors?.length > 0 ? 1 : 0) ||
+    !Number.isSafeInteger(report.findings?.length) ||
+    report.ok !== (report.findings?.length === 0 && report.errors?.length === 0) ||
+    report.exitCode !== (report.ok ? 0 : 1)
+  ) {
+    errors.push(`${label}: scanner result summary is malformed.`);
+  }
+  const sarifRows = sarifSummaryFindings(sarif, label, errors);
+  const summaryRows = scannerSummaryFindings(report);
+  if (!sameRows(summaryRows, sarifRows)) errors.push(`${label}: finding summary does not match its SARIF.`);
+  if (report.findings?.some(({ suppressed }) => suppressed === true)) {
+    errors.push(`${label}: SARIF contains suppressed findings.`);
+  }
+}
+
+/**
+ * Compare immutable-base and candidate Zizmor evidence. The raw scan may have
+ * pre-existing findings; this records that scanner outcome separately from
+ * whether the candidate introduced any findings.
+ */
+export function compareZizmorSarif({
+  baseSha,
+  candidateSha,
+  baseSarifText,
+  candidateSarifText,
+  baseReport,
+  candidateReport,
+}) {
+  const errors = [];
+  if (!SHA.test(baseSha ?? "")) errors.push("Approved base SHA is missing or invalid.");
+  if (!SHA.test(candidateSha ?? "")) errors.push("Candidate SHA is missing or invalid.");
+
+  let baseSarif;
+  let candidateSarif;
+  try {
+    baseSarif = JSON.parse(baseSarifText);
+  } catch {
+    errors.push("Base Zizmor SARIF is invalid JSON.");
+  }
+  try {
+    candidateSarif = JSON.parse(candidateSarifText);
+  } catch {
+    errors.push("Candidate Zizmor SARIF is invalid JSON.");
+  }
+
+  const baseBytes = Buffer.from(String(baseSarifText ?? ""), "utf8");
+  const candidateBytes = Buffer.from(String(candidateSarifText ?? ""), "utf8");
+  if (baseSarif) validateZizmorScan(baseReport, "Base scan", baseBytes, baseSarif, errors);
+  if (candidateSarif) validateZizmorScan(candidateReport, "Candidate scan", candidateBytes, candidateSarif, errors);
+
+  const baseFindings = baseSarif
+    ? findingRows(baseSarif, "Base scan", errors)
+    : [];
+  const candidateFindings = candidateSarif
+    ? findingRows(candidateSarif, "Candidate scan", errors)
+    : [];
+  const signature = ({ ruleId, workflow, level, message }) =>
+    JSON.stringify([ruleId, workflow, level, message]);
+  const signatureMap = (rows) => {
+    const map = new Map();
+    for (const row of rows) {
+      const key = signature(row);
+      const count = map.get(key) ?? 0;
+      map.set(key, count + 1);
+    }
+    return map;
+  };
+  const sarifFindings = (sarif, rows) => {
+    let index = 0;
+    return (sarif?.runs ?? []).flatMap((run) => (run.results ?? []).map(() => {
+      const row = rows[index++];
+      return row;
+    }));
+  };
+  const baseRows = sarifFindings(baseSarif, baseFindings);
+  const candidateRows = sarifFindings(candidateSarif, candidateFindings);
+  const baseSignatures = signatureMap(baseRows);
+  const candidateSignatures = signatureMap(candidateRows);
+  const newFindingSignatures = [];
+  for (const [key, count] of candidateSignatures) {
+    const extra = count - (baseSignatures.get(key) ?? 0);
+    if (extra > 0) {
+      const [ruleId, workflow, level, message] = JSON.parse(key);
+      newFindingSignatures.push({
+        ruleId,
+        workflow,
+        level,
+        messageDigest: sha256(Buffer.from(String(message), "utf8")),
+        count: extra,
+      });
+    }
+  }
+
+  const groupCounts = (rows) => {
+    const counts = new Map();
+    for (const row of rows) {
+      const key = JSON.stringify([row.ruleId, row.workflow]);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return counts;
+  };
+  const baseGroups = groupCounts(baseFindings);
+  const candidateGroups = groupCounts(candidateFindings);
+  const findingDeltaByWorkflowRule = [...new Set([...baseGroups.keys(), ...candidateGroups.keys()])]
+    .sort()
+    .map((key) => {
+      const [ruleId, workflow] = JSON.parse(key);
+      const baseCount = baseGroups.get(key) ?? 0;
+      const candidateCount = candidateGroups.get(key) ?? 0;
+      return {
+        ruleId,
+        workflow,
+        baseCount,
+        candidateCount,
+        added: Math.max(0, candidateCount - baseCount),
+        removed: Math.max(0, baseCount - candidateCount),
+      };
+    })
+    .filter(({ added, removed }) => added > 0 || removed > 0);
+
+  const baseSuppressions = suppressionKeys(baseReport ?? {}, "Base scan", errors);
+  const candidateSuppressions = suppressionKeys(candidateReport ?? {}, "Candidate scan", errors);
+  const suppressionChanges = [
+    ...baseSuppressions.filter((key) => !candidateSuppressions.includes(key)).map((key) => ({ kind: "removed", key })),
+    ...candidateSuppressions.filter((key) => !baseSuppressions.includes(key)).map((key) => ({ kind: "added", key })),
+  ];
+  const newFindingCount = newFindingSignatures.reduce((sum, finding) => sum + finding.count, 0);
+  const noNewFindings = newFindingCount === 0 && suppressionChanges.length === 0;
+  return {
+    schema: "northstar/zizmor-comparison/1",
+    baseSha,
+    candidateSha,
+    tool: { name: "zizmor", version: ZIZMOR_VERSION, image: ZIZMOR_IMAGE },
+    base: {
+      sourceDigest: baseReport?.sourceDigest ?? null,
+      sarifDigest: baseReport?.artifactDigest ?? null,
+      scannerExitCode: baseReport?.scannerExitCode ?? null,
+      wrapperExitCode: baseReport?.exitCode ?? null,
+      findingCount: baseFindings.length,
+    },
+    candidate: {
+      sourceDigest: candidateReport?.sourceDigest ?? null,
+      sarifDigest: candidateReport?.artifactDigest ?? null,
+      scannerExitCode: candidateReport?.scannerExitCode ?? null,
+      wrapperExitCode: candidateReport?.exitCode ?? null,
+      findingCount: candidateFindings.length,
+    },
+    findingDeltaByWorkflowRule,
+    newFindings: newFindingSignatures,
+    newFindingCount,
+    suppressionChanges,
+    noNewFindings,
+    comparisonPassed: errors.length === 0 && noNewFindings,
+    errors,
+  };
+}
+
+function compareZizmorArtifacts() {
+  const baseSha = valueOf("--base-sha") ?? process.env.BASE_SHA;
+  const candidateSha = valueOf("--candidate-sha") ?? process.env.NORTHSTAR_HEAD_SHA;
+  const git = (args) => execFileSync("git", args, {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
+  if (git(["status", "--porcelain"])) {
+    throw new Error("Zizmor comparison requires a clean, commit-bound candidate worktree.");
+  }
+  if (!SHA.test(baseSha ?? "") || git(["rev-parse", "--verify", `${baseSha}^{commit}`]) !== baseSha) {
+    throw new Error("The Zizmor comparison base is not the exact local commit.");
+  }
+  if (git(["rev-parse", "HEAD"]) !== candidateSha) {
+    throw new Error("The Zizmor comparison candidate is not the checked-out HEAD.");
+  }
+  const baseSarif = readRegularArtifact("artifacts/zizmor-base.sarif", REPO_ROOT);
+  const candidateSarif = readRegularArtifact("artifacts/zizmor.sarif", REPO_ROOT);
+  const comparison = compareZizmorSarif({
+    baseSha,
+    candidateSha,
+    baseSarifText: baseSarif.toString("utf8"),
+    candidateSarifText: candidateSarif.toString("utf8"),
+    baseReport: readEvidenceJson("artifacts/zizmor-base-report.json", REPO_ROOT),
+    candidateReport: readEvidenceJson("artifacts/zizmor-candidate-report.json", REPO_ROOT),
+  });
+  const output = evidencePath("artifacts/zizmor-comparison.json", REPO_ROOT);
+  mkdirSync(dirname(output), { recursive: true });
+  writeFileSync(output, `${JSON.stringify(comparison, null, 2)}\n`, "utf8");
+  process.stdout.write(
+    `zizmor base=${comparison.baseSha} candidate=${comparison.candidateSha} ` +
+    `baseFindings=${comparison.base.findingCount} candidateFindings=${comparison.candidate.findingCount} ` +
+    `newFindings=${comparison.newFindingCount} comparison=${comparison.comparisonPassed ? "pass" : "fail"}\n`,
+  );
+  if (!comparison.comparisonPassed) process.exitCode = 1;
+}
+
+export function buildIssue24ValidationEvidence({
+  contract,
+  plan,
+  checks,
+  unit,
+  acceptance,
+  expected,
+  root = REPO_ROOT,
+}) {
+  const errors = [];
+  if (!plan || !SHA.test(plan.baseSha ?? "")) {
+    errors.push("The approved Issue #24 plan base is missing or invalid.");
+  }
+  if (expected?.baseSha !== plan?.baseSha) {
+    errors.push("The Issue #24 evidence base does not match the approved plan.");
+  }
+  if (!SHA.test(expected?.source?.headSha ?? "")) {
+    errors.push("The Issue #24 candidate head is missing or invalid.");
+  }
+  const checkById = new Map(checks.map((check) => [check.id, check]));
+  const passed = (id) => {
+    const check = checkById.get(id);
+    return Boolean(check?.present && check.valid && check.status === "pass");
+  };
+  const localCheckIds = [
+    "plan-contract", "scope-policy", "quality", "acceptance",
+    "dependency-review", "secret-scan", "merge-validation", "governance-policy",
+  ];
+  for (const id of localCheckIds) {
+    if (!passed(id)) errors.push(`Required Issue #24 local check is not passing: ${id}.`);
+  }
+  if (!unit.present || !unit.passed || Number(unit.tests ?? 0) < 1) {
+    errors.push("Issue #24 unit test evidence is missing or failed.");
+  }
+  if (!acceptance.present || !acceptance.passed || Number(acceptance.tests ?? 0) < 1) {
+    errors.push("Issue #24 acceptance evidence is missing or failed.");
+  }
+
+  let comparison = null;
+  try {
+    comparison = readEvidenceJson("artifacts/zizmor-comparison.json", root);
+  } catch (error) {
+    errors.push(`Issue #24 Zizmor comparison is unavailable (${error.code ?? error.message}).`);
+  }
+  const validScanOutcome = (scan) =>
+    scan?.scannerExitCode === 0 &&
+    Number.isSafeInteger(scan.wrapperExitCode) &&
+    [0, 1].includes(scan.wrapperExitCode) &&
+    Number.isSafeInteger(scan.findingCount) &&
+    scan.findingCount >= 0 &&
+    scan.wrapperExitCode === (scan.findingCount > 0 ? 1 : 0);
+  if (
+    comparison?.schema !== ISSUE24_COMPARISON_SCHEMA ||
+    comparison.baseSha !== plan?.baseSha ||
+    comparison.candidateSha !== expected?.source?.headSha ||
+    comparison.tool?.name !== "zizmor" ||
+    comparison.tool?.version !== ZIZMOR_VERSION ||
+    comparison.tool?.image !== ZIZMOR_IMAGE ||
+    !Array.isArray(comparison.errors) || comparison.errors.length !== 0 ||
+    !Array.isArray(comparison.newFindings) || comparison.newFindings.length !== 0 ||
+    !Array.isArray(comparison.suppressionChanges) || comparison.suppressionChanges.length !== 0 ||
+    !validScanOutcome(comparison.base) ||
+    !validScanOutcome(comparison.candidate) ||
+    comparison.comparisonPassed !== true ||
+    comparison.noNewFindings !== true ||
+    comparison.newFindingCount !== 0 ||
+    !SHA256.test(comparison.base?.sarifDigest ?? "") ||
+    !SHA256.test(comparison.candidate?.sarifDigest ?? "") ||
+    !SHA256.test(comparison.base?.sourceDigest ?? "") ||
+    !SHA256.test(comparison.candidate?.sourceDigest ?? "")
+  ) {
+    errors.push("Issue #24 Zizmor comparison is missing, stale, or contains new findings.");
+  }
+
+  let compile = null;
+  try {
+    compile = readEvidenceJson("artifacts/poutine-report.json", root);
+  } catch (error) {
+    errors.push(`Issue #24 agentic:compile evidence is unavailable (${error.code ?? error.message}).`);
+  }
+  if (
+    compile?.ok !== true ||
+    !Array.isArray(compile.errors) || compile.errors.length > 0 ||
+    !Array.isArray(compile.findings) || compile.findings.length > 0 ||
+    compile.artifact !== "artifacts/poutine.sarif" ||
+    compile.exitCode !== 0 ||
+    !SHA256.test(compile.sourceDigest ?? "")
+  ) {
+    errors.push("Issue #24 agentic:compile evidence is invalid or failed.");
+  }
+  try {
+    const poutineSarif = readRegularArtifact("artifacts/poutine.sarif", root);
+    if (compile?.artifactDigest !== sha256(poutineSarif)) {
+      errors.push("Issue #24 agentic:compile SARIF digest does not match its report.");
+    }
+  } catch (error) {
+    errors.push(`Issue #24 agentic:compile SARIF is unavailable (${error.code ?? error.message}).`);
+  }
+
+  let packageLock = null;
+  let audit = null;
+  const auditCheck = checkById.get("dependency-review");
+  try {
+    packageLock = readEvidenceJson("package-lock.json", root);
+  } catch (error) {
+    errors.push(`Issue #24 package-lock evidence is unavailable (${error.code ?? error.message}).`);
+  }
+  try {
+    if (!auditCheck?.record?.artifact) throw new Error("dependency audit artifact is missing");
+    audit = readEvidenceJson(auditCheck.record.artifact, root);
+  } catch (error) {
+    errors.push(`Issue #24 dependency audit evidence is unavailable (${error.code ?? error.message}).`);
+  }
+  const fastifyVersion = packageLock?.packages?.["node_modules/fastify"]?.version ?? null;
+  const braceExpansion = Object.entries(packageLock?.packages ?? {})
+    .filter(([path]) => path === "node_modules/brace-expansion" || path.endsWith("/node_modules/brace-expansion"))
+    .map(([path, entry]) => ({ path, version: entry?.version ?? null }));
+  const versionAtLeast = (version, minimum) => {
+    const parse = (value) => /^(\d+)\.(\d+)\.(\d+)$/.exec(value ?? "")?.slice(1).map(Number) ?? null;
+    const actual = parse(version);
+    const required = parse(minimum);
+    if (!actual || !required) return false;
+    for (let index = 0; index < 3; index += 1) {
+      if (actual[index] > required[index]) return true;
+      if (actual[index] < required[index]) return false;
+    }
+    return true;
+  };
+  const vulnerabilities = audit?.metadata?.vulnerabilities;
+  if (fastifyVersion !== "5.12.5") errors.push("Fastify is not pinned to the Issue #24 version 5.12.5.");
+  if (
+    braceExpansion.length === 0 ||
+    braceExpansion.some(({ version }) => !versionAtLeast(version, "5.0.12"))
+  ) {
+    errors.push("A locked brace-expansion version is below the Issue #24 minimum 5.0.12.");
+  }
+  if (vulnerabilities?.high !== 0 || vulnerabilities?.critical !== 0) {
+    errors.push("The Issue #24 dependency audit does not prove zero high or critical advisories.");
+  }
+
+  let repositoryControls = null;
+  const controlsCheck = checkById.get("repository-controls");
+  try {
+    if (!controlsCheck?.record?.artifact) throw new Error("repository-controls artifact is missing");
+    const report = readEvidenceJson(controlsCheck.record.artifact, root);
+    const provenance = controlsCheck.record.provenance;
+    if (
+      !Array.isArray(report.checks) ||
+      !Array.isArray(report.online?.checks) ||
+      !Array.isArray(report.online?.lookups) ||
+      !report.externalControls ||
+      typeof report.sourceControlsReady !== "boolean" ||
+      provenance?.repository !== expected.repository ||
+      provenance?.taskId !== contract.id ||
+      provenance?.contractDigest !== contract.source.bodyDigest ||
+      provenance?.planDigest !== (plan ? planDigest(plan) : null) ||
+      provenance?.headSha !== expected.source.headSha ||
+      provenance?.baseSha !== expected.baseSha ||
+      provenance?.runId !== expected.runId ||
+      provenance?.runAttempt !== expected.runAttempt
+    ) {
+      throw new Error("repository-controls report is malformed");
+    }
+    if (!report.online.lookups.some(({ id }) => id === "ruleset:23998987")) {
+      throw new Error("repository-controls report does not record ruleset 23998987.");
+    }
+    repositoryControls = {
+      check: {
+        present: controlsCheck.present,
+        status: controlsCheck.status,
+        valid: controlsCheck.valid,
+        artifactDigest: controlsCheck.record.artifactDigest,
+        provenance: {
+          repository: controlsCheck.record.provenance.repository,
+          taskId: controlsCheck.record.provenance.taskId,
+          headSha: controlsCheck.record.provenance.headSha,
+          baseSha: controlsCheck.record.provenance.baseSha,
+          runId: controlsCheck.record.provenance.runId,
+          runAttempt: controlsCheck.record.provenance.runAttempt,
+          job: controlsCheck.record.provenance.job,
+        },
+      },
+      sourceControlsReady: report.sourceControlsReady,
+      online: {
+        available: report.online.available === true,
+        ready: report.online.ready === true,
+        rulesetCount: Number.isSafeInteger(report.online.rulesetCount) ? report.online.rulesetCount : null,
+        checks: (report.online.checks ?? []).map(({ id, ok, status }) => ({
+          id, ok: ok === true, status,
+        })),
+        lookups: (report.online.lookups ?? []).map(({ id, state }) => ({ id, state })),
+        externalControls: report.externalControls ?? null,
+      },
+    };
+    if (report.sourceControlsReady !== true) {
+      errors.push("Northstar source-level repository controls are not ready.");
+    }
+  } catch (error) {
+    errors.push(`Issue #24 hosted-control status evidence is unavailable (${error.code ?? error.message}).`);
+  }
+
+  const hostedStatuses = checks
+    .filter(({ hostedOnly }) => hostedOnly)
+    .map(({ id, present, status, valid, record }) => ({
+      id,
+      present,
+      status,
+      valid,
+      provenance: record?.provenance ? {
+        repository: record.provenance.repository,
+        taskId: record.provenance.taskId,
+        headSha: record.provenance.headSha,
+        baseSha: record.provenance.baseSha,
+        runId: record.provenance.runId,
+        runAttempt: record.provenance.runAttempt,
+        job: record.provenance.job,
+      } : null,
+    }));
+  return {
+    schema: "northstar/issue24-validation-evidence/2",
+    taskId: contract.id,
+    contractDigest: contract.source.bodyDigest,
+    planDigest: plan ? planDigest(plan) : null,
+    baseSha: plan?.baseSha ?? null,
+    candidateSha: expected?.source?.headSha ?? null,
+    localEvidenceComplete: errors.length === 0,
+    errors,
+    dependencies: {
+      fastifyVersion,
+      braceExpansion,
+      high: vulnerabilities?.high ?? null,
+      critical: vulnerabilities?.critical ?? null,
+      auditDigest: auditCheck?.record?.artifactDigest ?? null,
+    },
+    agenticCompile: compile ? {
+      ok: compile.ok === true,
+      sourceDigest: compile.sourceDigest ?? null,
+      artifactDigest: compile.artifactDigest ?? null,
+      findings: compile.findings?.length ?? null,
+    } : null,
+    zizmor: comparison ? {
+      version: comparison.tool?.version ?? null,
+      image: comparison.tool?.image ?? null,
+      baseSarifDigest: comparison.base?.sarifDigest ?? null,
+      candidateSarifDigest: comparison.candidate?.sarifDigest ?? null,
+      baseFindings: comparison.base?.findingCount ?? null,
+      candidateFindings: comparison.candidate?.findingCount ?? null,
+      baseScannerExitCode: comparison.base?.scannerExitCode ?? null,
+      candidateScannerExitCode: comparison.candidate?.scannerExitCode ?? null,
+      baseWrapperExitCode: comparison.base?.wrapperExitCode ?? null,
+      candidateWrapperExitCode: comparison.candidate?.wrapperExitCode ?? null,
+      newFindingCount: comparison.newFindingCount ?? null,
+      findingDeltaByWorkflowRule: comparison.findingDeltaByWorkflowRule ?? [],
+      newFindings: comparison.newFindings ?? [],
+      noNewFindings: comparison.noNewFindings === true,
+    } : null,
+    hostedStatuses,
+    repositoryControls,
+  };
+}
+
 export function buildExecutionReport({
   contract,
   plan,
@@ -285,12 +875,33 @@ export function buildExecutionReport({
     : null;
   const canaryProven = new Set(Array.isArray(canaryEvidence?.criterionIds)
     ? canaryEvidence.criterionIds : []);
-  const successCriteria = criterionCoverage(contract.successCriteria, [
+  let successCriteria = criterionCoverage(contract.successCriteria, [
     ...(unit.testNames ?? []),
     ...(acceptance.testNames ?? []),
   ]).map((criterion) => deferredIds.has(criterion.id)
     ? { ...criterion, proven: canaryProven.has(criterion.id) }
     : criterion);
+
+  const localChecks = checks.filter(({ hostedOnly }) => !hostedOnly);
+  const hostedChecks = checks.filter(({ hostedOnly }) => hostedOnly);
+  const failedLocalChecks = localChecks
+    .filter(({ present, status, valid }) => !present || status !== "pass" || !valid)
+    .map(({ id }) => id);
+  const failedHostedChecks = hostedChecks
+    .filter(({ present, status, valid }) => !present || status !== "pass" || !valid)
+    .map(({ id }) => id);
+
+  const taskEvidence = contract.id === ISSUE24_TASK_ID
+    ? buildIssue24ValidationEvidence({
+        contract, plan, checks, unit, acceptance, expected, root,
+      })
+    : null;
+  const issue20ZizmorPending =
+    (taskEvidence?.zizmor?.candidateWrapperExitCode ?? 0) > 0;
+  if (taskEvidence?.localEvidenceComplete) {
+    successCriteria = successCriteria.map((criterion) =>
+      criterion.id === "AC6" ? { ...criterion, proven: true } : criterion);
+  }
   const unprovenCriteria = successCriteria
     .filter(({ proven }) => !proven)
     .map(({ id }) => id);
@@ -301,15 +912,6 @@ export function buildExecutionReport({
     ...criterion,
     status: canaryProven.has(criterion.id) ? "proven" : "unverified",
   }));
-
-  const localChecks = checks.filter(({ hostedOnly }) => !hostedOnly);
-  const hostedChecks = checks.filter(({ hostedOnly }) => hostedOnly);
-  const failedLocalChecks = localChecks
-    .filter(({ present, status, valid }) => !present || status !== "pass" || !valid)
-    .map(({ id }) => id);
-  const failedHostedChecks = hostedChecks
-    .filter(({ present, status, valid }) => !present || status !== "pass" || !valid)
-    .map(({ id }) => id);
 
   const localReady =
     Boolean(plan) &&
@@ -327,7 +929,8 @@ export function buildExecutionReport({
     localReady &&
     hasLiveTaskIdentity(contract, expected.repository) &&
     failedHostedChecks.length === 0 &&
-    unprovenCriteria.length === 0;
+    unprovenCriteria.length === 0 &&
+    !issue20ZizmorPending;
   const decision = !localReady
     ? "review_required"
     : hosted && hostedReady
@@ -357,6 +960,7 @@ export function buildExecutionReport({
     tests: { unit, acceptance },
     checks,
     successCriteria,
+    ...(taskEvidence ? { taskEvidence: { issue24: taskEvidence } } : {}),
     failedLocalChecks,
     pendingHostedEvidence: failedHostedChecks,
     unprovenCriteria,
@@ -376,6 +980,17 @@ export function buildExecutionReport({
             "Hosted PR reviews, workflow runs, rulesets, secret scanning, push protection, and environment approvals were not exercised locally.",
           ]
         : []),
+      ...(issue20ZizmorPending
+        ? [
+            `Pinned Zizmor reported ${taskEvidence.zizmor.candidateFindings} existing candidate findings; ` +
+              "the exact-base comparison introduced none, but Issue #20 must resolve the baseline before acceptance.",
+          ]
+        : []),
+      ...(taskEvidence && taskEvidence.repositoryControls?.online.available !== true
+        ? [
+            "Repository-control settings remain unverified in this PR context; the protected publisher must audit them before acceptance.",
+          ]
+        : []),
     ],
   };
 }
@@ -386,6 +1001,10 @@ function valueOf(flag) {
 }
 
 function main() {
+  if (process.argv.includes("--compare-zizmor")) {
+    compareZizmorArtifacts();
+    return;
+  }
   const out = valueOf("--out") ?? "artifacts/report.json";
   const target = evidencePath(out);
   rmSync(target, { force: true });

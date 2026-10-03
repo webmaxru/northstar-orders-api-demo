@@ -44,13 +44,17 @@ export function renderComment(report, links = {}) {
     ? report.deferredCriteria
     : [];
   const unverifiedDeferred = deferredCriteria.filter(({ status }) => status === "unverified");
+  const issue20ZizmorPending =
+    (report.taskEvidence?.issue24?.zizmor?.candidateWrapperExitCode ?? 0) > 0;
   let verdict = "REVIEW REQUIRED";
   if (report.decision === "ready_for_acceptance") {
     verdict = "PASS";
   } else if (report.decision === "ready_for_review") {
     verdict = unverifiedDeferred.length > 0
       ? "STAGED REVIEW; POST-ACCEPTANCE EVIDENCE REQUIRED"
-      : "LOCAL READY; HOSTED REVIEW REQUIRED";
+      : issue20ZizmorPending
+        ? "ISSUE #20 ZIZMOR REMEDIATION REQUIRED"
+        : "LOCAL READY; HOSTED REVIEW REQUIRED";
   }
 
   const rows = report.successCriteria
@@ -68,6 +72,29 @@ export function renderComment(report, links = {}) {
   const source = report.contractSource?.url
     ? `[${report.contractSource.kind}](${report.contractSource.url})`
     : (report.contractSource?.kind ?? "unknown");
+  const issue24 = report.taskEvidence?.issue24;
+  const issue24Evidence = issue24
+    ? [
+        "## Issue #24 validation evidence",
+        "",
+        `Local AC6 evidence: **${issue24.localEvidenceComplete ? "complete" : "incomplete"}**. ` +
+          `Fastify ${issue24.dependencies?.fastifyVersion ?? "unverified"}; ` +
+          `brace-expansion ${issue24.dependencies?.braceExpansion?.map(({ version }) => version).join(", ") || "unverified"}; ` +
+          `audit high=${issue24.dependencies?.high ?? "unverified"}, critical=${issue24.dependencies?.critical ?? "unverified"}.`,
+        `Pinned Zizmor ${issue24.zizmor?.version ?? "unverified"}: base ${issue24.zizmor?.baseFindings ?? "?"}, ` +
+          `candidate ${issue24.zizmor?.candidateFindings ?? "?"}, new findings ${issue24.zizmor?.newFindingCount ?? "?"}; ` +
+          `scanner exits ${issue24.zizmor?.baseScannerExitCode ?? "?"}/${issue24.zizmor?.candidateScannerExitCode ?? "?"}; ` +
+          `wrapper exits ${issue24.zizmor?.baseWrapperExitCode ?? "?"}/${issue24.zizmor?.candidateWrapperExitCode ?? "?"}; ` +
+          `delta ${issue24.zizmor?.noNewFindings ? "no new findings" : "not proven"}.`,
+        `Base SARIF SHA-256: \`${issue24.zizmor?.baseSarifDigest ?? "missing"}\`; ` +
+          `candidate SARIF SHA-256: \`${issue24.zizmor?.candidateSarifDigest ?? "missing"}\`.`,
+        `Ruleset 23998987 lookup: ${issue24.repositoryControls?.online.lookups?.find(({ id }) => id === "ruleset:23998987")?.state ?? "missing"}.`,
+        `Repository controls audit: ${issue24.repositoryControls?.online.available ? "available" : "not verified in this workflow context"}; ` +
+          "this report does not treat unavailable external controls as enabled.",
+        ...(issue24.errors?.length ? ["Issue #24 evidence errors:", ...issue24.errors.map((error) => `- ${error}`)] : []),
+        "",
+      ]
+    : [];
 
   return [
     MARKER,
@@ -87,6 +114,7 @@ export function renderComment(report, links = {}) {
     "| --- | --- | --- |",
     evidenceRows,
     "",
+    ...issue24Evidence,
     `Unit: ${report.tests.unit.tests ?? 0} tests, ${(report.tests.unit.failures ?? 0) + (report.tests.unit.errors ?? 0)} failed. ` +
       `Acceptance: ${report.tests.acceptance.tests ?? 0} tests, ${(report.tests.acceptance.failures ?? 0) + (report.tests.acceptance.errors ?? 0)} failed.`,
     "",
@@ -136,7 +164,7 @@ function main() {
   const resolution = revalidateWorkflowRun(loadResolvedWorkflowRun());
   const pull = githubJson(`repos/{owner}/{repo}/pulls/${pr}`);
   if (
-    report.schema !== "northstar/execution-report/3" ||
+    report.schema !== "northstar/execution-report/4" ||
     report.validationLevel !== "hosted-integration" ||
     Number(pr) !== resolution.pullRequest ||
     process.env.PR_NUMBER && Number(process.env.PR_NUMBER) !== resolution.pullRequest ||

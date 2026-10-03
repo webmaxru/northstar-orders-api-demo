@@ -287,6 +287,15 @@ ruleset. The one-time maximum-60-minute removal/restoration remains a human
 operation gated by the live preflight and must restore the original
 `repository-controls` integration 15368 and `trusted-acceptance` App 5075466.
 
+Issue #24 review evidence compares pinned Zizmor 1.30.0 scans of the immutable
+approved base and candidate workflow trees. The comparison records both SARIF
+digests and the finding delta by rule and workflow; raw Zizmor SARIF stays in
+the job workspace rather than the uploaded summary artifact. A zero-new-
+findings delta proves Issue #24 added no findings, but does not turn a nonzero
+scanner-wrapper result into a pass: existing findings remain assigned to
+Issue #20, and `ready_for_acceptance` stays blocked until that baseline is
+resolved and all hosted acceptance evidence is verified.
+
 ### Adoption settings
 
 `CUSTOMIZE` comments mark runtime invocation, reviewer ownership, workflow

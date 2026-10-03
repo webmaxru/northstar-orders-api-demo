@@ -288,6 +288,9 @@ jobs:
             artifacts/unit-junit.xml
             artifacts/acceptance-junit.xml
             artifacts/dependency-audit.json
+            artifacts/poutine-report.json
+            artifacts/poutine.sarif
+            artifacts/zizmor-comparison.json
             artifacts/governance-report.json
             artifacts/repository-controls-report.json
             artifacts/merge-report.json

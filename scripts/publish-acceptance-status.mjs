@@ -32,7 +32,7 @@ function reportIdentity(report, env, repository) {
   const sourceRunId = String(env.NORTHSTAR_RUN_ID ?? "");
   const sourceRunAttempt = String(provenance?.runAttempt ?? "");
   if (
-    report?.schema !== "northstar/execution-report/3" ||
+    report?.schema !== "northstar/execution-report/4" ||
     report.validationLevel !== "hosted-integration" ||
     !REPOSITORY.test(repository ?? "") ||
     provenance?.repository !== repository ||
